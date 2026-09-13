@@ -20,6 +20,10 @@ const (
 	uiCSRFFormName          = "csrf_token"
 	uiPreAuthCSRFCookieName = "track_slash_login_csrf"
 	uiPreAuthCSRFMaxAge     = time.Hour
+	// uiOpaqueOrigin is how a browser serializes an origin it will not disclose.
+	// It says nothing about where the request came from, so it is not a foreign
+	// origin — see uiCSRFSourceAllowed.
+	uiOpaqueOrigin = "null"
 )
 
 var errUICSRFRandom = errors.New("generate CSRF token")
@@ -179,7 +183,15 @@ func (s *Server) uiCSRFSourceAllowed(r *http.Request) bool {
 		}
 		expected = scheme + "://" + r.Host
 	}
-	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" {
+	// Every page is served with Referrer-Policy: no-referrer, and that policy
+	// makes a browser serialize the origin of a plain form submission as the
+	// opaque origin and send no Referer either. fetch and XHR keep the real
+	// origin, so only the forms that post without htmx — sign out, password
+	// sign-in, sign-up, the settings forms — arrive this way. Treating the
+	// opaque origin as a mismatch rejected all of them; treating it as
+	// unstated hands the decision to Sec-Fetch-Site, which still reports
+	// cross-site for the post this check exists to stop.
+	if origin := strings.TrimSpace(r.Header.Get("Origin")); origin != "" && origin != uiOpaqueOrigin {
 		return uiSameOrigin(origin, expected)
 	}
 	if referer := strings.TrimSpace(r.Header.Get("Referer")); referer != "" {

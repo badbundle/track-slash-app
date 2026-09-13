@@ -141,6 +141,12 @@ func TestUICSRFMiddleware(t *testing.T) {
 		{name: "same origin fetch metadata", method: http.MethodPost, headerToken: expected, expectedToken: expected, fetchSite: "same-origin", wantStatusCode: http.StatusNoContent},
 		{name: "browser initiated without origin", method: http.MethodPost, headerToken: expected, expectedToken: expected, fetchSite: "none", wantStatusCode: http.StatusNoContent},
 		{name: "configured public origin", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "https://app.example.com", publicOrigin: "https://app.example.com", wantStatusCode: http.StatusNoContent},
+		// Referrer-Policy: no-referrer makes a plain form submission arrive with
+		// the opaque origin and no Referer, so these are the shapes every
+		// non-htmx form posts in.
+		{name: "opaque origin with fetch metadata", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "null", fetchSite: "same-origin", wantStatusCode: http.StatusNoContent},
+		{name: "opaque origin alone", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "null", wantStatusCode: http.StatusNoContent},
+		{name: "opaque origin with same origin referer", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "null", referer: "http://track.test/settings", wantStatusCode: http.StatusNoContent},
 		{name: "missing expected token", method: http.MethodPost, headerToken: expected, wantStatusCode: http.StatusForbidden},
 		{name: "missing provided token", method: http.MethodPost, expectedToken: expected, wantStatusCode: http.StatusForbidden},
 		{name: "invalid token", method: http.MethodPost, headerToken: "wrong", expectedToken: expected, wantStatusCode: http.StatusForbidden},
@@ -150,6 +156,10 @@ func TestUICSRFMiddleware(t *testing.T) {
 		{name: "cross origin", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "https://evil.example", wantStatusCode: http.StatusForbidden},
 		{name: "sibling origin", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "http://sibling.track.test", wantStatusCode: http.StatusForbidden},
 		{name: "cross origin referer", method: http.MethodPost, headerToken: expected, expectedToken: expected, referer: "https://evil.example/form", wantStatusCode: http.StatusForbidden},
+		// A sandboxed cross-site frame posts with the same opaque origin, so the
+		// relaxation above must not be the whole check.
+		{name: "opaque origin from a cross-site frame", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "null", fetchSite: "cross-site", wantStatusCode: http.StatusForbidden},
+		{name: "opaque origin with cross origin referer", method: http.MethodPost, headerToken: expected, expectedToken: expected, origin: "null", referer: "https://evil.example/form", wantStatusCode: http.StatusForbidden},
 		{name: "same-site fetch metadata", method: http.MethodPost, headerToken: expected, expectedToken: expected, fetchSite: "same-site", wantStatusCode: http.StatusForbidden},
 		{name: "cross-site fetch metadata", method: http.MethodPost, headerToken: expected, expectedToken: expected, fetchSite: "cross-site", wantStatusCode: http.StatusForbidden},
 		{name: "unknown fetch metadata", method: http.MethodPost, headerToken: expected, expectedToken: expected, fetchSite: "unexpected", wantStatusCode: http.StatusForbidden},

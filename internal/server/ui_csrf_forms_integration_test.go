@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -75,6 +76,83 @@ func TestRenderedIssueEditFragmentsCarryAPopulatedCSRFToken(t *testing.T) {
 			body := e.uiGet(t, path, token)
 			assertPopulatedCSRFTokens(t, path, body)
 		})
+	}
+}
+
+// Every page is served with Referrer-Policy: no-referrer, and browsers answer
+// that policy by serializing the origin of a plain form submission as null and
+// sending no Referer at all. fetch and XHR keep the real origin, so only the
+// forms that post without htmx arrive this way — sign out, password sign-in,
+// sign-up, and the settings forms. Both CSRF middlewares have to accept it, or
+// every one of those forms answers 403 in a real browser while every htmx
+// control on the same page keeps working.
+func TestNonHTMXFormPostsSurviveTheOpaqueBrowserOrigin(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, session := e.mustProjectMemberToken(t, "opaque-origin")
+	browser := map[string]string{"Origin": "null", "Sec-Fetch-Site": "same-origin", "X-CSRF-Token": ""}
+
+	t.Run("password sign-in", func(t *testing.T) {
+		seed := e.uiDoNoRedirect(t, http.MethodGet, "/login", "", nil)
+		defer seed.Body.Close()
+		if seed.StatusCode != http.StatusOK {
+			t.Fatalf("GET /login code = %d", seed.StatusCode)
+		}
+		preAuth := findUICookieNamed(t, seed.Cookies(), uiPreAuthCookieNameForTest)
+		form := url.Values{
+			"username":   {"not-a-user"},
+			"password":   {"not-a-password"},
+			"csrf_token": {uiCSRFTokenForTest("pre-auth", preAuth.Value)},
+		}
+		req, err := http.NewRequestWithContext(e.ctx, http.MethodPost, e.ts.URL+"/login", strings.NewReader(form.Encode()))
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for key, value := range browser {
+			req.Header.Set(key, value)
+		}
+		req.AddCookie(preAuth)
+		client := *e.ts.Client()
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("POST /login: %v", err)
+		}
+		defer res.Body.Close()
+		// The credentials are wrong on purpose: 401 proves the post reached the
+		// handler, which is all the source check decides.
+		if res.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("code = %d body = %s, want the handler's 401 rather than a CSRF rejection", res.StatusCode, readBody(t, res))
+		}
+	})
+
+	t.Run("sign out", func(t *testing.T) {
+		res := e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/logout", session,
+			strings.NewReader(url.Values{"csrf_token": {uiCSRFTokenForTest("session", session)}}.Encode()), browser)
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusSeeOther {
+			t.Fatalf("code = %d body = %s", res.StatusCode, readBody(t, res))
+		}
+		if got := res.Header.Get("Location"); got != "/login" {
+			t.Fatalf("Location = %q, want /login", got)
+		}
+	})
+}
+
+// The opaque origin is also what a sandboxed cross-site frame posts with, so
+// accepting it must not have disarmed the check.
+func TestOpaqueOriginFromACrossSiteFrameIsStillRejected(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, session := e.mustProjectMemberToken(t, "opaque-origin-frame")
+
+	res := e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/logout", session,
+		strings.NewReader(url.Values{"csrf_token": {uiCSRFTokenForTest("session", session)}}.Encode()),
+		map[string]string{"Origin": "null", "Sec-Fetch-Site": "cross-site", "X-CSRF-Token": ""})
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Fatalf("code = %d body = %s, want 403", res.StatusCode, readBody(t, res))
 	}
 }
 
