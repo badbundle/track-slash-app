@@ -552,8 +552,19 @@ type uiProjectCompletionChartData struct {
 const uiIssueListDefaultSort = store.ListIssuesSortUpdated
 const uiProjectAllDefaultSort = uiIssueListDefaultSort
 
+// uiOpenIssueStatuses is what a flat issue list shows when the URL asks for
+// nothing: work that is still open. A list of everything ever filed is a
+// worse answer to "what is on this project" than a list of what is left.
+// Done and Cancelled stay one click away behind the Any filter.
+func uiOpenIssueStatuses() []model.Status {
+	return []model.Status{model.StatusTodo, model.StatusInProgress}
+}
+
 type uiIssueListQuery struct {
-	Statuses    []model.Status
+	Statuses []model.Status
+	// AnyStatus is the URL explicitly asking for every status, which is not the
+	// same as asking for nothing: nothing means the open-work default.
+	AnyStatus   bool
 	Priorities  []model.IssuePriority
 	TagNames    []string
 	Sort        store.ListIssuesSort

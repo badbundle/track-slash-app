@@ -255,28 +255,40 @@ func TestUIRendersPersonalWorkViews(t *testing.T) {
 		t.Fatalf("assign other active: %v", err)
 	}
 
+	// Both work views default to open work, so the done issue is absent until
+	// the status filter asks for it.
 	meBody := e.uiGet(t, "/me", token)
-	for _, want := range []string{"Active Sprints", "All", "Issue controls", "active assigned todo p0", "active assigned done p1", "other project active p0"} {
+	for _, want := range []string{"Active Sprints", "All", "Issue controls", "active assigned todo p0", "other project active p0"} {
 		if !strings.Contains(meBody, want) {
 			t.Fatalf("me body missing %q: %s", want, meBody)
 		}
 	}
-	for _, notWant := range []string{activeUnassigned.Title, plannedAssigned.Title, backlogAssigned.Title, child.Title} {
+	for _, notWant := range []string{activeDoneP1.Title, activeUnassigned.Title, plannedAssigned.Title, backlogAssigned.Title, child.Title} {
 		if strings.Contains(meBody, notWant) {
 			t.Fatalf("me body included %q: %s", notWant, meBody)
 		}
 	}
 
+	meAnyBody := e.uiGet(t, "/me?status=any", token)
+	if !strings.Contains(meAnyBody, activeDoneP1.Title) {
+		t.Fatalf("me any-status body missing %q: %s", activeDoneP1.Title, meAnyBody)
+	}
+
 	allBody := e.uiGet(t, "/me/all", token)
-	for _, want := range []string{"All assigned issues", activeTodoP0.Title, activeDoneP1.Title, plannedAssigned.Title, backlogAssigned.Title, otherP0.Title} {
+	for _, want := range []string{"All assigned issues", activeTodoP0.Title, plannedAssigned.Title, backlogAssigned.Title, otherP0.Title} {
 		if !strings.Contains(allBody, want) {
 			t.Fatalf("me all body missing %q: %s", want, allBody)
 		}
 	}
-	for _, notWant := range []string{activeUnassigned.Title, child.Title} {
+	for _, notWant := range []string{activeDoneP1.Title, activeUnassigned.Title, child.Title} {
 		if strings.Contains(allBody, notWant) {
 			t.Fatalf("me all body included %q: %s", notWant, allBody)
 		}
+	}
+
+	allAnyBody := e.uiGet(t, "/me/all?status=any", token)
+	if !strings.Contains(allAnyBody, activeDoneP1.Title) {
+		t.Fatalf("me all any-status body missing %q: %s", activeDoneP1.Title, allAnyBody)
 	}
 
 	filteredActive := e.uiGet(t, "/me?status=done&priority=P1", token)
@@ -301,7 +313,7 @@ func TestUIRendersPersonalWorkViews(t *testing.T) {
 		}
 	}
 
-	priorityBody := e.uiGet(t, "/me?sort=priority", token)
+	priorityBody := e.uiGet(t, "/me?status=any&sort=priority", token)
 	otherIdx := strings.Index(priorityBody, "other project active p0")
 	doneIdx := strings.Index(priorityBody, "active assigned done p1")
 	if otherIdx < 0 || doneIdx < 0 || otherIdx > doneIdx {

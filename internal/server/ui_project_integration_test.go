@@ -1228,6 +1228,111 @@ func TestUIRendersProjectPlannedAndAll(t *testing.T) {
 	}
 }
 
+// The flat lists answer "what is left", not "everything ever filed", so they
+// default to open work. The sprint board is the deliberate exception: its
+// columns are the statuses, and a Done column that can never fill is useless.
+func TestUIProjectIssueListsDefaultToOpenWork(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, token := e.mustProjectMemberToken(t, "ui-open-default")
+
+	sprint, err := e.store.CreateSprint(e.ctx, store.CreateSprintParams{
+		ProjectID: e.projectID,
+		Name:      "Open Default Sprint",
+		StartDate: datePtr(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)),
+		EndDate:   datePtr(time.Date(2026, 6, 14, 0, 0, 0, 0, time.UTC)),
+	})
+	if err != nil {
+		t.Fatalf("CreateSprint: %v", err)
+	}
+	activeSprint := model.SprintStatusActive
+	if _, err := e.store.UpdateSprint(e.ctx, sprint.ID, store.UpdateSprintParams{Status: &activeSprint}); err != nil {
+		t.Fatalf("UpdateSprint active: %v", err)
+	}
+
+	todoIssue, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "still to do issue"})
+	if err != nil {
+		t.Fatalf("CreateIssue todo: %v", err)
+	}
+	progressIssue, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "underway issue"})
+	if err != nil {
+		t.Fatalf("CreateIssue progress: %v", err)
+	}
+	doneIssue, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "finished issue"})
+	if err != nil {
+		t.Fatalf("CreateIssue done: %v", err)
+	}
+	cancelledIssue, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "abandoned issue"})
+	if err != nil {
+		t.Fatalf("CreateIssue cancelled: %v", err)
+	}
+	// Sprint membership has to land before completion: a completed issue cannot
+	// change sprints.
+	for _, issue := range []model.Issue{todoIssue, doneIssue} {
+		if _, err := e.store.UpdateIssue(e.ctx, issue.ID, store.UpdateIssueParams{SprintID: &sprint.ID}); err != nil {
+			t.Fatalf("assign %s to sprint: %v", issue.Title, err)
+		}
+	}
+	inProgress := model.StatusInProgress
+	if _, err := e.store.UpdateIssue(e.ctx, progressIssue.ID, store.UpdateIssueParams{Status: &inProgress}); err != nil {
+		t.Fatalf("start progress issue: %v", err)
+	}
+	done := model.StatusDone
+	if _, err := e.store.UpdateIssue(e.ctx, doneIssue.ID, store.UpdateIssueParams{Status: &done}); err != nil {
+		t.Fatalf("complete done issue: %v", err)
+	}
+	closed := model.StatusClosed
+	closedReason := model.CloseReasonWontDo
+	if _, err := e.store.UpdateIssue(e.ctx, cancelledIssue.ID, store.UpdateIssueParams{Status: &closed, CloseReason: &closedReason}); err != nil {
+		t.Fatalf("cancel issue: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name    string
+		path    string
+		want    []string
+		notWant []string
+	}{
+		{
+			name:    "all list hides completed work",
+			path:    e.projectPath() + "/all",
+			want:    []string{todoIssue.Title, progressIssue.Title},
+			notWant: []string{doneIssue.Title, cancelledIssue.Title},
+		},
+		{
+			name: "any status brings it back",
+			path: e.projectPath() + "/all?status=any",
+			want: []string{todoIssue.Title, progressIssue.Title, doneIssue.Title, cancelledIssue.Title},
+		},
+		{
+			name:    "an explicit status still narrows",
+			path:    e.projectPath() + "/all?status=done",
+			want:    []string{doneIssue.Title},
+			notWant: []string{todoIssue.Title, progressIssue.Title, cancelledIssue.Title},
+		},
+		{
+			name:    "the board keeps every status",
+			path:    e.projectPath() + "/sprint",
+			want:    []string{todoIssue.Title, doneIssue.Title},
+			notWant: []string{progressIssue.Title},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := e.uiGet(t, tt.path, token)
+			for _, want := range tt.want {
+				if !strings.Contains(body, want) {
+					t.Fatalf("%s missing %q: %s", tt.path, want, body)
+				}
+			}
+			for _, notWant := range tt.notWant {
+				if strings.Contains(body, notWant) {
+					t.Fatalf("%s included %q: %s", tt.path, notWant, body)
+				}
+			}
+		})
+	}
+}
+
 func TestUIProjectDeletedPageListsAndRestoresIssues(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)
