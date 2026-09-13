@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -12,40 +13,81 @@ import (
 	"github.com/bradleymackey/track-slash/internal/store"
 )
 
+// uiAnyStatusValue is the one `status` value that is not a status: it is how a
+// list says "no status filter at all", which an absent parameter can no longer
+// mean now that absent means the open-work default.
+const uiAnyStatusValue = "any"
+
+// uiParseIssueListQuery reads the filters for the assigned-work lists, which
+// default to open work.
 func uiParseIssueListQuery(r *http.Request) (uiIssueListQuery, error) {
-	query, err := parseIssueListQueryValues(r.URL.Query(), issueListQueryOptions{
+	return uiParseIssueListQueryWithDefaults(r, issueListQueryOptions{
 		DefaultSort:     uiIssueListDefaultSort,
 		AllowNumberSort: false,
-	})
-	if err != nil {
-		return uiIssueListQuery{}, fmt.Errorf("%s: %w", err.Error(), errUIBadRequest)
-	}
-	return uiIssueListQuery{
-		Statuses:   query.Statuses,
-		Priorities: query.Priorities,
-		TagNames:   query.TagNames,
-		Sort:       query.Sort,
-		Direction:  query.Direction,
-	}, nil
+	}, uiOpenIssueStatuses())
 }
 
+// uiParseProjectAllQuery reads the filters for the project All list, which
+// defaults to open work.
 func uiParseProjectAllQuery(r *http.Request) (uiProjectAllQuery, error) {
-	query, err := parseIssueListQueryValues(r.URL.Query(), issueListQueryOptions{
+	return uiParseIssueListQueryWithDefaults(r, issueListQueryOptions{
 		DefaultSort:      uiIssueListDefaultSort,
 		IncludeAssignees: true,
 		AllowNumberSort:  false,
-	})
+	}, uiOpenIssueStatuses())
+}
+
+// uiParseProjectSprintQuery reads the filters for the sprint board, which keeps
+// every status. The board's columns are the statuses, so defaulting it to open
+// work would leave Done permanently empty and hide the sprint's own progress.
+func uiParseProjectSprintQuery(r *http.Request) (uiProjectAllQuery, error) {
+	return uiParseIssueListQueryWithDefaults(r, issueListQueryOptions{
+		DefaultSort:      uiIssueListDefaultSort,
+		IncludeAssignees: true,
+		AllowNumberSort:  false,
+	}, nil)
+}
+
+func uiParseIssueListQueryWithDefaults(r *http.Request, opts issueListQueryOptions, defaultStatuses []model.Status) (uiIssueListQuery, error) {
+	values := r.URL.Query()
+	statusValues, anyStatus := uiSplitAnyStatusValue(values["status"])
+	values["status"] = statusValues
+	query, err := parseIssueListQueryValues(values, opts)
 	if err != nil {
-		return uiProjectAllQuery{}, fmt.Errorf("%s: %w", err.Error(), errUIBadRequest)
+		return uiIssueListQuery{}, fmt.Errorf("%s: %w", err.Error(), errUIBadRequest)
 	}
-	return uiProjectAllQuery{
-		Statuses:    query.Statuses,
+	statuses := query.Statuses
+	if !anyStatus && len(statuses) == 0 {
+		statuses = defaultStatuses
+	}
+	return uiIssueListQuery{
+		Statuses:    statuses,
+		AnyStatus:   anyStatus,
 		Priorities:  query.Priorities,
 		TagNames:    query.TagNames,
 		AssigneeIDs: query.AssigneeIDs,
 		Sort:        query.Sort,
 		Direction:   query.Direction,
 	}, nil
+}
+
+// uiSplitAnyStatusValue lifts `status=any` out of the raw values so the shared
+// parser only ever sees real statuses. Asking for any status alongside specific
+// ones is answered as any: the wider request wins rather than erroring.
+func uiSplitAnyStatusValue(raws []string) ([]string, bool) {
+	anyStatus := false
+	out := make([]string, 0, len(raws))
+	for _, raw := range raws {
+		if strings.TrimSpace(raw) == uiAnyStatusValue {
+			anyStatus = true
+			continue
+		}
+		out = append(out, raw)
+	}
+	if anyStatus {
+		return nil, true
+	}
+	return out, false
 }
 
 func uiSortIssueItems(items []uiIssueItem, sortBy store.ListIssuesSort, direction store.ListIssuesSortDirection) {
@@ -330,6 +372,9 @@ func uiProjectAllPath(path string, query uiProjectAllQuery) string {
 
 func uiIssueListPath(path string, query uiIssueListQuery, includeAssignees bool) string {
 	values := url.Values{}
+	if query.AnyStatus {
+		values.Add("status", uiAnyStatusValue)
+	}
 	for _, status := range query.Statuses {
 		values.Add("status", string(status))
 	}

@@ -465,7 +465,7 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 	var assignees []model.ProjectAssignee
 	var tags []model.IssueTag
 	if view == "sprint" {
-		sprintQuery, err = uiParseProjectAllQuery(r)
+		sprintQuery, err = uiParseProjectSprintQuery(r)
 		if err != nil {
 			return nil, err
 		}

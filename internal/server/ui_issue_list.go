@@ -265,10 +265,14 @@ func uiIssueStatusFilters(query uiIssueListQuery, paths uiIssueListPaths) []uiPr
 		active := false
 		if option.Status == "" {
 			nextQuery.Statuses = nil
-			active = len(query.Statuses) == 0
+			nextQuery.AnyStatus = true
+			active = query.AnyStatus
 		} else {
 			var selected bool
 			nextQuery.Statuses, selected = uiToggleStatuses(query.Statuses, option.Status)
+			// Unticking the last status reads as "stop filtering by status", not
+			// as "fall back to the default I just unticked".
+			nextQuery.AnyStatus = len(nextQuery.Statuses) == 0
 			active = selected
 		}
 		nextQuery.Cursor = ""

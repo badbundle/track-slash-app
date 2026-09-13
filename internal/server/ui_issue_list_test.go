@@ -5,6 +5,7 @@ import (
 	"github.com/bradleymackey/track-slash/internal/model"
 	"github.com/bradleymackey/track-slash/internal/store"
 	"github.com/google/uuid"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -98,6 +99,140 @@ func TestUIParseIssueListQuery(t *testing.T) {
 			t.Fatalf("uiParseIssueListQuery(%s) err = nil, want error", path)
 		}
 	}
+}
+
+// A flat list of everything ever filed answers "what is on this project" worse
+// than a list of what is left, so the lists default to open work while the
+// sprint board — whose columns are the statuses — keeps all of them.
+func TestUIIssueListStatusDefaults(t *testing.T) {
+	t.Parallel()
+
+	open := []model.Status{model.StatusTodo, model.StatusInProgress}
+	for _, tt := range []struct {
+		name         string
+		path         string
+		parse        func(*http.Request) (uiIssueListQuery, error)
+		wantStatuses []model.Status
+		wantAny      bool
+	}{
+		{name: "project list defaults to open work", path: "/all", parse: uiParseProjectAllQuery, wantStatuses: open},
+		{name: "assigned work defaults to open work", path: "/me", parse: uiParseIssueListQuery, wantStatuses: open},
+		{name: "sprint board keeps every status", path: "/sprint", parse: uiParseProjectSprintQuery},
+		{name: "blank status values fall back to the default", path: "/all?status=", parse: uiParseProjectAllQuery, wantStatuses: open},
+		{name: "any clears the default", path: "/all?status=any", parse: uiParseProjectAllQuery, wantAny: true},
+		{name: "any on the board stays every status", path: "/sprint?status=any", parse: uiParseProjectSprintQuery, wantAny: true},
+		{name: "the wider request wins", path: "/all?status=done&status=any", parse: uiParseProjectAllQuery, wantAny: true},
+		{name: "a named status replaces the default", path: "/all?status=closed", parse: uiParseProjectAllQuery, wantStatuses: []model.Status{model.StatusClosed}},
+		{name: "a named status still filters the board", path: "/sprint?status=closed", parse: uiParseProjectSprintQuery, wantStatuses: []model.Status{model.StatusClosed}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.parse(httptest.NewRequest("GET", tt.path, nil))
+			if err != nil {
+				t.Fatalf("parse(%s): %v", tt.path, err)
+			}
+			if got.AnyStatus != tt.wantAny {
+				t.Fatalf("AnyStatus = %v, want %v", got.AnyStatus, tt.wantAny)
+			}
+			if len(got.Statuses) != len(tt.wantStatuses) {
+				t.Fatalf("statuses = %+v, want %+v", got.Statuses, tt.wantStatuses)
+			}
+			for i, status := range tt.wantStatuses {
+				if got.Statuses[i] != status {
+					t.Fatalf("statuses = %+v, want %+v", got.Statuses, tt.wantStatuses)
+				}
+			}
+		})
+	}
+
+	// An unknown status is still a bad request on every view; `any` is the only
+	// value that is not a status.
+	for _, path := range []string{"/all?status=anything", "/sprint?status=anything"} {
+		if _, err := uiParseProjectAllQuery(httptest.NewRequest("GET", path, nil)); err == nil {
+			t.Fatalf("parse(%s) err = nil, want error", path)
+		}
+	}
+}
+
+// Whatever a filter link encodes has to survive the round trip back through the
+// parser, or a chip sends the user somewhere other than where it claims.
+func TestUIIssueListPathRoundTripsStatusState(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name  string
+		query uiIssueListQuery
+	}{
+		{name: "any status", query: uiIssueListQuery{AnyStatus: true}},
+		{name: "open default", query: uiIssueListQuery{Statuses: uiOpenIssueStatuses()}},
+		{name: "single status", query: uiIssueListQuery{Statuses: []model.Status{model.StatusDone}}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := uiIssueListPath("/all", tt.query, false)
+			got, err := uiParseProjectAllQuery(httptest.NewRequest("GET", path, nil))
+			if err != nil {
+				t.Fatalf("parse(%s): %v", path, err)
+			}
+			if got.AnyStatus != tt.query.AnyStatus {
+				t.Fatalf("%s: AnyStatus = %v, want %v", path, got.AnyStatus, tt.query.AnyStatus)
+			}
+			if len(got.Statuses) != len(tt.query.Statuses) {
+				t.Fatalf("%s: statuses = %+v, want %+v", path, got.Statuses, tt.query.Statuses)
+			}
+		})
+	}
+}
+
+func TestUIIssueStatusFilterChips(t *testing.T) {
+	t.Parallel()
+
+	paths := func(query uiIssueListQuery) (string, string, string) {
+		path := uiIssueListPath("/all", query, false)
+		return path, path, path
+	}
+	chips := func(query uiIssueListQuery) map[string]uiProjectStatusFilterItem {
+		out := map[string]uiProjectStatusFilterItem{}
+		for _, chip := range uiIssueStatusFilters(query, paths) {
+			out[chip.Label] = chip
+		}
+		return out
+	}
+
+	t.Run("the default lights up the statuses it applies", func(t *testing.T) {
+		got := chips(uiIssueListQuery{Statuses: uiOpenIssueStatuses()})
+		if !got["To do"].Active || !got["In progress"].Active {
+			t.Fatalf("open chips inactive: %+v", got)
+		}
+		if got["Any"].Active || got["Done"].Active {
+			t.Fatalf("Any or Done active under the default: %+v", got)
+		}
+		// Any is how the user asks for everything, so it must say so explicitly
+		// rather than dropping to a bare path that means the default.
+		if !strings.Contains(got["Any"].Href, "status=any") {
+			t.Fatalf("Any href = %q, want status=any", got["Any"].Href)
+		}
+	})
+
+	t.Run("any is active once asked for", func(t *testing.T) {
+		got := chips(uiIssueListQuery{AnyStatus: true})
+		if !got["Any"].Active {
+			t.Fatalf("Any chip inactive: %+v", got)
+		}
+		if got["To do"].Active {
+			t.Fatalf("To do active under any: %+v", got)
+		}
+		// Picking a status from Any starts a real filter rather than adding to
+		// nothing.
+		if !strings.Contains(got["To do"].Href, "status=todo") || strings.Contains(got["To do"].Href, "status=any") {
+			t.Fatalf("To do href = %q", got["To do"].Href)
+		}
+	})
+
+	t.Run("unticking the last status means any, not the default", func(t *testing.T) {
+		got := chips(uiIssueListQuery{Statuses: []model.Status{model.StatusTodo}})
+		if !strings.Contains(got["To do"].Href, "status=any") {
+			t.Fatalf("untick href = %q, want status=any", got["To do"].Href)
+		}
+	})
 }
 
 func TestUISortIssueItems(t *testing.T) {
