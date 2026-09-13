@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func (s *Server) uiTokensPage(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +156,7 @@ func (s *Server) renderUITokens(w http.ResponseWriter, r *http.Request, message,
 		writeUIInternalError(w, "ui tokens list auth tokens", err)
 		return
 	}
-	tokens, activeSessions := uiPartitionAuthTokens(all)
+	tokens, activeSessions := uiPartitionAuthTokens(all, time.Now())
 	projects, err := s.uiVisibleProjects(r.Context(), currentUser(r))
 	if err != nil {
 		writeUIInternalError(w, "ui tokens visible projects", err)
@@ -177,12 +178,16 @@ func (s *Server) renderUITokens(w http.ResponseWriter, r *http.Request, message,
 // uiPartitionAuthTokens keeps API tokens for the per-row list and reduces web
 // sessions to a live count. Sessions are numerous and their names carry no
 // information, so a row each buried the tokens people actually manage.
-func uiPartitionAuthTokens(all []model.AuthToken) ([]model.AuthToken, int) {
+//
+// Sessions carry an expiry and are only swept long after it passes, so an
+// unrevoked session is not necessarily one you can still sign in with. Counting
+// those would tell someone they had sessions open that no longer work.
+func uiPartitionAuthTokens(all []model.AuthToken, now time.Time) ([]model.AuthToken, int) {
 	apiTokens := make([]model.AuthToken, 0, len(all))
 	activeSessions := 0
 	for _, token := range all {
 		if token.Kind == model.AuthTokenKindSession {
-			if token.RevokedAt == nil {
+			if token.Live(now) {
 				activeSessions++
 			}
 			continue
@@ -194,6 +199,9 @@ func uiPartitionAuthTokens(all []model.AuthToken) ([]model.AuthToken, int) {
 
 func (s *Server) uiRevokeSessionTokens(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.store.RevokeSessionAuthTokensForUser(r.Context(), currentUser(r).ID); err != nil {
+		// Revoking nothing is a success, so only a DB outage reaches here. The
+		// error status keeps the caller signed in rather than bouncing them to
+		// /login as though the sessions were gone.
 		writeUIStoreError(w, err)
 		return
 	}

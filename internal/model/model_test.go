@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestStatusValid(t *testing.T) {
@@ -215,6 +216,31 @@ func TestAuthTokenKindValid(t *testing.T) {
 		t.Run(string(c.in), func(t *testing.T) {
 			if got := c.in.Valid(); got != c.want {
 				t.Fatalf("AuthTokenKind(%q).Valid() = %v, want %v", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestAuthTokenLive(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	past := now.Add(-time.Hour)
+	future := now.Add(time.Hour)
+	cases := []struct {
+		name  string
+		token AuthToken
+		want  bool
+	}{
+		{"no expiry", AuthToken{}, true},
+		{"expires later", AuthToken{ExpiresAt: &future}, true},
+		{"expired", AuthToken{ExpiresAt: &past}, false},
+		{"expires exactly now", AuthToken{ExpiresAt: &now}, false},
+		{"revoked", AuthToken{RevokedAt: &past}, false},
+		{"revoked and unexpired", AuthToken{ExpiresAt: &future, RevokedAt: &past}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.token.Live(now); got != c.want {
+				t.Fatalf("Live() = %v, want %v", got, c.want)
 			}
 		})
 	}
