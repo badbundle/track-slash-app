@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -53,6 +54,34 @@ func TestTokensPageCountsOnlyLiveSessions(t *testing.T) {
 	body := e.uiGet(t, "/tokens", session)
 	if !strings.Contains(body, "1 active web session<") {
 		t.Fatalf("expected a singular live-session count: %s", body)
+	}
+}
+
+// Sessions expire long before the sweep revokes them, so an unrevoked session is
+// not necessarily one you can still sign in with.
+func TestTokensPageIgnoresExpiredSessions(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	user, session := e.mustSessionToken(t, "session-expired")
+	e.mustExpiringSessionToken(t, user.ID, "expired session", time.Now().Add(-time.Hour))
+
+	body := e.uiGet(t, "/tokens", session)
+	if !strings.Contains(body, "1 active web session<") {
+		t.Fatalf("expired session counted as active: %s", body)
+	}
+}
+
+func TestTokensPageWithoutWebSessions(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, apiToken := e.mustUserToken(t, "session-empty")
+
+	body := e.uiGet(t, "/tokens", apiToken)
+	if !strings.Contains(body, "No active web sessions") {
+		t.Fatalf("tokens page missing the empty session state: %s", body)
+	}
+	if strings.Contains(body, "Revoke all web sessions") {
+		t.Fatalf("tokens page offers a bulk revoke with nothing to revoke: %s", body)
 	}
 }
 
@@ -125,6 +154,20 @@ func (e *httpEnv) mustSessionToken(t *testing.T, label string) (model.User, stri
 		t.Fatalf("CreateAuthToken: %v", err)
 	}
 	return user, created.RawToken
+}
+
+func (e *httpEnv) mustExpiringSessionToken(t *testing.T, userID uuid.UUID, name string, expiresAt time.Time) model.AuthToken {
+	t.Helper()
+	created, err := e.store.CreateAuthToken(e.ctx, store.CreateAuthTokenParams{
+		UserID:    userID,
+		Kind:      model.AuthTokenKindSession,
+		Name:      name,
+		ExpiresAt: &expiresAt,
+	})
+	if err != nil {
+		t.Fatalf("CreateAuthToken: %v", err)
+	}
+	return created.Token
 }
 
 func (e *httpEnv) mustNamedToken(t *testing.T, userID uuid.UUID, kind model.AuthTokenKind, name string) model.AuthToken {

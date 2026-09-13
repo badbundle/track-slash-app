@@ -263,6 +263,16 @@ type AuthToken struct {
 	RevokedAt  *time.Time    `json:"revoked_at,omitempty"`
 }
 
+// Live reports whether a token can still authenticate. It mirrors the predicate
+// the store applies when resolving a raw token, so anything counted from a
+// listing agrees with what the token would actually do.
+func (t AuthToken) Live(now time.Time) bool {
+	if t.RevokedAt != nil {
+		return false
+	}
+	return t.ExpiresAt == nil || t.ExpiresAt.After(now)
+}
+
 type PasskeyCredential struct {
 	ID             uuid.UUID  `json:"id"`
 	UserID         uuid.UUID  `json:"user_id"`
