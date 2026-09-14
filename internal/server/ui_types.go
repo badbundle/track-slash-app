@@ -460,6 +460,10 @@ type uiProjectPanelData struct {
 	CanCreateIssues                 bool
 	PublicIssueCreationEnabled      bool
 	CanManageMembers                bool
+	CanDeleteProject                bool
+	DeleteProject                   bool
+	DeleteProjectInput              string
+	DeleteProjectError              string
 	GitHubConfigured                bool
 	GitHubConnections               []model.GitHubConnection
 	GitHubRepositoryInput           string

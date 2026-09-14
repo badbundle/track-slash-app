@@ -71,6 +71,14 @@
                 <span>Deleted issues</span>
               </a>
             </div>
+            {{if .CanDeleteProject}}
+            <div class="mt-1 border-t border-slate-100 pt-1 dark:border-slate-800">
+              <a href="{{projectDelete .Project}}?view={{.View}}" hx-get="{{projectDelete .Project}}?view={{.View}}" hx-target="#main" hx-push-url="false" aria-haspopup="dialog" class="flex items-center gap-2 rounded-md px-2 py-2 text-sm text-rose-600 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-rose-500 dark:text-rose-300 dark:hover:bg-rose-950/40">
+                <i data-lucide="trash-2" class="h-4 w-4" aria-hidden="true"></i>
+                <span>Delete project</span>
+              </a>
+            </div>
+            {{end}}
           </div>
         </details>
       </div>
@@ -102,7 +110,36 @@
     {{template "project-panel-context" .ContextManager}}
     {{end}}
   </div>
+
+  {{if and .CanDeleteProject .DeleteProject}}
+  {{template "project-delete-modal" .}}
+  {{end}}
 </section>
+{{end}}
+
+{{define "project-delete-modal"}}
+{{template "modal-open" (projectDeleteModal .)}}
+  <form method="post" action="{{projectDelete .Project}}" hx-post="{{projectDelete .Project}}" hx-target="#main" hx-push-url="false" class="mt-4 grid gap-3">{{template "csrf-field" $.CSRFToken}}
+    <input type="hidden" name="view" value="{{.View}}">
+    <p class="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+      The project and all of its issues stop appearing in every list, board, and search, and members lose access immediately. This cannot be undone from the app.
+    </p>
+    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400">Type {{.Project.Key}} to confirm
+      <input name="key" value="{{.DeleteProjectInput}}" autofocus autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Project key confirmation" placeholder="{{.Project.Key}}" class="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 font-mono text-sm uppercase text-slate-950 outline-none ring-rose-500 focus:ring-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+    </label>
+    {{if .DeleteProjectError}}<p class="text-xs text-rose-600 dark:text-rose-300">{{.DeleteProjectError}}</p>{{end}}
+    <div class="flex flex-wrap items-center gap-2">
+      <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md bg-rose-600 px-3 text-sm font-medium text-white hover:bg-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900">
+        <i data-lucide="trash-2" class="h-4 w-4" aria-hidden="true"></i>
+        Delete project
+      </button>
+      <button type="button" hx-get="{{projectPanel .Project .View}}" hx-target="#main" hx-push-url="false" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900">
+        <i data-lucide="x" class="h-4 w-4" aria-hidden="true"></i>
+        Cancel
+      </button>
+    </div>
+  </form>
+{{template "modal-close" .}}
 {{end}}
 
 {{define "project-favorite-action"}}

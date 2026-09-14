@@ -121,6 +121,19 @@ func (s *Server) requireProjectIssueCreation(w http.ResponseWriter, r *http.Requ
 	return true
 }
 
+func (s *Server) requireProjectDeletion(w http.ResponseWriter, r *http.Request, projectID uuid.UUID) bool {
+	ok, err := s.store.UserCanDeleteProject(r.Context(), currentUser(r), projectID)
+	if err != nil {
+		writeStoreError(w, err)
+		return false
+	}
+	if !ok {
+		writeForbidden(w)
+		return false
+	}
+	return true
+}
+
 func (s *Server) requireProjectMemberManagement(w http.ResponseWriter, r *http.Request, projectID uuid.UUID) bool {
 	ok, err := s.store.UserCanManageProjectMembers(r.Context(), currentUser(r), projectID)
 	if err != nil {

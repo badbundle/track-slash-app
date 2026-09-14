@@ -65,8 +65,9 @@ func TestProjectMemberRolesAndPermissions(t *testing.T) {
 		read   bool
 		write  bool
 		manage bool
+		remove bool
 	}{
-		{name: "owner", user: owner, read: true, write: true, manage: true},
+		{name: "owner", user: owner, read: true, write: true, manage: true, remove: true},
 		{name: "member", user: member, read: true, write: true},
 		{name: "readonly", user: readonly, read: true},
 		{name: "outsider", user: outsider},
@@ -76,8 +77,12 @@ func TestProjectMemberRolesAndPermissions(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ProjectPermissionsForUser: %v", err)
 			}
-			if permissions.CanRead != test.read || permissions.CanWrite != test.write || permissions.CanManageMembers != test.manage {
+			if permissions.CanRead != test.read || permissions.CanWrite != test.write || permissions.CanManageMembers != test.manage || permissions.CanDelete != test.remove {
 				t.Fatalf("permissions = %+v", permissions)
+			}
+			canDelete, err := env.store.UserCanDeleteProject(env.ctx, test.user, env.projectID)
+			if err != nil || canDelete != test.remove {
+				t.Fatalf("UserCanDeleteProject = %v, %v", canDelete, err)
 			}
 			canRead, err := env.store.UserCanAccessProject(env.ctx, test.user, env.projectID)
 			if err != nil || canRead != test.read {
@@ -96,7 +101,7 @@ func TestProjectMemberRolesAndPermissions(t *testing.T) {
 	admin := outsider
 	admin.IsAdmin = true
 	adminPermissions, err := env.store.ProjectPermissionsForUser(env.ctx, admin, env.projectID)
-	if err != nil || !adminPermissions.CanRead || !adminPermissions.CanWrite || !adminPermissions.CanManageMembers {
+	if err != nil || !adminPermissions.CanRead || !adminPermissions.CanWrite || !adminPermissions.CanManageMembers || !adminPermissions.CanDelete {
 		t.Fatalf("admin permissions = %+v, %v", adminPermissions, err)
 	}
 

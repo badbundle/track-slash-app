@@ -613,6 +613,11 @@ type ProjectPermissions struct {
 	CanWrite            bool
 	CanCreateIssues     bool
 	CanManageMembers    bool
+	// CanDelete covers deleting the project itself, which is a stronger
+	// authority than editing its contents: write members may delete issues,
+	// sprints, and context, but only the owner or a site admin may remove the
+	// project they all live in.
+	CanDelete bool
 }
 
 func (s *Store) ProjectPermissionsForUser(ctx context.Context, user model.User, projectID uuid.UUID) (ProjectPermissions, error) {
@@ -648,6 +653,7 @@ func (s *Store) ProjectPermissionsForUser(ctx context.Context, user model.User, 
 		permissions.CanWrite = true
 		permissions.CanCreateIssues = true
 		permissions.CanManageMembers = true
+		permissions.CanDelete = true
 		if permissions.Role == "" {
 			permissions.Role = model.ProjectMemberRoleMember
 		}
@@ -680,6 +686,11 @@ func (s *Store) UserCanCreateProjectIssue(ctx context.Context, user model.User, 
 func (s *Store) UserCanManageProjectMembers(ctx context.Context, user model.User, projectID uuid.UUID) (bool, error) {
 	permissions, err := s.ProjectPermissionsForUser(ctx, user, projectID)
 	return permissions.CanManageMembers, err
+}
+
+func (s *Store) UserCanDeleteProject(ctx context.Context, user model.User, projectID uuid.UUID) (bool, error) {
+	permissions, err := s.ProjectPermissionsForUser(ctx, user, projectID)
+	return permissions.CanDelete, err
 }
 
 func (s *Store) ProjectIDForIssue(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {

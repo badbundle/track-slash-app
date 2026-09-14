@@ -466,7 +466,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_create_project", "Create a project owned by current user.", write, s.mcpCreateProject)
 	addMCPTool(srv, "track_list_projects", "List projects visible to current user.", readOnly, s.mcpListProjects)
 	addMCPTool(srv, "track_get_project", "Get project by owner and key.", readOnly, s.mcpGetProject)
-	addMCPTool(srv, "track_delete_project", "Soft-delete a project. Admin only.", write, s.mcpDeleteProject)
+	addMCPTool(srv, "track_delete_project", "Soft-delete a project. Project owner or admin only.", write, s.mcpDeleteProject)
 	addMCPTool(srv, "track_list_project_members", "List project members and roles.", readOnly, s.mcpListProjectMembers)
 	addMCPTool(srv, "track_grant_project_member", "Add a project member or update their role. Project owner or admin only.", write, s.mcpGrantProjectMember)
 	addMCPTool(srv, "track_revoke_project_member", "Remove a project member. Project owner or admin only.", write, s.mcpRevokeProjectMember)
@@ -678,6 +678,17 @@ func (s *Server) requireMCPProjectIssueCreation(ctx context.Context, auth authCo
 		return store.ProjectPermissions{}, errMCPForbidden
 	}
 	return permissions, nil
+}
+
+func (s *Server) requireMCPProjectDeletion(ctx context.Context, auth authContext, projectID uuid.UUID) error {
+	ok, err := s.store.UserCanDeleteProject(ctx, auth.User, projectID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errMCPForbidden
+	}
+	return nil
 }
 
 func (s *Server) requireMCPProjectMemberManagement(ctx context.Context, auth authContext, projectID uuid.UUID) error {
@@ -992,11 +1003,11 @@ func (s *Server) mcpDeleteProject(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return nil, err
 	}
-	if err := s.requireMCPAdmin(auth); err != nil {
-		return nil, err
-	}
 	project, err := s.mcpProject(ctx, auth, input)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.requireMCPProjectDeletion(ctx, auth, project.ID); err != nil {
 		return nil, err
 	}
 	if err := s.store.DeleteProject(ctx, project.ID); err != nil {
