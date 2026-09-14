@@ -47,6 +47,46 @@ func TestSessionSweepOnTokenRefresh(t *testing.T) {
 	}
 }
 
+// A session stops working when its expiry passes, so that is when the sweep
+// takes it. Waiting for the three-year age rule left revoked_at disagreeing with
+// what the token could actually do for the whole intervening period.
+func TestSessionSweepRevokesExpiredSessions(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	user, err := env.store.CreateUser(env.ctx, "sweep-expiry-"+uniqueProjectKey(t)+"@example.com", "Sweep")
+	if err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	expired := env.mustExpiringToken(t, user.ID, model.AuthTokenKindSession, "expired yesterday", "-1 day")
+	unexpired := env.mustExpiringToken(t, user.ID, model.AuthTokenKindSession, "good for a week", "7 days")
+	expiredAPIToken := env.mustExpiringToken(t, user.ID, model.AuthTokenKindAPI, "expired deploy key", "-1 day")
+	noExpiry := env.mustToken(t, user.ID, model.AuthTokenKindSession, "no expiry, still young")
+	refreshing := env.mustToken(t, user.ID, model.AuthTokenKindSession, "the one being used")
+
+	env.armSweep(t)
+	if _, err := env.store.AuthenticateToken(env.ctx, refreshing.RawToken); err != nil {
+		t.Fatalf("AuthenticateToken: %v", err)
+	}
+
+	if !env.tokenRevoked(t, expired.Token.ID) {
+		t.Fatal("an expired session survived the sweep")
+	}
+	if env.tokenRevoked(t, unexpired.Token.ID) {
+		t.Fatal("a session that had not reached its expiry was revoked")
+	}
+	if env.tokenRevoked(t, expiredAPIToken.Token.ID) {
+		t.Fatal("an API token was revoked; the sweep is for sessions only")
+	}
+	// Nothing else clears a session with no expiry, so the age rule still owns it.
+	if env.tokenRevoked(t, noExpiry.Token.ID) {
+		t.Fatal("a young session carrying no expiry was revoked")
+	}
+	if env.tokenRevoked(t, refreshing.Token.ID) {
+		t.Fatal("the session being refreshed was revoked out from under its own request")
+	}
+}
+
 // Without the rate limit every authenticated request would pay for a sweep.
 func TestSessionSweepIsRateLimited(t *testing.T) {
 	t.Parallel()
@@ -127,6 +167,18 @@ func (e *sprintsTestEnv) mustToken(t *testing.T, userID uuid.UUID, kind model.Au
 	created, err := e.store.CreateAuthToken(e.ctx, store.CreateAuthTokenParams{UserID: userID, Kind: kind, Name: name})
 	if err != nil {
 		t.Fatalf("CreateAuthToken %s: %v", name, err)
+	}
+	return created
+}
+
+// mustExpiringToken issues a token whose expiry is offset from the database
+// clock, so a test never has to guess how far the Go clock has drifted from it.
+func (e *sprintsTestEnv) mustExpiringToken(t *testing.T, userID uuid.UUID, kind model.AuthTokenKind, name, offset string) store.CreatedAuthToken {
+	t.Helper()
+	created := e.mustToken(t, userID, kind, name)
+	if _, err := e.pool.Exec(e.ctx,
+		"UPDATE auth_tokens SET expires_at = now() + $2::interval WHERE id = $1", created.Token.ID, offset); err != nil {
+		t.Fatalf("set token expires_at: %v", err)
 	}
 	return created
 }

@@ -179,9 +179,10 @@ func (s *Server) renderUITokens(w http.ResponseWriter, r *http.Request, message,
 // sessions to a live count. Sessions are numerous and their names carry no
 // information, so a row each buried the tokens people actually manage.
 //
-// Sessions carry an expiry and are only swept long after it passes, so an
-// unrevoked session is not necessarily one you can still sign in with. Counting
-// those would tell someone they had sessions open that no longer work.
+// The sweep that revokes expired sessions is lazy: it runs at most hourly, and
+// only on the back of a token refresh. An unrevoked session is therefore not
+// necessarily one you can still sign in with, and counting those would tell
+// someone they had sessions open that no longer work.
 func uiPartitionAuthTokens(all []model.AuthToken, now time.Time) ([]model.AuthToken, int) {
 	apiTokens := make([]model.AuthToken, 0, len(all))
 	activeSessions := 0
