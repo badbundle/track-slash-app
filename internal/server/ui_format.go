@@ -313,6 +313,23 @@ func uiProjectMemberCreateModal(panel *uiProjectPanelData) uiModalData {
 	}
 }
 
+func uiProjectDeleteModal(panel *uiProjectPanelData) uiModalData {
+	return uiModalData{
+		ID:               "project-delete",
+		Title:            "Delete project",
+		Description:      "This removes " + panel.Project.Name + " and every issue in it from the workspace.",
+		WidthClass:       "max-w-md",
+		CancelLabel:      "Cancel deleting project",
+		CancelHXGet:      uiProjectPanelPath(panel.Project, panel.View),
+		CancelHXPushURL:  "false",
+		Badges:           []uiModalBadge{{Label: panel.Project.Key, Class: uiProjectDeleteBadgeClass}},
+		ClientControlled: true,
+		Open:             true,
+	}
+}
+
+const uiProjectDeleteBadgeClass = "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200"
+
 func uiProjectBlockCreateModal(panel *uiProjectPanelData) uiModalData {
 	return uiModalData{
 		ID:               "project-block-create",

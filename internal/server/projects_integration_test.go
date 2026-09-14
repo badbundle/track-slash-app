@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -68,6 +69,57 @@ func TestHTTPUpdateProject(t *testing.T) {
 	code, body = e.doWithToken(t, token, http.MethodPatch, e.projectPath(), map[string]any{"description": "denied"})
 	if code != http.StatusForbidden {
 		t.Fatalf("denied code = %d body = %s", code, body)
+	}
+}
+
+func TestHTTPDeleteProject(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	owner, ownerToken := e.mustUserToken(t, "project-delete-owner")
+	project, err := e.store.CreateProjectForUser(e.ctx, owner.ID, uniqueProjectKey(t), "API deletable", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForUser: %v", err)
+	}
+	path := "/" + owner.Username + "/projects/" + project.Key
+
+	member, memberToken := e.mustUserToken(t, "project-delete-member")
+	if _, err := e.store.GrantProjectAccess(e.ctx, project.ID, member.ID); err != nil {
+		t.Fatalf("GrantProjectAccess: %v", err)
+	}
+	_, outsiderToken := e.mustUserToken(t, "project-delete-outsider")
+	for name, token := range map[string]string{"write member": memberToken, "outsider": outsiderToken} {
+		code, body := e.doWithToken(t, token, http.MethodDelete, path, nil)
+		if code != http.StatusForbidden {
+			t.Fatalf("%s delete code = %d body = %s", name, code, body)
+		}
+	}
+	if _, err := e.store.GetProject(e.ctx, project.ID); err != nil {
+		t.Fatalf("project deleted by a user without permission: %v", err)
+	}
+
+	code, body := e.doWithToken(t, ownerToken, http.MethodDelete, path, nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("owner delete code = %d body = %s", code, body)
+	}
+	if _, err := e.store.GetProject(e.ctx, project.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetProject after delete = %v, want ErrNotFound", err)
+	}
+	code, body = e.doWithToken(t, ownerToken, http.MethodDelete, path, nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("repeat delete code = %d body = %s", code, body)
+	}
+
+	adminRemovable, err := e.store.CreateProjectForUser(e.ctx, owner.ID, uniqueProjectKey(t), "Admin deletable", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForUser admin removable: %v", err)
+	}
+	adminPath := "/" + owner.Username + "/projects/" + adminRemovable.Key
+	code, body = e.do(t, http.MethodDelete, adminPath, nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("admin delete code = %d body = %s", code, body)
+	}
+	if _, err := e.store.GetProject(e.ctx, adminRemovable.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetProject after admin delete = %v, want ErrNotFound", err)
 	}
 }
 

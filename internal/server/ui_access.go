@@ -169,6 +169,17 @@ func (s *Server) uiRequireProjectMemberManagement(ctx context.Context, user mode
 	return nil
 }
 
+func (s *Server) uiRequireProjectDeletion(ctx context.Context, user model.User, projectID uuid.UUID) error {
+	ok, err := s.store.UserCanDeleteProject(ctx, user, projectID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errUIForbidden
+	}
+	return nil
+}
+
 func (s *Server) uiProjectPermissions(ctx context.Context, user model.User, projectID uuid.UUID) (store.ProjectPermissions, error) {
 	return s.store.ProjectPermissionsForUser(ctx, user, projectID)
 }

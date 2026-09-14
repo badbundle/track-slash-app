@@ -452,6 +452,58 @@ func TestMCPProjectMemberRolesAndReadonlyAccess(t *testing.T) {
 	})
 }
 
+func TestMCPDeleteProjectRequiresOwnerOrAdmin(t *testing.T) {
+	t.Parallel()
+	e := newMCPHTTPEnv(t, nil)
+
+	owner, err := e.store.CreateUserProfile(e.ctx, "mcp-del-owner-"+e.projKey, "mcp-del-owner-"+e.projKey+"@example.com", "MCP Delete Owner")
+	if err != nil {
+		t.Fatalf("CreateUserProfile owner: %v", err)
+	}
+	member, err := e.store.CreateUserProfile(e.ctx, "mcp-del-member-"+e.projKey, "mcp-del-member-"+e.projKey+"@example.com", "MCP Delete Member")
+	if err != nil {
+		t.Fatalf("CreateUserProfile member: %v", err)
+	}
+	tokenFor := func(t *testing.T, user model.User) string {
+		t.Helper()
+		token, err := e.store.CreateAuthToken(e.ctx, store.CreateAuthTokenParams{UserID: user.ID, Kind: model.AuthTokenKindAPI, Name: "delete project test"})
+		if err != nil {
+			t.Fatalf("CreateAuthToken %s: %v", user.Username, err)
+		}
+		return token.RawToken
+	}
+	project, err := e.store.CreateProjectForUser(e.ctx, owner.ID, uniqueProjectKey(t), "MCP deletable", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForUser: %v", err)
+	}
+	if _, err := e.store.GrantProjectAccess(e.ctx, project.ID, member.ID); err != nil {
+		t.Fatalf("GrantProjectAccess: %v", err)
+	}
+	ownerSession := mcpConnect(t, e, tokenFor(t, owner))
+	memberSession := mcpConnect(t, e, tokenFor(t, member))
+	adminSession := mcpConnect(t, e, e.authToken)
+	args := map[string]any{"owner": owner.Username, "key": project.Key}
+
+	mcpCallExpectError(t, e, memberSession, "track_delete_project", args)
+	if _, err := e.store.GetProject(e.ctx, project.ID); err != nil {
+		t.Fatalf("project deleted by a write member: %v", err)
+	}
+
+	mcpCall(t, e, ownerSession, "track_delete_project", args)
+	if _, err := e.store.GetProject(e.ctx, project.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetProject after owner delete = %v, want ErrNotFound", err)
+	}
+
+	adminRemovable, err := e.store.CreateProjectForUser(e.ctx, owner.ID, uniqueProjectKey(t), "MCP admin deletable", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForUser admin removable: %v", err)
+	}
+	mcpCall(t, e, adminSession, "track_delete_project", map[string]any{"owner": owner.Username, "key": adminRemovable.Key})
+	if _, err := e.store.GetProject(e.ctx, adminRemovable.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetProject after admin delete = %v, want ErrNotFound", err)
+	}
+}
+
 func TestMCPPublicProjectAccessAndBlocks(t *testing.T) {
 	t.Parallel()
 	e := newMCPHTTPEnv(t, nil)

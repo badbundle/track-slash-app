@@ -81,6 +81,12 @@ func uiProjectFavoritePath(project model.Project) string {
 	return uiProjectPath(project) + "/favorite"
 }
 
+// uiProjectDeletePath serves the confirmation dialog on GET and performs the
+// deletion on POST, so the menu entry and the dialog's own form share one URL.
+func uiProjectDeletePath(project model.Project) string {
+	return uiProjectPath(project) + "/delete"
+}
+
 func uiProjectGitHubConnectionsPath(project model.Project) string {
 	return uiProjectPath(project) + "/github/connections"
 }

@@ -70,11 +70,80 @@ func TestUIBreadcrumbsIncludeOwnerForAnotherProfile(t *testing.T) {
 
 func TestUIProjectFavoriteViewKeepsSprintHistory(t *testing.T) {
 	t.Parallel()
-	if got := uiProjectFavoriteView("sprints"); got != "sprints" {
-		t.Fatalf("uiProjectFavoriteView(sprints) = %q, want sprints", got)
+	if got := uiProjectPanelView("sprints"); got != "sprints" {
+		t.Fatalf("uiProjectPanelView(sprints) = %q, want sprints", got)
 	}
-	if got := uiProjectFavoriteView("unknown"); got != "sprint" {
-		t.Fatalf("uiProjectFavoriteView(unknown) = %q, want sprint", got)
+	if got := uiProjectPanelView("unknown"); got != "sprint" {
+		t.Fatalf("uiProjectPanelView(unknown) = %q, want sprint", got)
+	}
+}
+
+func TestUIProjectDeleteModalIsGatedAndSelfExplaining(t *testing.T) {
+	t.Parallel()
+
+	project := model.Project{OwnerUsername: "bradley", Key: "TRACK", Name: "Track Slash"}
+	modal := uiProjectDeleteModal(&uiProjectPanelData{Project: project, View: "all"})
+	if modal.ID != "project-delete" || !modal.Open || !modal.ClientControlled {
+		t.Fatalf("delete modal = %#v", modal)
+	}
+	if modal.CancelHXGet != "/bradley/projects/TRACK/all/panel" || modal.CancelHXPushURL != "false" {
+		t.Fatalf("delete modal cancel = %#v", modal)
+	}
+	if len(modal.Badges) != 1 || modal.Badges[0].Label != project.Key {
+		t.Fatalf("delete modal badges = %#v", modal.Badges)
+	}
+	if !strings.Contains(modal.Description, project.Name) {
+		t.Fatalf("delete modal description = %q, want the project named", modal.Description)
+	}
+
+	render := func(t *testing.T, panel *uiProjectPanelData) string {
+		t.Helper()
+		var buf bytes.Buffer
+		panel.Project = project
+		panel.View = "sprint"
+		panel.ProjectTabs = uiProjectTabs(project, "sprint", nil)
+		if err := uiTemplates.ExecuteTemplate(&buf, "project-panel", panel); err != nil {
+			t.Fatalf("ExecuteTemplate: %v", err)
+		}
+		return buf.String()
+	}
+
+	hidden := render(t, &uiProjectPanelData{CanWrite: true})
+	if strings.Contains(hidden, "Delete project") {
+		t.Fatalf("delete action rendered without permission: %s", hidden)
+	}
+	closed := render(t, &uiProjectPanelData{CanWrite: true, CanDeleteProject: true})
+	if !strings.Contains(closed, `href="/bradley/projects/TRACK/delete?view=sprint"`) {
+		t.Fatalf("delete action missing from the project actions menu: %s", closed)
+	}
+	if strings.Contains(closed, `id="project-delete"`) {
+		t.Fatalf("delete dialog rendered while closed: %s", closed)
+	}
+	// The dialog only opens for someone allowed to use it, so a stale flag on a
+	// panel without permission cannot expose the form.
+	denied := render(t, &uiProjectPanelData{CanWrite: true, DeleteProject: true})
+	if strings.Contains(denied, `id="project-delete"`) {
+		t.Fatalf("delete dialog rendered without permission: %s", denied)
+	}
+	open := render(t, &uiProjectPanelData{
+		CSRFToken:          "csrf",
+		CanWrite:           true,
+		CanDeleteProject:   true,
+		DeleteProject:      true,
+		DeleteProjectInput: "TRAC",
+		DeleteProjectError: "Type TRACK to confirm deletion.",
+	})
+	for _, want := range []string{
+		`id="project-delete"`,
+		`action="/bradley/projects/TRACK/delete"`,
+		`name="key"`,
+		`value="TRAC"`,
+		"Type TRACK to confirm deletion.",
+		`name="csrf_token"`,
+	} {
+		if !strings.Contains(open, want) {
+			t.Fatalf("open delete dialog missing %q: %s", want, open)
+		}
 	}
 }
 

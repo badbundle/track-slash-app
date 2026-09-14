@@ -99,7 +99,7 @@ func (s *Server) uiToggleProjectFavorite(w http.ResponseWriter, r *http.Request)
 		writeUIStoreError(w, err)
 		return
 	}
-	view := uiProjectFavoriteView(r.Form.Get("view"))
+	view := uiProjectPanelView(r.Form.Get("view"))
 	if !isHTMXRequest(r) {
 		http.Redirect(w, r, uiProjectViewPath(project, view), http.StatusSeeOther)
 		return
@@ -135,7 +135,9 @@ func (s *Server) uiProjectAllIssuePage(w http.ResponseWriter, r *http.Request) {
 	renderUITemplate(w, http.StatusOK, "project-all-issue-page", pageData)
 }
 
-func uiProjectFavoriteView(raw string) string {
+// uiProjectPanelView keeps an action on the project view it was triggered from,
+// falling back to the default view when the caller names one that does not exist.
+func uiProjectPanelView(raw string) string {
 	switch raw {
 	case "about", "sprint", "planned", "all", "context", "sprints", "changelog", "members":
 		return raw
@@ -487,6 +489,7 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 		CanCreateIssues:            permissions.CanCreateIssues,
 		PublicIssueCreationEnabled: permissions.IsPublic && permissions.PublicIssueCreation && !permissions.IsBlocked,
 		CanManageMembers:           permissions.CanManageMembers,
+		CanDeleteProject:           permissions.CanDelete,
 		OwnerCrumb:                 currentUser(r).ID != project.OwnerID,
 		Favorite:                   favorite,
 		ProjectTabs:                uiProjectTabs(project, view, assigneeIDs),

@@ -153,11 +153,11 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
-		return
-	}
 	project, ok := s.projectFromRoute(w, r)
 	if !ok {
+		return
+	}
+	if !s.requireProjectDeletion(w, r, project.ID) {
 		return
 	}
 	if err := s.store.DeleteProject(r.Context(), project.ID); err != nil {

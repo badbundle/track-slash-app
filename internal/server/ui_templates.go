@@ -139,6 +139,8 @@ var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
 	"projectImage":                   uiProjectImagePath,
 	"projectImageDelete":             uiProjectImageDeletePath,
 	"projectFavorite":                uiProjectFavoritePath,
+	"projectDelete":                  uiProjectDeletePath,
+	"projectDeleteModal":             uiProjectDeleteModal,
 	"projectGitHubConnections":       uiProjectGitHubConnectionsPath,
 	"projectGitHubDisconnect":        uiProjectGitHubConnectionDisconnectPath,
 	"projectMembers":                 uiProjectMembersPath,

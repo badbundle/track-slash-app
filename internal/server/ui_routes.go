@@ -164,6 +164,8 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Get("/{owner}/projects/{key}/name/edit", s.uiProjectWriteHandler(s.uiEditProjectName))
 		r.Post("/{owner}/projects/{key}/name", s.uiProjectWriteHandler(s.uiUpdateProjectName))
 		r.Post("/{owner}/projects/{key}/favorite", s.uiToggleProjectFavorite)
+		r.Get("/{owner}/projects/{key}/delete", s.uiConfirmDeleteProject)
+		r.Post("/{owner}/projects/{key}/delete", s.uiDeleteProject)
 		r.Post("/{owner}/projects/{key}/github/connections", s.uiConnectGitHubRepository)
 		r.Post("/{owner}/projects/{key}/github/connections/{connectionID}/disconnect", s.uiDisconnectGitHubRepository)
 		r.Get("/{owner}/projects/{key}/members", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPage(w, r, "members") })
