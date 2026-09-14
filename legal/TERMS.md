@@ -58,7 +58,7 @@ Where reasonably practicable, we will try to give notice before closing an accou
 
 The source code in the track-slash repository is licensed separately under the MIT License. These Preview Terms govern use of the Bad Bundle-operated Preview; they do not replace or restrict the MIT License for the software itself.
 
-The trackslash name and branding are addressed separately in the repository's [Trademark Policy](https://github.com/badbundle/track-slash/blob/main/TRADEMARKS.md). Independent operators are responsible for their own users, terms, privacy notices, security, and compliance.
+The trackslash name and branding are addressed separately in the repository's [Trademark Policy](https://github.com/badbundle/track-slash-app/blob/main/TRADEMARKS.md). Independent operators are responsible for their own users, terms, privacy notices, security, and compliance.
 
 ## 8. Disclaimer
 
