@@ -63,6 +63,9 @@ func TestGetProjectCompletionHistoryReplaysLifecycleEvents(t *testing.T) {
 	}
 }
 
+// This is the one test that exercises the default-clock path, and it holds no
+// issues on purpose: with nothing to count, a skewed database clock cannot move
+// the result. Adding an issue here would reintroduce that flake.
 func TestGetProjectCompletionHistoryEmptyDefaultAndMissingProject(t *testing.T) {
 	t.Parallel()
 	env := newSprintsEnv(t)
@@ -83,16 +86,26 @@ func TestGetProjectCompletionHistoryEmptyDefaultAndMissingProject(t *testing.T) 
 	}
 }
 
+// Every timestamp here is pinned. Letting the issue keep its Postgres-written
+// created_at while the history defaulted to the Go process clock made this fail
+// whenever the database ran even microseconds ahead: the issue then sorted after
+// the final point's AsOf and was dropped from the count entirely.
 func TestGetProjectCompletionHistoryCountsClosedAsCompleted(t *testing.T) {
 	t.Parallel()
 	env := newSprintsEnv(t)
+	now := time.Date(2026, 4, 20, 12, 0, 0, 0, time.UTC)
+	created := now.AddDate(0, 0, -14)
+
 	issue := mustCreateIssue(t, env, "closed completion history")
+	setCompletionIssueCreatedAt(t, env, issue.ID, created)
 	closed := model.StatusClosed
 	reason := model.CloseReasonWontDo
 	if _, err := env.store.UpdateIssue(env.ctx, issue.ID, store.UpdateIssueParams{Status: &closed, CloseReason: &reason}); err != nil {
 		t.Fatalf("UpdateIssue closed: %v", err)
 	}
-	history, err := env.store.GetProjectCompletionHistory(env.ctx, store.ProjectCompletionHistoryParams{ProjectID: env.projectID})
+	setLatestCompletionEventAt(t, env, issue.ID, "update", created.AddDate(0, 0, 7))
+
+	history, err := env.store.GetProjectCompletionHistory(env.ctx, store.ProjectCompletionHistoryParams{ProjectID: env.projectID, Now: now})
 	if err != nil {
 		t.Fatalf("GetProjectCompletionHistory: %v", err)
 	}
