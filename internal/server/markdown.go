@@ -27,11 +27,22 @@ type markdownRenderer struct {
 }
 
 func renderIssueDescriptionMarkdown(issue model.Issue, attachments []model.IssueAttachment) template.HTML {
+	return renderIssueMarkdown(issue, issue.Description, attachments)
+}
+
+// renderIssueCommentMarkdown renders a comment body with the same Markdown
+// pipeline as the issue description, so object-N refs resolve against the
+// attachments on the comment's issue.
+func renderIssueCommentMarkdown(issue model.Issue, comment model.Comment, attachments []model.IssueAttachment) template.HTML {
+	return renderIssueMarkdown(issue, comment.Body, attachments)
+}
+
+func renderIssueMarkdown(issue model.Issue, source string, attachments []model.IssueAttachment) template.HTML {
 	objects := make([]model.StorageObject, 0, len(attachments))
 	for _, attachment := range attachments {
 		objects = append(objects, attachment.Object)
 	}
-	return renderDescriptionMarkdown(issue.Description, objects, func(object model.StorageObject) string {
+	return renderDescriptionMarkdown(source, objects, func(object model.StorageObject) string {
 		return uiIssueAttachmentContentPath(issue, object)
 	})
 }

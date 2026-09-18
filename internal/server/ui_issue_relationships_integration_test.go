@@ -209,12 +209,18 @@ func TestUICreateCommentPostsAndRerendersIssuePanel(t *testing.T) {
 		t.Fatalf("comments = %+v, want one new comment by %s", comments, user.ID)
 	}
 
-	second := url.Values{"body": {"second ui comment"}}
+	second := url.Values{"body": {"second ui comment with **markdown** <script>alert(1)</script>"}}
 	res = e.uiDoNoRedirect(t, http.MethodPost, e.issueCommentsPath(issue), token, strings.NewReader(second.Encode()))
 	defer res.Body.Close()
 	body = readBody(t, res)
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("second code = %d body = %s", res.StatusCode, body)
+	}
+	if !strings.Contains(body, "<strong>markdown</strong>") || strings.Contains(body, "**markdown**") {
+		t.Fatalf("comment should render as Markdown: %s", body)
+	}
+	if strings.Contains(body, "<script>alert(1)</script>") {
+		t.Fatalf("comment should not render raw HTML: %s", body)
 	}
 	secondCommentStart := strings.Index(body, "second ui comment")
 	firstCommentStart = strings.Index(body, "new ui comment")
@@ -226,7 +232,7 @@ func TestUICreateCommentPostsAndRerendersIssuePanel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListCommentsForIssue after second comment: %v", err)
 	}
-	if len(comments) != 2 || comments[0].Body != "new ui comment" || comments[1].Body != "second ui comment" {
+	if len(comments) != 2 || comments[0].Body != "new ui comment" || comments[1].Body != "second ui comment with **markdown** <script>alert(1)</script>" {
 		t.Fatalf("store comments = %+v, want API/store default oldest-first", comments)
 	}
 

@@ -59,7 +59,8 @@ func TestUIIssuePanelRendersReadonlyDetail(t *testing.T) {
 		Reporter:      &reporter,
 		CanEditSprint: true,
 		Comments: []uiIssueCommentItem{{
-			Comment:     model.Comment{ID: commentID, IssueID: issueID, Number: 2, Ref: "comment-2", AuthorID: userID, Body: "Looks ready.", CreatedAt: when, UpdatedAt: when},
+			Comment:     model.Comment{ID: commentID, IssueID: issueID, Number: 2, Ref: "comment-2", AuthorID: userID, Body: "Looks **ready**.", CreatedAt: when, UpdatedAt: when},
+			BodyHTML:    `<p>Looks <strong>ready</strong>.</p>`,
 			AuthorName:  "Ada Lovelace",
 			AuthorEmail: "ada@example.com",
 			CanEdit:     true,
@@ -104,7 +105,7 @@ func TestUIIssuePanelRendersReadonlyDetail(t *testing.T) {
 		"TRACK-8",
 		"Linked work",
 		"Comments",
-		"Looks ready.",
+		`<p>Looks <strong>ready</strong>.</p>`,
 		`href="/bradley/issues/TRACK-8"`,
 		`hx-get="/bradley/issues/TRACK-8/panel"`,
 		`aria-label="Issue actions"`,
@@ -178,7 +179,7 @@ func TestUIIssuePanelRendersReadonlyDetail(t *testing.T) {
 		`class="grid h-4 w-4 shrink-0 place-items-center bg-slate-100 text-[7px] font-semibold leading-none text-slate-600 dark:bg-slate-800 dark:text-slate-300 overflow-hidden rounded-full"`,
 		`class="w-fit max-w-full rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2 dark:border-indigo-900/50 dark:bg-indigo-950/25"`,
 		`class="mb-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pl-1"`,
-		`class="whitespace-pre-wrap break-words text-sm leading-6 text-slate-800 dark:text-slate-200"`,
+		`class="markdown-body text-sm leading-6 text-slate-800 dark:text-slate-200"`,
 		`inline-flex w-fit justify-self-start items-center whitespace-nowrap rounded-md border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px]`,
 		`class="col-span-2 row-start-2 flex min-w-0 flex-wrap items-center gap-2 hover:text-indigo-700 dark:hover:text-indigo-200 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:flex-nowrap"`,
 		`class="min-w-0 basis-full break-words text-slate-900 dark:text-slate-100 sm:basis-auto sm:flex-1 sm:truncate">Linked work</span>`,
@@ -264,7 +265,7 @@ func TestUIIssuePanelRendersReadonlyDetail(t *testing.T) {
 		t.Fatalf("comments should render as bubbles instead of bordered rows: %s", body)
 	}
 	commentMetaStart := strings.Index(body, `<span class="text-xs font-medium text-slate-600 dark:text-slate-300">Ada Lovelace</span>`)
-	commentBodyStart := strings.Index(body, "Looks ready.")
+	commentBodyStart := strings.Index(body, `<p>Looks <strong>ready</strong>.</p>`)
 	if commentMetaStart < 0 || commentBodyStart < 0 || commentMetaStart > commentBodyStart {
 		t.Fatalf("issue panel should render comment metadata above the body: %s", body)
 	}
