@@ -256,6 +256,7 @@ type uiProjectAllIssuePageData struct {
 
 type uiIssueCommentItem struct {
 	Comment                             model.Comment
+	BodyHTML                            template.HTML
 	AuthorID                            uuid.UUID
 	AuthorUsername                      string
 	AuthorName                          string

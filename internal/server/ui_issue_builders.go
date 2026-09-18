@@ -460,6 +460,13 @@ func (s *Server) uiBuildIssuePanel(ctx context.Context, r *http.Request, issueID
 			return nil, err
 		}
 	}
+	attachments, attachmentsHasMore, err := s.store.ListIssueAttachments(ctx, store.ListIssueAttachmentsParams{
+		IssueID: issueID,
+		Limit:   MaxLimit,
+	})
+	if err != nil {
+		return nil, err
+	}
 	comments, commentsHasMore, err := s.store.ListCommentsForIssue(ctx, store.ListCommentsForIssueParams{
 		IssueID:     issueID,
 		Limit:       MaxLimit,
@@ -476,6 +483,7 @@ func (s *Server) uiBuildIssuePanel(ctx context.Context, r *http.Request, issueID
 		}
 		item := uiIssueCommentItem{
 			Comment:    comment,
+			BodyHTML:   renderIssueCommentMarkdown(issue, comment, attachments),
 			AuthorID:   comment.AuthorID,
 			AuthorName: "Unknown user",
 			CanEdit:    permissions.CanWrite && comment.AuthorID == currentUser(r).ID,
@@ -513,13 +521,6 @@ func (s *Server) uiBuildIssuePanel(ctx context.Context, r *http.Request, issueID
 		linkItems = append(linkItems, item)
 	}
 	contexts, contextsHasMore, err := s.store.ListContextsForIssue(ctx, store.ListContextsForIssueParams{
-		IssueID: issueID,
-		Limit:   MaxLimit,
-	})
-	if err != nil {
-		return nil, err
-	}
-	attachments, attachmentsHasMore, err := s.store.ListIssueAttachments(ctx, store.ListIssueAttachmentsParams{
 		IssueID: issueID,
 		Limit:   MaxLimit,
 	})

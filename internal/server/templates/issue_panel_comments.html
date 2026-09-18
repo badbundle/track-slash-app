@@ -56,7 +56,7 @@
             </form>
             {{else}}
             <div class="w-fit max-w-full rounded-xl border border-indigo-100 bg-indigo-50/70 px-3 py-2 dark:border-indigo-900/50 dark:bg-indigo-950/25">
-              <div class="whitespace-pre-wrap break-words text-sm leading-6 text-slate-800 dark:text-slate-200">{{.Comment.Body}}</div>
+              <div class="markdown-body text-sm leading-6 text-slate-800 dark:text-slate-200">{{.BodyHTML}}</div>
             </div>
             {{end}}
           </article>
