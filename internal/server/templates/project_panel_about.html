@@ -220,7 +220,29 @@
 
     </div>
 
-    <aside class="min-w-0">
+    <aside class="min-w-0 space-y-6">
+      <section class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Access</h2>
+          {{if .CanManageMembers}}<a href="{{projectMembers .Project}}" aria-label="Manage project access" hx-get="{{projectMembers .Project}}" hx-target="#main" hx-push-url="{{projectMembers .Project}}" class="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900">
+            <i data-lucide="settings-2" class="h-4 w-4" aria-hidden="true"></i>
+          </a>{{end}}
+        </div>
+        <dl class="mt-4 space-y-4 text-sm">
+          <div>
+            <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Visibility</dt>
+            <dd class="mt-1">
+              {{template "project-visibility-badge" .AccessSettings.IsPublic}}
+              <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{{if .AccessSettings.IsPublic}}Anyone can view this project, even without signing in.{{else}}Only members can view this project.{{end}}</p>
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Issue creation</dt>
+            <dd class="mt-1 text-slate-900 dark:text-slate-100">{{if .AccessSettings.PublicIssueCreation}}Any signed-in user{{else}}Members only{{end}}</dd>
+          </div>
+        </dl>
+      </section>
+
       <section class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Details</h2>
         <dl class="mt-4 space-y-4 text-sm">

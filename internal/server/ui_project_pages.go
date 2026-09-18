@@ -499,6 +499,12 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 		ClearAssigneeHXPush:        uiProjectViewPath(project, view),
 		DeleteNotice:               deleteNotice,
 	}
+	// The permissions lookup already read both access columns, so About and
+	// Members render them without a second round trip.
+	panel.AccessSettings = model.ProjectAccessSettings{
+		IsPublic:            permissions.IsPublic,
+		PublicIssueCreation: permissions.PublicIssueCreation,
+	}
 	if view == "all" {
 		assignees, err = s.store.ListProjectAssignees(ctx, projectID)
 		if err != nil {
@@ -702,10 +708,6 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 			return nil, errUIForbidden
 		}
 		panel.Members, err = s.store.ListProjectMembers(ctx, projectID)
-		if err != nil {
-			return nil, err
-		}
-		panel.AccessSettings, err = s.store.GetProjectAccessSettings(ctx, projectID)
 		if err != nil {
 			return nil, err
 		}

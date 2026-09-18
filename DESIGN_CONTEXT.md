@@ -40,6 +40,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Keep `All` page controls in one coherent section. Avoid loose chip clusters; group filters in aligned rows and separate sort controls visually while keeping them in the same control shell.
 - For filters, support multi-select where it helps scanning. Statuses, priorities, and assignees use OR semantics within each group, while different groups combine together.
 - Put project tag management in the project About details sidebar, parallel to issue tag management. Keep it out of the project overflow menu.
+- Show project access settings at a glance at the top of the About sidebar in an `Access` card: the `project-visibility-badge` with a one-line explanation, then `Issue creation` as `Members only` or `Any signed-in user`. The card is read-only for everyone; owners and admins get a compact settings action that opens the members page, where the settings are edited.
 - Keep visual changes layout-focused unless the user explicitly asks for new creation, editing, drag/drop, or planning workflow controls.
 
 ## Sprint Descriptions

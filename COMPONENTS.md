@@ -19,6 +19,7 @@ Reusable server-rendered UI components live in `internal/server/templates/compon
 
 - `issue-key`: compact monospace issue identifier badge. Use it for ticket numbers wherever possible; if a generic data-driven badge must show an issue identifier, mirror this component's monospace, uppercase, compact bordered treatment.
 - `project-key`: compact project key badge.
+- `project-visibility-badge`: `Public` (globe, emerald) or `Private` (lock, neutral) badge from a boolean `IsPublic`. Carries `data-project-visibility` so tests and scripts can read the state without parsing copy.
 - `sprint-ref`: compact monospace canonical sprint-reference badge. Keep the `sprint-N` value lowercase and pair it with sprint titles on current, planned, and historical cards.
 - `count-badge`: small numeric count badge.
 - `sprint-issue-count-badge`: compact sprint-total badge that uses `Issue` for one and `Issues` for zero or multiple while reusing `count-badge` styling.
