@@ -2,24 +2,32 @@ package server
 
 import "net/http"
 
-// mcpBearerChallenge is what an unauthenticated /mcp request is told to do
-// about it. The MCP SDK only emits WWW-Authenticate when it is configured with
-// RFC 9728 resource metadata, which trackslash deliberately does not serve: it
-// authenticates MCP with manually issued API tokens, not an OAuth flow.
+// mcpBearerChallenge is what an unauthenticated /mcp request is told to do about
+// it: either present a token, or go and discover how to obtain one.
 //
-// Without the header, a client that attempts OAuth discovery reports an opaque
-// JSON parse failure against the 404 of a metadata document that was never
-// meant to exist, and nothing in the error says a token is what is needed.
-const mcpBearerChallenge = `Bearer realm="trackslash"`
+// The resource_metadata parameter is RFC 9728, and pointing at that document is
+// what lets a client start an OAuth flow on its own. trackslash also still
+// accepts a hand-made API token, so the challenge advertises discovery without
+// implying it is the only way in.
+//
+// The URL has to be built per request. It is derived from TRACK_SLASH_PUBLIC_ORIGIN
+// when that is set and from the request host otherwise, which is what makes a
+// localhost instance work with no configuration at all. The MCP SDK can emit
+// this header itself, but only from a string fixed when the route is mounted,
+// which cannot express the second case.
+func (s *Server) mcpBearerChallenge(r *http.Request) string {
+	return `Bearer realm="trackslash", resource_metadata="` + s.oauthResourceMetadataURL(r) + `"`
+}
 
-func mcpBearerChallengeMiddleware(next http.Handler) http.Handler {
+func (s *Server) mcpBearerChallengeMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		next.ServeHTTP(&mcpChallengeWriter{ResponseWriter: w}, r)
+		next.ServeHTTP(&mcpChallengeWriter{ResponseWriter: w, challenge: s.mcpBearerChallenge(r)}, r)
 	})
 }
 
 type mcpChallengeWriter struct {
 	http.ResponseWriter
+	challenge   string
 	wroteHeader bool
 }
 
@@ -27,7 +35,7 @@ func (w *mcpChallengeWriter) WriteHeader(status int) {
 	if !w.wroteHeader {
 		w.wroteHeader = true
 		if status == http.StatusUnauthorized && w.Header().Get("WWW-Authenticate") == "" {
-			w.Header().Set("WWW-Authenticate", mcpBearerChallenge)
+			w.Header().Set("WWW-Authenticate", w.challenge)
 		}
 	}
 	w.ResponseWriter.WriteHeader(status)

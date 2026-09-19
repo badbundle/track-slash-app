@@ -141,14 +141,19 @@ func (s *Server) Router() http.Handler {
 		r.Use(s.devReloadMiddleware)
 	}
 	if len(s.corsAllowedOrigins) > 0 {
-		r.Use(cors.Handler(cors.Options{
+		// The OAuth discovery and token endpoints answer any origin and set
+		// their own CORS headers, so they are routed around this middleware.
+		// go-chi/cors answers a preflight from an origin outside the allow list
+		// with a bare 200 and no headers, without calling the handler beneath,
+		// which a browser reads as a refusal.
+		r.Use(exceptOAuthPublicPaths(cors.Handler(cors.Options{
 			AllowedOrigins:   s.corsAllowedOrigins,
 			AllowedMethods:   corsAllowedMethods,
 			AllowedHeaders:   []string{"Authorization", "Content-Type", "Accept", "If-Match", "Last-Event-ID", "MCP-Protocol-Version", "Mcp-Session-Id"},
 			ExposedHeaders:   []string{"X-Request-ID", "Mcp-Session-Id"},
 			AllowCredentials: false,
 			MaxAge:           300,
-		}))
+		})))
 	}
 
 	r.Use(serveHEADAsGET)

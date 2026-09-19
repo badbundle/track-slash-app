@@ -770,6 +770,35 @@ type uiTokenPanelData struct {
 	ActiveSessions int
 	Error          string
 	Created        string
+	// ConnectedApps counts live access tokens issued to OAuth clients. They are
+	// minted and retired on their own schedule as connectors refresh, so a row
+	// each would churn beneath the tokens people actually manage.
+	ConnectedApps       int
+	OAuthClients        []model.OAuthClient
+	OAuthError          string
+	CreatedClientID     string
+	CreatedClientSecret string
+}
+
+// uiOAuthConsentData backs the screen that asks a user to approve a connector.
+// It is rendered standalone rather than inside the app shell: this is an
+// interstitial shown on behalf of a third party, not a page of the product.
+type uiOAuthConsentData struct {
+	CSRFToken     string
+	User          model.User
+	ClientName    string
+	ClientID      string
+	RedirectURI   string
+	RedirectHost  string
+	State         string
+	Scope         string
+	Resource      string
+	CodeChallenge string
+}
+
+type uiOAuthErrorData struct {
+	Title   string
+	Message string
 }
 
 type uiSettingsPanelData struct {

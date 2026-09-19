@@ -290,6 +290,18 @@ func uiTokenCreateModal(panel *uiTokenPanelData) uiModalData {
 	}
 }
 
+func uiOAuthClientCreateModal(panel *uiTokenPanelData) uiModalData {
+	return uiModalData{
+		ID:               "oauth-client-create",
+		Title:            "Register a connector",
+		Description:      "Give the connector a name and the exact redirect URI it will use.",
+		WidthClass:       "max-w-lg",
+		CancelLabel:      "Cancel registering connector",
+		ClientControlled: true,
+		Open:             panel.OAuthError != "" || panel.CreatedClientSecret != "",
+	}
+}
+
 func uiPasskeyCreateModal(uiSettingsPanelData) uiModalData {
 	return uiModalData{
 		ID:               "passkey-create",

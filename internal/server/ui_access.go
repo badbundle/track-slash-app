@@ -539,7 +539,11 @@ func safeUINext(raw string) string {
 	}
 	path, _, _ := strings.Cut(raw, "?")
 	switch {
-	case path == "/", path == "/me", path == "/me/panel", path == "/me/all", path == "/me/all/panel", path == "/projects", path == "/projects/panel", path == "/projects/new", path == "/projects/new/panel", path == "/issues/new", path == "/issues/new/panel", path == "/issues/new/projects", path == "/settings", path == "/tokens":
+	// /oauth/authorize is here because a connector sends a signed-out user
+	// straight to it. Without it the whole authorization request, query string
+	// and all, is replaced by "/" on the way through the login page, and the
+	// connection fails with nothing to explain why.
+	case path == "/", path == "/me", path == "/me/panel", path == "/me/all", path == "/me/all/panel", path == "/projects", path == "/projects/panel", path == "/projects/new", path == "/projects/new/panel", path == "/issues/new", path == "/issues/new/panel", path == "/issues/new/projects", path == "/settings", path == "/tokens", path == oauthAuthorizePath:
 		return raw
 	case safeUIIssuePath(path):
 		return raw

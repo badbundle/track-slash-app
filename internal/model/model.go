@@ -242,11 +242,16 @@ type AuthTokenKind string
 const (
 	AuthTokenKindAPI     AuthTokenKind = "api"
 	AuthTokenKindSession AuthTokenKind = "session"
+	// AuthTokenKindOAuth is an access token issued to a connected OAuth client
+	// through the authorization-code flow. It carries the permissions of the
+	// user who approved it, exactly as an API token they created themselves
+	// would, and expires on its own without needing to be revoked.
+	AuthTokenKindOAuth AuthTokenKind = "oauth"
 )
 
 func (k AuthTokenKind) Valid() bool {
 	switch k {
-	case AuthTokenKindAPI, AuthTokenKindSession:
+	case AuthTokenKindAPI, AuthTokenKindSession, AuthTokenKindOAuth:
 		return true
 	}
 	return false

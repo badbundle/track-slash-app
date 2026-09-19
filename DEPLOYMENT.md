@@ -169,6 +169,18 @@ Request contexts and body reads use these deadlines:
 
 HTTP headers retain a separate five-second read deadline. WebSocket, MCP, and development reload streams are explicitly excluded from request deadlines; idle keep-alive HTTP connections are closed after 60 seconds.
 
+### OAuth connectors
+
+`/oauth/token` and `/oauth/revoke` budget *failures* rather than traffic: the limiter is consumed only when client authentication or a grant fails. Hosted clients refresh from a small pool of shared egress addresses, so a per-IP budget spent by successful refreshes would throttle exactly the traffic that is working. `POST /oauth/authorize` uses the ordinary per-IP limit, since it is already behind a session.
+
+Set `TRACK_SLASH_PUBLIC_ORIGIN` when OAuth connectors are in use. The discovery documents otherwise derive their issuer and resource identifiers from the request `Host`, which is correct for a localhost instance but wrong behind a proxy that rewrites it, and a moving issuer breaks clients that cached it.
+
+The discovery documents and both token endpoints answer `Access-Control-Allow-Origin: *` and are routed around the shared CORS allow list, which would otherwise refuse preflights from browser-based MCP clients. They are public documents or authenticated by a client secret carried in the request, never by cookie, so the wildcard exposes nothing; credentialed CORS stays off everywhere.
+
+The consent screen at `/oauth/authorize` is the one response whose `form-action` is widened beyond `'self'`, to the single origin the connector registered, because browsers apply that directive across a form submission's whole redirect chain. Every other route keeps the strict policy.
+
+Client secrets are stored as hashes and cannot be recovered; a lost secret means registering a new connector. Revoking a connector scrubs its secret, forgets every remembered approval, and revokes its access and refresh tokens in one transaction. Access tokens live for an hour and refresh tokens for 90 days with rotation on each use. See `OAUTH.md`.
+
 ## Object Storage
 
 Production object storage is configured on the frontend app, not on the `-migrate-only` job. The migration job only needs `DATABASE_URL`.

@@ -7,12 +7,14 @@ import (
 	"testing"
 )
 
-// A 401 with no WWW-Authenticate leaves a client guessing. Discovery-first
-// clients follow the missing metadata document instead and report an opaque
-// JSON parse failure against its 404.
+// A 401 with no WWW-Authenticate leaves a client guessing, and one that omits
+// resource_metadata leaves a discovery-first client unable to find the OAuth
+// flow it would otherwise complete on its own.
 func TestMCPUnauthenticatedRequestAdvertisesBearer(t *testing.T) {
 	t.Parallel()
-	router := New(nil, nil, nil).Router()
+	srv := New(nil, nil, nil)
+	router := srv.Router()
+	wantChallenge := `Bearer realm="trackslash", resource_metadata="http://example.com/.well-known/oauth-protected-resource/mcp"`
 
 	for _, tt := range []struct {
 		name       string
@@ -35,8 +37,8 @@ func TestMCPUnauthenticatedRequestAdvertisesBearer(t *testing.T) {
 			if rec.Code != http.StatusUnauthorized {
 				t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 			}
-			if got := rec.Header().Get("WWW-Authenticate"); got != mcpBearerChallenge {
-				t.Fatalf("WWW-Authenticate = %q, want %q", got, mcpBearerChallenge)
+			if got := rec.Header().Get("WWW-Authenticate"); got != wantChallenge {
+				t.Fatalf("WWW-Authenticate = %q, want %q", got, wantChallenge)
 			}
 		})
 	}
@@ -44,6 +46,9 @@ func TestMCPUnauthenticatedRequestAdvertisesBearer(t *testing.T) {
 
 func TestMCPBearerChallengeOnlyAppliesToUnauthorized(t *testing.T) {
 	t.Parallel()
+
+	srv := New(nil, nil, nil)
+	computed := `Bearer realm="trackslash", resource_metadata="http://example.com/.well-known/oauth-protected-resource/mcp"`
 
 	for _, tt := range []struct {
 		name          string
@@ -54,7 +59,7 @@ func TestMCPBearerChallengeOnlyAppliesToUnauthorized(t *testing.T) {
 		{name: "success", status: http.StatusOK},
 		{name: "forbidden", status: http.StatusForbidden},
 		{name: "server error", status: http.StatusInternalServerError},
-		{name: "unauthorized", status: http.StatusUnauthorized, wantChallenge: mcpBearerChallenge},
+		{name: "unauthorized", status: http.StatusUnauthorized, wantChallenge: computed},
 		{
 			name:          "an existing challenge is left alone",
 			status:        http.StatusUnauthorized,
@@ -64,7 +69,7 @@ func TestMCPBearerChallengeOnlyAppliesToUnauthorized(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			handler := mcpBearerChallengeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := srv.mcpBearerChallengeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				if tt.existing != "" {
 					w.Header().Set("WWW-Authenticate", tt.existing)
 				}
@@ -89,7 +94,8 @@ func TestMCPChallengeWriterKeepsStreamingCapabilities(t *testing.T) {
 	t.Parallel()
 
 	var flushed bool
-	handler := mcpBearerChallengeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := New(nil, nil, nil)
+	handler := srv.mcpBearerChallengeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		if err := http.NewResponseController(w).Flush(); err != nil {
 			t.Errorf("ResponseController.Flush: %v", err)
@@ -110,7 +116,8 @@ func TestMCPChallengeWriterKeepsStreamingCapabilities(t *testing.T) {
 func TestMCPChallengeWriterIgnoresRepeatedWriteHeader(t *testing.T) {
 	t.Parallel()
 
-	handler := mcpBearerChallengeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := New(nil, nil, nil)
+	handler := srv.mcpBearerChallengeMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.WriteHeader(http.StatusUnauthorized)
 	}))

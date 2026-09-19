@@ -405,7 +405,7 @@ func (s *Server) mountMCPRoutes(r chi.Router) {
 		SessionTimeout: 30 * time.Minute,
 	})
 	authenticated := mcpauth.RequireBearerToken(s.verifyMCPBearerToken, nil)(handler)
-	r.Handle("/mcp", s.mcpOriginMiddleware(mcpBearerChallengeMiddleware(authenticated)))
+	r.Handle(mcpPath, s.mcpOriginMiddleware(s.mcpBearerChallengeMiddleware(authenticated)))
 }
 
 func (s *Server) mcpOriginMiddleware(next http.Handler) http.Handler {
@@ -436,7 +436,10 @@ func (s *Server) verifyMCPBearerToken(ctx context.Context, raw string, _ *http.R
 		}
 		return nil, err
 	}
-	if auth.Token.Kind != model.AuthTokenKindAPI {
+	// API tokens are created by hand; OAuth tokens are issued to a connector the
+	// user approved. Both speak for that user with their permissions. A session
+	// token is a browser cookie and has no business here.
+	if auth.Token.Kind != model.AuthTokenKindAPI && auth.Token.Kind != model.AuthTokenKindOAuth {
 		return nil, mcpauth.ErrInvalidToken
 	}
 	expires := time.Now().Add(100 * 365 * 24 * time.Hour)
