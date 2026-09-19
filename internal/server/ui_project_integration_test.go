@@ -316,6 +316,67 @@ func TestUIProjectAboutStats(t *testing.T) {
 	}
 }
 
+func TestUIProjectAboutShowsAccessSettings(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	readonly, readonlyToken := e.mustUserToken(t, "ui-about-access-readonly")
+	if _, err := e.store.SetProjectMemberRole(e.ctx, e.projectID, readonly.ID, model.ProjectMemberRoleReadonly); err != nil {
+		t.Fatalf("SetProjectMemberRole: %v", err)
+	}
+	membersPath := e.projectPath() + "/members"
+	manageLink := `href="` + membersPath + `" aria-label="Manage project access" hx-get="` + membersPath + `" hx-target="#main" hx-push-url="` + membersPath + `"`
+
+	privateBody := e.uiGet(t, e.projectPath()+"/about", e.authToken)
+	for _, want := range []string{"Access", `data-project-visibility="private"`, `data-lucide="lock"`, ">Private<", "Only members can view this project.", "Issue creation", "Members only", manageLink, `data-lucide="settings-2"`} {
+		if !strings.Contains(privateBody, want) {
+			t.Fatalf("private project about missing %q: %s", want, privateBody)
+		}
+	}
+	for _, notWant := range []string{`data-project-visibility="public"`, "Any signed-in user"} {
+		if strings.Contains(privateBody, notWant) {
+			t.Fatalf("private project about rendered %q: %s", notWant, privateBody)
+		}
+	}
+
+	readonlyBody := e.uiGet(t, e.projectPath()+"/about", readonlyToken)
+	if !strings.Contains(readonlyBody, `data-project-visibility="private"`) || strings.Contains(readonlyBody, manageLink) {
+		t.Fatalf("readonly member should see visibility without the manage link: %s", readonlyBody)
+	}
+
+	if _, err := e.store.UpdateProjectAccessSettings(e.ctx, e.projectID, model.ProjectAccessSettings{IsPublic: true}); err != nil {
+		t.Fatalf("UpdateProjectAccessSettings public: %v", err)
+	}
+	publicBody := e.uiGet(t, e.projectPath()+"/about", e.authToken)
+	for _, want := range []string{`data-project-visibility="public"`, `data-lucide="globe"`, ">Public<", "Anyone can view this project, even without signing in.", "Members only", manageLink} {
+		if !strings.Contains(publicBody, want) {
+			t.Fatalf("public project about missing %q: %s", want, publicBody)
+		}
+	}
+	if strings.Contains(publicBody, `data-project-visibility="private"`) {
+		t.Fatalf("public project about still rendered private badge: %s", publicBody)
+	}
+
+	if _, err := e.store.UpdateProjectAccessSettings(e.ctx, e.projectID, model.ProjectAccessSettings{IsPublic: true, PublicIssueCreation: true}); err != nil {
+		t.Fatalf("UpdateProjectAccessSettings public issue creation: %v", err)
+	}
+	res := e.uiDoNoRedirect(t, http.MethodGet, e.projectPath()+"/about", "", nil)
+	defer res.Body.Close()
+	anonymousBody := readBody(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous public about code = %d body = %s", res.StatusCode, anonymousBody)
+	}
+	for _, want := range []string{`data-project-visibility="public"`, "Any signed-in user"} {
+		if !strings.Contains(anonymousBody, want) {
+			t.Fatalf("anonymous public about missing %q: %s", want, anonymousBody)
+		}
+	}
+	for _, notWant := range []string{"Members only", manageLink} {
+		if strings.Contains(anonymousBody, notWant) {
+			t.Fatalf("anonymous public about rendered %q: %s", notWant, anonymousBody)
+		}
+	}
+}
+
 func TestUIProjectCompletionHistoryVisibleToReadonlyAndPublicReaders(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)
