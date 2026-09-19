@@ -12,7 +12,12 @@ import (
 )
 
 func (s *Server) uiTokensPage(w http.ResponseWriter, r *http.Request) {
-	s.renderUITokens(w, r, "", s.takeUITokenRevealCookie(w, r))
+	clientID, secret := s.takeUIOAuthSecretRevealCookie(w, r)
+	s.renderUITokenPanel(w, r, uiTokenPanelData{
+		Created:             s.takeUITokenRevealCookie(w, r),
+		CreatedClientID:     clientID,
+		CreatedClientSecret: secret,
+	})
 }
 
 func (s *Server) uiRealtime(w http.ResponseWriter, r *http.Request) {
@@ -151,51 +156,72 @@ func (s *Server) uiRevokeToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderUITokens(w http.ResponseWriter, r *http.Request, message, created string) {
+	s.renderUITokenPanel(w, r, uiTokenPanelData{Error: message, Created: created})
+}
+
+// renderUITokenPanel rebuilds the whole page around whatever transient state a
+// preceding action left behind, so the token and connector sections never
+// disagree about what exists.
+func (s *Server) renderUITokenPanel(w http.ResponseWriter, r *http.Request, panel uiTokenPanelData) {
 	all, err := s.store.ListAuthTokens(r.Context(), currentUser(r).ID)
 	if err != nil {
 		writeUIInternalError(w, "ui tokens list auth tokens", err)
 		return
 	}
-	tokens, activeSessions := uiPartitionAuthTokens(all, time.Now())
+	tokens, activeSessions, connectedApps := uiPartitionAuthTokens(all, time.Now())
+	clients, err := s.store.ListOAuthClientsForUser(r.Context(), currentUser(r).ID)
+	if err != nil {
+		writeUIInternalError(w, "ui tokens list oauth clients", err)
+		return
+	}
 	projects, err := s.uiVisibleProjects(r.Context(), currentUser(r))
 	if err != nil {
 		writeUIInternalError(w, "ui tokens visible projects", err)
 		return
 	}
+	panel.CSRFToken = uiSessionCSRFToken(r)
+	panel.Tokens = tokens
+	panel.ActiveSessions = activeSessions
+	panel.ConnectedApps = connectedApps
+	panel.OAuthClients = clients
 	s.renderUIShell(w, r, http.StatusOK, uiShellData{
-		User:     currentUser(r),
-		Projects: projects,
-		TokenPanel: &uiTokenPanelData{
-			CSRFToken:      uiSessionCSRFToken(r),
-			Tokens:         tokens,
-			ActiveSessions: activeSessions,
-			Error:          message,
-			Created:        created,
-		},
+		User:       currentUser(r),
+		Projects:   projects,
+		TokenPanel: &panel,
 	})
 }
 
 // uiPartitionAuthTokens keeps API tokens for the per-row list and reduces web
-// sessions to a live count. Sessions are numerous and their names carry no
-// information, so a row each buried the tokens people actually manage.
+// sessions and connector access tokens to live counts. Both are numerous and
+// their names carry no information, so a row each buried the tokens people
+// actually manage.
 //
 // The sweep that revokes expired sessions is lazy: it runs at most hourly, and
 // only on the back of a token refresh. An unrevoked session is therefore not
 // necessarily one you can still sign in with, and counting those would tell
 // someone they had sessions open that no longer work.
-func uiPartitionAuthTokens(all []model.AuthToken, now time.Time) ([]model.AuthToken, int) {
+func uiPartitionAuthTokens(all []model.AuthToken, now time.Time) ([]model.AuthToken, int, int) {
 	apiTokens := make([]model.AuthToken, 0, len(all))
 	activeSessions := 0
+	connectedApps := 0
 	for _, token := range all {
-		if token.Kind == model.AuthTokenKindSession {
+		switch token.Kind {
+		case model.AuthTokenKindSession:
 			if token.Live(now) {
 				activeSessions++
 			}
-			continue
+		case model.AuthTokenKindOAuth:
+			// Connectors mint a fresh access token roughly every hour, so these
+			// are counted rather than listed. The connector itself is the thing
+			// a person manages, and it has its own row.
+			if token.Live(now) {
+				connectedApps++
+			}
+		default:
+			apiTokens = append(apiTokens, token)
 		}
-		apiTokens = append(apiTokens, token)
 	}
-	return apiTokens, activeSessions
+	return apiTokens, activeSessions, connectedApps
 }
 
 func (s *Server) uiRevokeSessionTokens(w http.ResponseWriter, r *http.Request) {

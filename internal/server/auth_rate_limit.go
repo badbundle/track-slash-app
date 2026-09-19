@@ -106,6 +106,28 @@ func (l *fixedWindowLimiter) allow(key string) (bool, time.Duration) {
 	return true, 0
 }
 
+// blocked reports whether a key has already spent its budget, without spending
+// any of it.
+//
+// allow both tests and increments, which is what an endpoint wants when every
+// request should count. An endpoint that counts only failures has to ask the
+// question on every request but answer for very few, and calling allow there
+// would quietly charge the successes too.
+func (l *fixedWindowLimiter) blocked(key string) (bool, time.Duration) {
+	now := l.now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	entry, exists := l.entries[key]
+	if !exists || !now.Before(entry.reset) {
+		return false, 0
+	}
+	if entry.count >= l.limit {
+		return true, entry.reset.Sub(now)
+	}
+	return false, 0
+}
+
 func (s *Server) authIPRateLimited(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		allowed, retryAfter := s.authLimiter.byIP.allow(clientIP(r, s.trustedProxyCIDRs))

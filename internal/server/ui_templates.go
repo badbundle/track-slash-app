@@ -35,6 +35,7 @@ var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
 	"userAvatar":                     uiUserAvatar,
 	"profileImagePicker":             uiProfileImagePicker,
 	"tokenCreateModal":               uiTokenCreateModal,
+	"oauthClientCreateModal":         uiOAuthClientCreateModal,
 	"passkeyCreateModal":             uiPasskeyCreateModal,
 	"byteSize":                       uiByteSize,
 	"issueAssignee":                  uiIssueAssigneePath,

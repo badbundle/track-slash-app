@@ -31,7 +31,7 @@ export TRACKSLASH_TOKEN='<your-token>'
 
 The MCP endpoint is `https://<host>/mcp`. For a local instance, use `http://localhost:8080/mcp`.
 
-trackslash authenticates MCP with the API token above, not OAuth, and serves no OAuth discovery documents. Commands that start an OAuth flow, such as `claude mcp add --transport http`, will fail; use the token-carrying commands below.
+An API token is the simplest way to connect a CLI agent and is used by every command below. trackslash also speaks OAuth 2.1, so clients that prefer to discover and authorize for themselves — including `claude mcp add --transport http` — work without a token being pasted anywhere. See [Add trackslash as a custom connector](#add-trackslash-as-a-custom-connector).
 
 ### Codex
 
@@ -67,6 +67,30 @@ Add this server to `.cursor/mcp.json` for one project or `~/.cursor/mcp.json` gl
 ```
 
 Restart the client after changing its MCP configuration. Keep the token out of source control and revoke it from **Tokens** when it is no longer needed.
+
+## Add trackslash as a custom connector
+
+Hosted clients such as Claude.ai connect over OAuth rather than a pasted token,
+and ask for a client ID and secret. Register one from **Tokens → Connectors**:
+
+1. Choose **Register connector** and give it a name.
+2. Enter the redirect URI the client will use, one per line and exactly as the
+   client writes it. For Claude that is `https://claude.ai/api/mcp/auth_callback`.
+3. Copy the **client ID** and **client secret**. The secret is stored only as a
+   hash and is shown once; if it is lost, register a new connector.
+4. In the client, add a custom connector pointing at `https://<host>/mcp` and
+   paste in the ID and secret.
+
+Each person who connects signs in to trackslash and approves the connector for
+themselves, and it then acts with their permissions — the same access an API
+token they created would have. Revoking a connector from **Tokens** disconnects
+it immediately for everyone who approved it.
+
+trackslash supports the authorization code flow with PKCE, and refresh tokens.
+It does not implement dynamic client registration, which is why the client asks
+for an ID and secret, and it has no client credentials grant: every token
+belongs to a person. Set `TRACK_SLASH_PUBLIC_ORIGIN` in production so the
+discovery documents advertise a stable address.
 
 ## Self-hosting
 

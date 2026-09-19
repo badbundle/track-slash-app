@@ -40,6 +40,41 @@
       {{end}}
     </div>
 
+    <div class="mt-6 flex flex-wrap items-end justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Connectors</h2>
+        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Applications that can ask to connect to trackslash over MCP using OAuth.</p>
+      </div>
+      <button type="button" data-modal-open="oauth-client-create" aria-haspopup="dialog" aria-controls="oauth-client-create" aria-expanded="false" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+        <i data-lucide="plug" class="h-4 w-4" aria-hidden="true"></i>
+        Register connector
+      </button>
+    </div>
+    <div class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      {{if .OAuthClients}}
+      {{range .OAuthClients}}
+      <article class="grid gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 dark:border-slate-800 md:grid-cols-[1fr_auto] md:items-center">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="truncate font-medium text-slate-900 dark:text-slate-100">{{.Name}}</span>
+            <span class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 font-mono text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">{{.ClientID}}</span>
+          </div>
+          <div class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">Created {{template "local-time" (tokenTime .CreatedAt)}} · {{range $index, $uri := .RedirectURIs}}{{if $index}}, {{end}}{{$uri}}{{end}}</div>
+        </div>
+        <form method="post" action="/oauth-clients/{{.ID}}/revoke" hx-post="/oauth-clients/{{.ID}}/revoke" hx-confirm="Revoke this connector? It will be disconnected immediately and will need to be set up again." hx-push-url="false">
+          <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+          <button type="submit" class="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Revoke</button>
+        </form>
+      </article>
+      {{end}}
+      {{else}}
+      <div class="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">No connectors registered yet.</div>
+      {{end}}
+    </div>
+    {{if .ConnectedApps}}
+    <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">{{if eq .ConnectedApps 1}}1 active connector session{{else}}{{.ConnectedApps}} active connector sessions{{end}}. Connectors renew these on their own; revoking a connector ends them at once.</p>
+    {{end}}
+
     <h2 class="mt-6 text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Web sessions</h2>
     <div class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       <div class="grid gap-3 px-4 py-3 text-sm md:grid-cols-[1fr_auto] md:items-center">
@@ -80,6 +115,36 @@
       <div class="mt-4 flex justify-end gap-2">
         <button type="button" data-modal-close class="inline-flex h-9 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
         <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-500"><i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>Create token</button>
+      </div>
+    </form>
+    {{end}}
+  {{template "modal-close" .}}
+
+  {{template "modal-open" (oauthClientCreateModal .)}}
+    {{if .CreatedClientSecret}}
+    <div class="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+      <div class="font-medium">Copy the client secret now.</div>
+      <p class="mt-1 text-xs">It will not be shown again after you leave this response.</p>
+      <div class="mt-3 text-xs font-medium">Client ID</div>
+      <code tabindex="0" class="mt-1 block break-all rounded bg-white px-2 py-2 font-mono text-xs text-slate-900 outline-none ring-indigo-500 focus:ring-2 dark:bg-slate-900 dark:text-slate-100">{{.CreatedClientID}}</code>
+      <div class="mt-3 text-xs font-medium">Client secret</div>
+      <code autofocus tabindex="0" class="mt-1 block break-all rounded bg-white px-2 py-2 font-mono text-xs text-slate-900 outline-none ring-indigo-500 focus:ring-2 dark:bg-slate-900 dark:text-slate-100">{{.CreatedClientSecret}}</code>
+    </div>
+    <div class="mt-4 flex justify-end">
+      <button type="button" data-modal-close class="inline-flex h-9 items-center rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-500">Done</button>
+    </div>
+    {{else}}
+    <form method="post" action="/oauth-clients" hx-post="/oauth-clients" hx-target="#main" hx-push-url="false" class="mt-4">
+      {{template "csrf-field" .CSRFToken}}
+      {{if .OAuthError}}<div class="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{{.OAuthError}}</div>{{end}}
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="oauth-client-name">Name</label>
+      <input id="oauth-client-name" name="name" type="text" autofocus class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:border-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" required>
+      <label class="mt-4 block text-sm font-medium text-slate-700 dark:text-slate-300" for="oauth-client-redirects">Redirect URIs</label>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">One per line, matched exactly. For Claude use <code class="font-mono">https://claude.ai/api/mcp/auth_callback</code>.</p>
+      <textarea id="oauth-client-redirects" name="redirect_uris" rows="3" spellcheck="false" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-950 outline-none ring-indigo-500 focus:border-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" required></textarea>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" data-modal-close class="inline-flex h-9 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
+        <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-500"><i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>Register</button>
       </div>
     </form>
     {{end}}

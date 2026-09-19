@@ -20,6 +20,7 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 	r.Get("/security.txt", s.uiSecurityTxt)
 	r.Get("/.well-known/change-password", s.uiChangePassword)
 	r.Get("/.well-known/passkey-endpoints", s.uiPasskeyEndpoints)
+	s.mountOAuthPublicRoutes(r)
 	r.Get("/robots.txt", s.uiRobotsTxt)
 	r.Get("/terms", s.uiTermsPage)
 	r.Get("/privacy", s.uiPrivacyPage)
@@ -71,6 +72,15 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Get("/tokens", s.uiTokensPage)
 		r.Post("/tokens", s.uiCreateToken)
 		r.Post("/tokens/{id}/revoke", s.uiRevokeToken)
+		// Connectors are managed from the tokens page but live off /tokens for
+		// the same reason token-sessions does: a static segment under
+		// /tokens/{id}/ would take precedence over the id param.
+		r.Post("/oauth-clients", s.uiCreateOAuthClient)
+		r.Post("/oauth-clients/{id}/revoke", s.uiRevokeOAuthClient)
+		// Consent runs inside the signed-in UI so an unauthenticated visitor is
+		// sent through the ordinary login page and returned here afterwards.
+		r.Get(oauthAuthorizePath, s.uiOAuthAuthorize)
+		r.Post(oauthAuthorizePath, s.authIPRateLimited(s.uiOAuthAuthorizeDecision))
 		// Not under /tokens/{id}/, where a token id is the only thing that may
 		// follow: a static segment there would take precedence over the param.
 		r.Post("/token-sessions/revoke", s.uiRevokeSessionTokens)
