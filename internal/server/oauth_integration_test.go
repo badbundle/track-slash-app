@@ -1196,3 +1196,24 @@ func TestConnectorTokenCannotManageCredentialsOverMCP(t *testing.T) {
 		t.Fatalf("an API token should still be able to mint: %s", body)
 	}
 }
+
+// Creating a token is unchanged except for the one kind a caller must not be
+// able to choose: an oauth row with no client behind it could not be revoked and
+// would be counted on the tokens page as a connection that does not exist.
+func TestCreateTokenStillWorksExceptForTheForgedOAuthKind(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+
+	code, body := e.do(t, http.MethodPost, "/me/tokens", map[string]any{"name": "ordinary"})
+	if code != http.StatusCreated {
+		t.Fatalf("plain create = %d, want 201: %s", code, body)
+	}
+	code, body = e.do(t, http.MethodPost, "/me/tokens", map[string]any{"name": "explicit", "kind": "api"})
+	if code != http.StatusCreated {
+		t.Fatalf("explicit api kind = %d, want 201: %s", code, body)
+	}
+	code, body = e.do(t, http.MethodPost, "/me/tokens", map[string]any{"name": "forged", "kind": "oauth"})
+	if code != http.StatusConflict {
+		t.Fatalf("forged oauth kind = %d, want 409: %s", code, body)
+	}
+}
