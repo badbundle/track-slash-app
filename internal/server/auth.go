@@ -73,6 +73,25 @@ func currentUser(r *http.Request) model.User {
 	return currentAuth(r).User
 }
 
+// requireFirstPartyToken refuses an action to a token issued to an OAuth
+// connector.
+//
+// A connector acts for the user, but only for as long as the user lets it.
+// Minting an API token would escape that: the new token records no client, so
+// revoking the connector cannot reach it and it outlives the consent it was
+// created under. Listing and revoking tokens are refused for the same reason —
+// they are the account's credential management, not the connector's work.
+//
+// This is about the credential, not the person, so it is deliberately separate
+// from the admin and project permission checks.
+func requireFirstPartyToken(w http.ResponseWriter, r *http.Request) bool {
+	if currentAuth(r).Token.Kind == model.AuthTokenKindOAuth {
+		writeError(w, http.StatusForbidden, "connected applications cannot manage account credentials")
+		return false
+	}
+	return true
+}
+
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if !currentUser(r).IsAdmin {
 		writeForbidden(w)

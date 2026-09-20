@@ -60,8 +60,31 @@ func allowOAuthFormAction(w http.ResponseWriter, redirectURI string) {
 
 func oauthRedirectOrigin(redirectURI string) string {
 	parsed, err := url.Parse(redirectURI)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if err != nil || parsed.Scheme == "" || !oauthSafeHost(parsed.Host) {
 		return ""
 	}
 	return parsed.Scheme + "://" + parsed.Host
+}
+
+// oauthSafeHost reports whether a host is made only of characters that can be
+// spliced into a CSP source expression.
+//
+// Go's URL parser permits ';' ',' '*' and '\” in a host. A registered redirect
+// URI of https://example.com;script-src would otherwise put a whole new
+// directive into the policy, and a ',' would split it into two policies. The
+// allowlist is the character set a real host name or IP literal needs and
+// nothing else.
+func oauthSafeHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	for _, r := range host {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.', r == '-', r == ':', r == '[', r == ']':
+		default:
+			return false
+		}
+	}
+	return true
 }

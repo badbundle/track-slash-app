@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,7 +181,7 @@ func TestDisableOAuthClientRevokesEverythingItHeld(t *testing.T) {
 	e := newOAuthEnv(t)
 	created := e.mustClient(t, "Claude")
 	code := e.mustCode(t, created.Client.ID)
-	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code); err != nil {
+	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, created.Client.ID); err != nil {
 		t.Fatalf("ConsumeOAuthAuthorizationCode: %v", err)
 	}
 	issued, err := e.store.IssueOAuthTokens(e.ctx, store.IssueOAuthTokensParams{
@@ -203,7 +204,7 @@ func TestDisableOAuthClientRevokesEverythingItHeld(t *testing.T) {
 		t.Fatalf("refresh token after revoke = %v, want ErrUnauthorized", err)
 	}
 	// Consent is forgotten too, so reconnecting asks again.
-	consented, err := e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID)
+	consented, err := e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID, model.OAuthScopeMCP)
 	if err != nil {
 		t.Fatalf("OAuthClientConsented: %v", err)
 	}
@@ -239,7 +240,7 @@ func TestOAuthAuthorizationCodeIsSingleUse(t *testing.T) {
 	created := e.mustClient(t, "Claude")
 	code := e.mustCode(t, created.Client.ID)
 
-	consumed, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code)
+	consumed, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, created.Client.ID)
 	if err != nil {
 		t.Fatalf("ConsumeOAuthAuthorizationCode: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestOAuthAuthorizationCodeIsSingleUse(t *testing.T) {
 
 	// Replaying a code means a copy leaked, so everything it produced dies with
 	// it rather than the second attempt merely being refused.
-	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code); !errors.Is(err, store.ErrOAuthReplay) {
+	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, created.Client.ID); !errors.Is(err, store.ErrOAuthReplay) {
 		t.Fatalf("replayed code error = %v, want ErrOAuthReplay", err)
 	}
 	if !errors.Is(store.ErrOAuthReplay, store.ErrUnauthorized) {
@@ -272,13 +273,13 @@ func TestConsumeOAuthAuthorizationCodeRejectsUnknownAndExpired(t *testing.T) {
 	e := newOAuthEnv(t)
 	created := e.mustClient(t, "Claude")
 
-	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, "never-issued"); !errors.Is(err, store.ErrUnauthorized) {
+	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, "never-issued", created.Client.ID); !errors.Is(err, store.ErrUnauthorized) {
 		t.Fatalf("unknown code error = %v, want ErrUnauthorized", err)
 	}
 
 	code := e.mustCode(t, created.Client.ID)
 	e.expireEverything(t)
-	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code); !errors.Is(err, store.ErrUnauthorized) {
+	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, created.Client.ID); !errors.Is(err, store.ErrUnauthorized) {
 		t.Fatalf("expired code error = %v, want ErrUnauthorized", err)
 	}
 }
@@ -420,7 +421,7 @@ func TestOAuthClientConsentIsRememberedPerUser(t *testing.T) {
 	e := newOAuthEnv(t)
 	created := e.mustClient(t, "Claude")
 
-	consented, err := e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID)
+	consented, err := e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID, model.OAuthScopeMCP)
 	if err != nil {
 		t.Fatalf("OAuthClientConsented: %v", err)
 	}
@@ -429,7 +430,7 @@ func TestOAuthClientConsentIsRememberedPerUser(t *testing.T) {
 	}
 
 	e.mustCode(t, created.Client.ID)
-	consented, err = e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID)
+	consented, err = e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID, model.OAuthScopeMCP)
 	if err != nil {
 		t.Fatalf("OAuthClientConsented: %v", err)
 	}
@@ -444,7 +445,7 @@ func TestOAuthClientConsentIsRememberedPerUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
-	consented, err = e.store.OAuthClientConsented(e.ctx, created.Client.ID, other.ID)
+	consented, err = e.store.OAuthClientConsented(e.ctx, created.Client.ID, other.ID, model.OAuthScopeMCP)
 	if err != nil {
 		t.Fatalf("OAuthClientConsented: %v", err)
 	}
@@ -510,5 +511,198 @@ func TestSessionSweepLeavesOAuthTokensAlone(t *testing.T) {
 	}
 	if _, err := e.store.AuthenticateToken(e.ctx, issued.AccessToken); err != nil {
 		t.Fatalf("session revocation should not touch connector tokens: %v", err)
+	}
+}
+
+// A code belongs to the client it was issued to. Another client presenting it
+// must not consume it: burning it would make the rightful exchange look like a
+// replay and destroy that client's grant.
+func TestOAuthAuthorizationCodeCannotBeBurnedByAnotherClient(t *testing.T) {
+	t.Parallel()
+	e := newOAuthEnv(t)
+	victim := e.mustClient(t, "Victim")
+	attacker := e.mustClient(t, "Attacker")
+	code := e.mustCode(t, victim.Client.ID)
+
+	// A foreign attempt is indistinguishable from an unknown code, and is never
+	// reported as a replay, because nothing was consumed.
+	_, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, attacker.Client.ID)
+	if !errors.Is(err, store.ErrUnauthorized) {
+		t.Fatalf("foreign consume error = %v, want ErrUnauthorized", err)
+	}
+	if errors.Is(err, store.ErrOAuthReplay) {
+		t.Fatalf("foreign consume was reported as a replay: %v", err)
+	}
+
+	// The point of the whole check: the code still works for its owner.
+	consumed, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, victim.Client.ID)
+	if err != nil {
+		t.Fatalf("the rightful client must still be able to exchange: %v", err)
+	}
+	if consumed.ClientID != victim.Client.ID {
+		t.Fatalf("consumed.ClientID = %s, want %s", consumed.ClientID, victim.Client.ID)
+	}
+}
+
+// Revoking a client drops codes it never exchanged, so revocation does not rely
+// on client authentication refusing them later.
+func TestDisableOAuthClientDropsPendingCodes(t *testing.T) {
+	t.Parallel()
+	e := newOAuthEnv(t)
+	created := e.mustClient(t, "Claude")
+	code := e.mustCode(t, created.Client.ID)
+
+	if err := e.store.DisableOAuthClientForUser(e.ctx, e.user.ID, created.Client.ID); err != nil {
+		t.Fatalf("DisableOAuthClientForUser: %v", err)
+	}
+	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, created.Client.ID); !errors.Is(err, store.ErrUnauthorized) {
+		t.Fatalf("pending code after revoke = %v, want ErrUnauthorized", err)
+	}
+}
+
+// Consent is recorded per scope, so an approval for one scope cannot silently
+// authorise a different one.
+func TestOAuthConsentIsScoped(t *testing.T) {
+	t.Parallel()
+	e := newOAuthEnv(t)
+	created := e.mustClient(t, "Claude")
+	e.mustCode(t, created.Client.ID)
+
+	consented, err := e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID, model.OAuthScopeMCP)
+	if err != nil {
+		t.Fatalf("OAuthClientConsented: %v", err)
+	}
+	if !consented {
+		t.Fatal("the approved scope should be remembered")
+	}
+	consented, err = e.store.OAuthClientConsented(e.ctx, created.Client.ID, e.user.ID, "admin")
+	if err != nil {
+		t.Fatalf("OAuthClientConsented: %v", err)
+	}
+	if consented {
+		t.Fatal("an approval for one scope must not cover another")
+	}
+}
+
+// Connector access tokens are minted by the authorization server, which records
+// the client behind them. One created any other way would have no client, so
+// nothing could revoke it.
+func TestCreateAuthTokenRefusesTheOAuthKind(t *testing.T) {
+	t.Parallel()
+	e := newOAuthEnv(t)
+
+	if _, err := e.store.CreateAuthToken(e.ctx, store.CreateAuthTokenParams{
+		UserID: e.user.ID,
+		Kind:   model.AuthTokenKindOAuth,
+		Name:   "forged connector",
+	}); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("error = %v, want ErrConflict", err)
+	}
+}
+
+// The issued pair reports the grant's own scope rather than an assumption.
+func TestIssuedOAuthTokensCarryTheGrantScope(t *testing.T) {
+	t.Parallel()
+	e := newOAuthEnv(t)
+	created := e.mustClient(t, "Claude")
+
+	issued, err := e.store.IssueOAuthTokens(e.ctx, store.IssueOAuthTokensParams{
+		ClientID: created.Client.ID, ClientName: "Claude", UserID: e.user.ID, Scope: model.OAuthScopeMCP,
+	})
+	if err != nil {
+		t.Fatalf("IssueOAuthTokens: %v", err)
+	}
+	if issued.Scope != model.OAuthScopeMCP {
+		t.Fatalf("issued.Scope = %q, want %q", issued.Scope, model.OAuthScopeMCP)
+	}
+	rotated, err := e.store.RotateOAuthRefreshToken(e.ctx, issued.RefreshToken, created.Client.ID)
+	if err != nil {
+		t.Fatalf("RotateOAuthRefreshToken: %v", err)
+	}
+	if rotated.Scope != model.OAuthScopeMCP {
+		t.Fatalf("rotated.Scope = %q, want %q", rotated.Scope, model.OAuthScopeMCP)
+	}
+}
+
+// Two exchanges of one code race. FOR UPDATE serialises them, so exactly one
+// wins and the loser is treated as a replay — which also revokes what the
+// winner just received, because a code used twice means a copy leaked.
+func TestOAuthAuthorizationCodeExchangeIsSerialised(t *testing.T) {
+	t.Parallel()
+	e := newOAuthEnv(t)
+	created := e.mustClient(t, "Claude")
+	code := e.mustCode(t, created.Client.ID)
+
+	type outcome struct {
+		consumed store.ConsumedOAuthCode
+		err      error
+	}
+	results := make(chan outcome, 2)
+	var start sync.WaitGroup
+	start.Add(1)
+	for range 2 {
+		go func() {
+			start.Wait()
+			consumed, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code, created.Client.ID)
+			results <- outcome{consumed, err}
+		}()
+	}
+	start.Done()
+
+	var wins, replays int
+	for range 2 {
+		got := <-results
+		switch {
+		case got.err == nil:
+			wins++
+		case errors.Is(got.err, store.ErrOAuthReplay):
+			replays++
+		default:
+			t.Fatalf("unexpected error: %v", got.err)
+		}
+	}
+	if wins != 1 || replays != 1 {
+		t.Fatalf("wins = %d replays = %d, want exactly one of each", wins, replays)
+	}
+}
+
+// The same race on refresh rotation: one caller gets a new pair, the other is
+// holding a token that has already been rotated away and loses the grant.
+func TestOAuthRefreshRotationIsSerialised(t *testing.T) {
+	t.Parallel()
+	e := newOAuthEnv(t)
+	created := e.mustClient(t, "Claude")
+	issued, err := e.store.IssueOAuthTokens(e.ctx, store.IssueOAuthTokensParams{
+		ClientID: created.Client.ID, ClientName: "Claude", UserID: e.user.ID, Scope: model.OAuthScopeMCP,
+	})
+	if err != nil {
+		t.Fatalf("IssueOAuthTokens: %v", err)
+	}
+
+	errs := make(chan error, 2)
+	var start sync.WaitGroup
+	start.Add(1)
+	for range 2 {
+		go func() {
+			start.Wait()
+			_, rotateErr := e.store.RotateOAuthRefreshToken(e.ctx, issued.RefreshToken, created.Client.ID)
+			errs <- rotateErr
+		}()
+	}
+	start.Done()
+
+	var wins, replays int
+	for range 2 {
+		switch got := <-errs; {
+		case got == nil:
+			wins++
+		case errors.Is(got, store.ErrOAuthReplay):
+			replays++
+		default:
+			t.Fatalf("unexpected error: %v", got)
+		}
+	}
+	if wins != 1 || replays != 1 {
+		t.Fatalf("wins = %d replays = %d, want exactly one of each", wins, replays)
 	}
 }

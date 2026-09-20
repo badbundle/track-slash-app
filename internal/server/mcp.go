@@ -643,6 +643,16 @@ func (s *Server) mcpAuth(ctx context.Context, req *mcp.CallToolRequest) (context
 	return ctx, auth, nil
 }
 
+// requireMCPFirstPartyToken refuses credential management to a token issued to
+// an OAuth connector, mirroring requireFirstPartyToken on the REST surface. A
+// connector that could mint an API token would outlive its own revocation.
+func requireMCPFirstPartyToken(auth authContext) error {
+	if auth.Token.Kind == model.AuthTokenKindOAuth {
+		return errMCPForbidden
+	}
+	return nil
+}
+
 func (s *Server) requireMCPAdmin(auth authContext) error {
 	if !auth.User.IsAdmin {
 		return errMCPForbidden
@@ -3692,6 +3702,9 @@ func (s *Server) mcpCreateMyToken(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return nil, err
 	}
+	if err := requireMCPFirstPartyToken(auth); err != nil {
+		return nil, err
+	}
 	name, kind, err := validateMCPTokenInput(input.Name, input.Kind, input.ExpiresAt)
 	if err != nil {
 		return nil, err
@@ -3708,6 +3721,9 @@ func (s *Server) mcpListMyTokens(ctx context.Context, req *mcp.CallToolRequest, 
 	if err != nil {
 		return nil, err
 	}
+	if err := requireMCPFirstPartyToken(auth); err != nil {
+		return nil, err
+	}
 	tokens, err := s.store.ListAuthTokens(ctx, auth.User.ID)
 	if err != nil {
 		return nil, err
@@ -3720,6 +3736,9 @@ func (s *Server) mcpRevokeMyToken(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return nil, err
 	}
+	if err := requireMCPFirstPartyToken(auth); err != nil {
+		return nil, err
+	}
 	if err := s.store.RevokeAuthTokenForUser(ctx, auth.User.ID, input.ID); err != nil {
 		return nil, err
 	}
@@ -3729,6 +3748,9 @@ func (s *Server) mcpRevokeMyToken(ctx context.Context, req *mcp.CallToolRequest,
 func (s *Server) mcpCreateUserToken(ctx context.Context, req *mcp.CallToolRequest, input mcpCreateUserTokenInput) (mcpToolOutput, error) {
 	ctx, auth, err := s.mcpAuth(ctx, req)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireMCPFirstPartyToken(auth); err != nil {
 		return nil, err
 	}
 	if err := s.requireMCPAdmin(auth); err != nil {
@@ -3750,6 +3772,9 @@ func (s *Server) mcpListUserTokens(ctx context.Context, req *mcp.CallToolRequest
 	if err != nil {
 		return nil, err
 	}
+	if err := requireMCPFirstPartyToken(auth); err != nil {
+		return nil, err
+	}
 	if err := s.requireMCPAdmin(auth); err != nil {
 		return nil, err
 	}
@@ -3763,6 +3788,9 @@ func (s *Server) mcpListUserTokens(ctx context.Context, req *mcp.CallToolRequest
 func (s *Server) mcpRevokeToken(ctx context.Context, req *mcp.CallToolRequest, input mcpTokenInput) (mcpToolOutput, error) {
 	ctx, auth, err := s.mcpAuth(ctx, req)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireMCPFirstPartyToken(auth); err != nil {
 		return nil, err
 	}
 	if err := s.requireMCPAdmin(auth); err != nil {

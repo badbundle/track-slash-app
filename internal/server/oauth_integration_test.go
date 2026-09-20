@@ -19,6 +19,9 @@ import (
 const (
 	oauthTestRedirectURI = "https://claude.ai/api/mcp/auth_callback"
 	oauthTestVerifier    = "a-code-verifier-long-enough-to-be-realistic-0123456789"
+	// Same well-formed length as the real one, so a rejection can only come
+	// from the comparison and never from the length check.
+	oauthTestWrongVerifier = "a-code-verifier-long-enough-to-be-realistic-9876543210"
 )
 
 func oauthTestChallenge() string {
@@ -323,7 +326,7 @@ func TestOAuthAuthorizeDenyTellsTheClient(t *testing.T) {
 		t.Fatalf("deny error = %q", location.Query().Get("error"))
 	}
 	// Denying must not leave a remembered approval behind.
-	consented, err := e.store.OAuthClientConsented(e.ctx, e.client.Client.ID, e.user.ID)
+	consented, err := e.store.OAuthClientConsented(e.ctx, e.client.Client.ID, e.user.ID, model.OAuthScopeMCP)
 	if err != nil {
 		t.Fatalf("OAuthClientConsented: %v", err)
 	}
@@ -490,7 +493,7 @@ func TestOAuthTokenEndpointRejectsBadGrants(t *testing.T) {
 			name: "pkce verifier mismatch",
 			mutate: func(_ *testing.T, _ *oauthHTTPEnv, code string) url.Values {
 				return url.Values{"grant_type": {"authorization_code"}, "code": {code},
-					"redirect_uri": {oauthTestRedirectURI}, "code_verifier": {"not-the-verifier"}}
+					"redirect_uri": {oauthTestRedirectURI}, "code_verifier": {oauthTestWrongVerifier}}
 			},
 			wantError: "invalid_grant",
 		},
@@ -724,7 +727,12 @@ func (e *oauthHTTPEnv) mcpUsername(t *testing.T, token string) string {
 
 func (e *oauthHTTPEnv) mcpCall(t *testing.T, token string) *http.Response {
 	t.Helper()
-	payload := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"track_get_me","arguments":{}}}`
+	return e.mcpTool(t, token, "track_get_me", "{}")
+}
+
+func (e *oauthHTTPEnv) mcpTool(t *testing.T, token, tool, arguments string) *http.Response {
+	t.Helper()
+	payload := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + tool + `","arguments":` + arguments + `}}`
 	req, err := http.NewRequestWithContext(e.ctx, http.MethodPost, e.ts.URL+"/mcp", strings.NewReader(payload))
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
@@ -974,5 +982,217 @@ func TestOAuthRevocationRequiresClientAuthentication(t *testing.T) {
 	// An unauthenticated request must not have revoked anything.
 	if status := e.mcpStatus(t, accessToken); status != http.StatusOK {
 		t.Fatalf("token status after a refused revoke = %d, want 200", status)
+	}
+}
+
+// A connector acts for the user, but only while the user lets it. Minting an
+// API token would escape that: the new token records no client, so revoking the
+// connector could never reach it.
+func TestConnectorTokenCannotManageCredentials(t *testing.T) {
+	t.Parallel()
+	e := newOAuthHTTPEnv(t)
+	tokens := e.exchange(t, e.approve(t, nil))
+	accessToken, _ := tokens["access_token"].(string)
+
+	for _, tt := range []struct {
+		name   string
+		method string
+		path   string
+		body   any
+	}{
+		{name: "mint an api token", method: http.MethodPost, path: "/me/tokens", body: map[string]any{"name": "persistence"}},
+		{name: "list tokens", method: http.MethodGet, path: "/me/tokens"},
+		{name: "mint a token for another user", method: http.MethodPost,
+			path: "/users/" + e.user.ID.String() + "/tokens", body: map[string]any{"name": "persistence"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			code, body := e.doWithToken(t, accessToken, tt.method, tt.path, tt.body)
+			if code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403: %s", code, body)
+			}
+		})
+	}
+
+	// The same request from the user's own API token still works, so the rule is
+	// about the credential and not about the person.
+	code, body := e.doWithToken(t, e.sessionToken, http.MethodPost, "/me/tokens", map[string]any{"name": "mine"})
+	if code != http.StatusCreated {
+		t.Fatalf("the user's own token should still mint: %d %s", code, body)
+	}
+}
+
+// The CSRF token is derived from whatever sits in the session cookie, so a
+// connector's access token placed there would otherwise drive the whole signed-in
+// UI — including registering itself a second connector that no revocation reaches.
+func TestConnectorTokenIsNotABrowserSession(t *testing.T) {
+	t.Parallel()
+	e := newOAuthHTTPEnv(t)
+	tokens := e.exchange(t, e.approve(t, nil))
+	accessToken, _ := tokens["access_token"].(string)
+
+	res := e.uiDoNoRedirect(t, http.MethodGet, "/tokens", accessToken, nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status = %d, want a redirect to login: %s", res.StatusCode, readBody(t, res))
+	}
+	if location := res.Header.Get("Location"); !strings.HasPrefix(location, "/login") {
+		t.Fatalf("Location = %q, want /login", location)
+	}
+
+	// And it cannot register a connector of its own.
+	form := url.Values{
+		"name":          {"second connector"},
+		"redirect_uris": {oauthTestRedirectURI},
+		"csrf_token":    {uiCSRFTokenForTest("session", accessToken)},
+	}
+	post := e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/oauth-clients", accessToken,
+		strings.NewReader(form.Encode()), map[string]string{"Origin": e.ts.URL})
+	post.Body.Close()
+	// Bounced to the login page, exactly as the GET was — a 303 to /tokens here
+	// would mean the registration went through.
+	if post.StatusCode != http.StatusSeeOther || !strings.HasPrefix(post.Header.Get("Location"), "/login") {
+		t.Fatalf("registration was not refused: %d %q", post.StatusCode, post.Header.Get("Location"))
+	}
+	clients, err := e.store.ListOAuthClientsForUser(e.ctx, e.user.ID)
+	if err != nil {
+		t.Fatalf("ListOAuthClientsForUser: %v", err)
+	}
+	if len(clients) != 1 {
+		t.Fatalf("connector count = %d, want the original one only", len(clients))
+	}
+}
+
+// Burning another client's code would leave the rightful exchange looking like a
+// replay, which revokes that client's whole grant. End to end over HTTP.
+func TestOAuthForeignClientCannotBurnACode(t *testing.T) {
+	t.Parallel()
+	e := newOAuthHTTPEnv(t)
+	attacker, err := e.store.CreateOAuthClient(e.ctx, store.CreateOAuthClientParams{
+		UserID:       e.user.ID,
+		Name:         "Attacker",
+		RedirectURIs: []string{oauthTestRedirectURI},
+	})
+	if err != nil {
+		t.Fatalf("CreateOAuthClient: %v", err)
+	}
+
+	code := e.approve(t, nil)
+	res, body := e.postToken(t, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {oauthTestRedirectURI},
+		"code_verifier": {oauthTestVerifier},
+		"client_id":     {attacker.Client.ClientID},
+		"client_secret": {attacker.RawSecret},
+	}, false)
+	if res.StatusCode != http.StatusBadRequest || body["error"] != "invalid_grant" {
+		t.Fatalf("foreign exchange = %d body = %v", res.StatusCode, body)
+	}
+
+	// The victim's code is untouched, so its own exchange still succeeds.
+	tokens := e.exchange(t, code)
+	accessToken, _ := tokens["access_token"].(string)
+	if status := e.mcpStatus(t, accessToken); status != http.StatusOK {
+		t.Fatalf("victim token status = %d, want 200", status)
+	}
+}
+
+func TestOAuthRejectsMalformedPKCELengths(t *testing.T) {
+	t.Parallel()
+	e := newOAuthHTTPEnv(t)
+
+	// A challenge outside RFC 7636's range is a bad request reported to the
+	// client, not an internal error from the column constraint.
+	res := e.uiDoNoRedirect(t, http.MethodGet, e.authorizeQuery(map[string]string{"code_challenge": "too-short"}), e.sessionToken, nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("short challenge status = %d, want 303: %s", res.StatusCode, readBody(t, res))
+	}
+	location, _ := url.Parse(res.Header.Get("Location"))
+	if location.Query().Get("error") != "invalid_request" {
+		t.Fatalf("short challenge error = %q", location.Query().Get("error"))
+	}
+
+	// A short verifier would still hash and compare, quietly reducing PKCE to
+	// decoration, so it is refused on its length.
+	code := e.approve(t, nil)
+	tokenRes, body := e.postToken(t, url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {oauthTestRedirectURI},
+		"code_verifier": {"short"},
+		"client_id":     {e.client.Client.ClientID},
+		"client_secret": {e.client.RawSecret},
+	}, false)
+	if tokenRes.StatusCode != http.StatusBadRequest || body["error"] != "invalid_request" {
+		t.Fatalf("short verifier = %d body = %v", tokenRes.StatusCode, body)
+	}
+}
+
+// The refresh response reports the grant's own scope rather than assuming it.
+//
+// The grant is issued through the store with a scope the authorize endpoint
+// would never mint, because a response that hardcodes the default scope is
+// indistinguishable from a correct one whenever the grant happens to hold it.
+func TestOAuthRefreshReportsTheGrantScope(t *testing.T) {
+	t.Parallel()
+	e := newOAuthHTTPEnv(t)
+
+	const granted = "mcp:future-scope"
+	issued, err := e.store.IssueOAuthTokens(e.ctx, store.IssueOAuthTokensParams{
+		ClientID:   e.client.Client.ID,
+		ClientName: e.client.Client.Name,
+		UserID:     e.user.ID,
+		Scope:      granted,
+	})
+	if err != nil {
+		t.Fatalf("IssueOAuthTokens: %v", err)
+	}
+
+	res, rotated := e.postToken(t, url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {issued.RefreshToken},
+		"client_id":     {e.client.Client.ClientID},
+		"client_secret": {e.client.RawSecret},
+	}, false)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("refresh = %d body = %v", res.StatusCode, rotated)
+	}
+	if rotated["scope"] != granted {
+		t.Fatalf("scope = %v, want %q", rotated["scope"], granted)
+	}
+}
+
+// The credential boundary has to hold on the MCP surface too, not only REST.
+func TestConnectorTokenCannotManageCredentialsOverMCP(t *testing.T) {
+	t.Parallel()
+	e := newOAuthHTTPEnv(t)
+	tokens := e.exchange(t, e.approve(t, nil))
+	accessToken, _ := tokens["access_token"].(string)
+
+	for _, tool := range []struct {
+		name      string
+		arguments string
+	}{
+		{name: "track_create_my_token", arguments: `{"name":"persistence"}`},
+		{name: "track_list_my_tokens", arguments: `{}`},
+	} {
+		t.Run(tool.name, func(t *testing.T) {
+			res := e.mcpTool(t, accessToken, tool.name, tool.arguments)
+			body := readBody(t, res)
+			res.Body.Close()
+			if !strings.Contains(body, "forbidden") {
+				t.Fatalf("%s was not refused to a connector: %s", tool.name, body)
+			}
+		})
+	}
+
+	// The same tool still works for the user's own API token, so the boundary is
+	// about the credential rather than the person.
+	res := e.mcpTool(t, e.sessionToken, "track_create_my_token", `{"name":"mine"}`)
+	body := readBody(t, res)
+	res.Body.Close()
+	if strings.Contains(body, "forbidden") {
+		t.Fatalf("an API token should still be able to mint: %s", body)
 	}
 }

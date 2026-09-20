@@ -34,7 +34,7 @@ func (s *Server) uiOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	// prompt=consent lets a client deliberately re-ask, which is the only way
 	// back to this screen once an approval is remembered.
 	if r.URL.Query().Get("prompt") != "consent" {
-		consented, err := s.store.OAuthClientConsented(r.Context(), req.Client.ID, user.ID)
+		consented, err := s.store.OAuthClientConsented(r.Context(), req.Client.ID, user.ID, req.Scope)
 		if err != nil {
 			writeUIInternalError(w, "oauth authorize consent lookup", err)
 			return
@@ -111,6 +111,14 @@ func (s *Server) oauthResolveAuthorizeRequest(w http.ResponseWriter, r *http.Req
 	challenge := strings.TrimSpace(params.Get("code_challenge"))
 	if challenge == "" {
 		oauthRedirectError(w, r, redirectURI, state, "invalid_request", "code_challenge is required")
+		return oauthAuthorizeRequest{}, false
+	}
+	// Checked here as well as by the column constraint, so a malformed challenge
+	// is reported to the client as a bad request instead of failing the insert
+	// and surfacing as an internal error.
+	if !oauthValidPKCELength(challenge) {
+		oauthRedirectError(w, r, redirectURI, state, "invalid_request",
+			"code_challenge must be 43 to 128 characters")
 		return oauthAuthorizeRequest{}, false
 	}
 	// PKCE is mandatory and only S256 is accepted. "plain" offers no protection
