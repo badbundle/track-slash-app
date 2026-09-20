@@ -270,6 +270,13 @@ func TestUIParseOAuthRedirectURIs(t *testing.T) {
 		{name: "fragment", in: "https://claude.ai/cb#part"},
 		{name: "plaintext off localhost", in: "http://claude.ai/cb"},
 		{name: "unsupported scheme", in: "ftp://claude.ai/cb"},
+		// RFC 6749 section 3.1.2 excludes userinfo, and trackslash would be
+		// putting a fresh authorization code next to a password in a header.
+		{name: "userinfo", in: "https://user:pass@claude.ai/cb"},
+		// These hosts would inject into the consent page's CSP.
+		{name: "host with a semicolon", in: "https://evil.example.com;script-src/cb"},
+		{name: "host with a comma", in: "https://evil.example.com,claude.ai/cb"},
+		{name: "wildcard host", in: "https://*/cb"},
 		{name: "too many", in: tooManyRedirectURIs(11)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -302,5 +309,59 @@ func TestOAuthRedirectTargetPreservesExistingQuery(t *testing.T) {
 	// A request that carried no state must not come back with an empty one.
 	if strings.Contains(got, "state=") {
 		t.Fatalf("empty state should be omitted: %q", got)
+	}
+}
+
+// Go's URL parser accepts ';' ',' '*' and '\” in a host. The consent page
+// splices the origin into its Content-Security-Policy, where ';' would add a
+// whole directive and ',' would split the header into two policies.
+func TestAllowOAuthFormActionRejectsHostsThatWouldInjectCSP(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name        string
+		redirectURI string
+	}{
+		{name: "directive injection", redirectURI: "https://evil.example.com;script-src/cb"},
+		{name: "policy splitting", redirectURI: "https://evil.example.com,claude.ai/cb"},
+		{name: "wildcard host", redirectURI: "https://*/cb"},
+		{name: "quote", redirectURI: "https://evil.example.com'/cb"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			rec := httptest.NewRecorder()
+			rec.Header().Set("Content-Security-Policy", contentSecurityPolicy)
+			allowOAuthFormAction(rec, tt.redirectURI)
+			if got := rec.Header().Get("Content-Security-Policy"); got != contentSecurityPolicy {
+				t.Fatalf("policy was modified by %q:\n%s", tt.redirectURI, got)
+			}
+		})
+	}
+}
+
+func TestOAuthSafeHost(t *testing.T) {
+	t.Parallel()
+
+	for _, host := range []string{"claude.ai", "localhost:8080", "sub.example.co.uk", "[::1]", "127.0.0.1:443"} {
+		if !oauthSafeHost(host) {
+			t.Fatalf("oauthSafeHost(%q) = false, want true", host)
+		}
+	}
+	for _, host := range []string{"", "evil.com;script-src", "a,b", "*", "e'v", "a b", "x\"y", "a<b"} {
+		if oauthSafeHost(host) {
+			t.Fatalf("oauthSafeHost(%q) = true, want false", host)
+		}
+	}
+}
+
+func TestOAuthValidPKCELength(t *testing.T) {
+	t.Parallel()
+
+	// RFC 7636 section 4.1 fixes the range at 43 to 128 characters.
+	if oauthValidPKCELength(strings.Repeat("a", 42)) || oauthValidPKCELength(strings.Repeat("a", 129)) {
+		t.Fatal("lengths outside 43-128 must be rejected")
+	}
+	if !oauthValidPKCELength(strings.Repeat("a", 43)) || !oauthValidPKCELength(strings.Repeat("a", 128)) {
+		t.Fatal("the boundary lengths must be accepted")
 	}
 }

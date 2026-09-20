@@ -166,6 +166,9 @@ type createTokenResp struct {
 }
 
 func (s *Server) createUserToken(w http.ResponseWriter, r *http.Request) {
+	if !requireFirstPartyToken(w, r) {
+		return
+	}
 	if !s.requireAdmin(w, r) {
 		return
 	}
@@ -207,6 +210,9 @@ func (s *Server) createUserToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createMyToken(w http.ResponseWriter, r *http.Request) {
+	if !requireFirstPartyToken(w, r) {
+		return
+	}
 	var req createTokenReq
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -264,6 +270,9 @@ func boundedSessionExpiry(kind model.AuthTokenKind, requested, absolute *time.Ti
 }
 
 func (s *Server) listUserTokens(w http.ResponseWriter, r *http.Request) {
+	if !requireFirstPartyToken(w, r) {
+		return
+	}
 	if !s.requireAdmin(w, r) {
 		return
 	}
@@ -281,6 +290,9 @@ func (s *Server) listUserTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listMyTokens(w http.ResponseWriter, r *http.Request) {
+	if !requireFirstPartyToken(w, r) {
+		return
+	}
 	tokens, err := s.store.ListAuthTokens(r.Context(), currentUser(r).ID)
 	if err != nil {
 		writeStoreError(w, err)
@@ -290,6 +302,9 @@ func (s *Server) listMyTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {
+	if !requireFirstPartyToken(w, r) {
+		return
+	}
 	if !s.requireAdmin(w, r) {
 		return
 	}
@@ -306,6 +321,9 @@ func (s *Server) revokeToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) revokeMyToken(w http.ResponseWriter, r *http.Request) {
+	if !requireFirstPartyToken(w, r) {
+		return
+	}
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid id")

@@ -66,7 +66,17 @@ func (s *Server) oauthExchangeAuthorizationCode(w http.ResponseWriter, r *http.R
 			"code, redirect_uri and code_verifier are required")
 		return
 	}
-	consumed, err := s.store.ConsumeOAuthAuthorizationCode(r.Context(), code)
+	// RFC 7636 section 4.1 fixes the verifier at 43 to 128 characters. A shorter
+	// one would still hash and compare, quietly reducing PKCE to decoration.
+	if !oauthValidPKCELength(verifier) {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_request",
+			"code_verifier must be 43 to 128 characters")
+		return
+	}
+	// The client is part of the lookup, so a code belonging to someone else is
+	// not found rather than consumed. Burning another client's code would make
+	// its rightful exchange look like a replay and revoke that client's grant.
+	consumed, err := s.store.ConsumeOAuthAuthorizationCode(r.Context(), code, client.ID)
 	if err != nil {
 		s.oauthNoteAuthFailure(r, client.ClientID)
 		switch {
@@ -82,9 +92,10 @@ func (s *Server) oauthExchangeAuthorizationCode(w http.ResponseWriter, r *http.R
 		}
 		return
 	}
-	// A code is bound to the client it was issued to and the address it was
-	// issued for. Both are re-checked here because the code alone must not be
-	// enough to obtain a token.
+	// The client binding is already enforced by the lookup above; it is asserted
+	// again here so the invariant survives a change to that query. The redirect
+	// URI is only checked here, because the code alone must not be enough to
+	// obtain a token.
 	if consumed.ClientID != client.ID || consumed.RedirectURI != redirectURI {
 		s.oauthNoteAuthFailure(r, client.ClientID)
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
@@ -131,7 +142,8 @@ func (s *Server) oauthExchangeRefreshToken(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	writeOAuthTokens(w, issued, model.OAuthScopeMCP)
+	// The grant's own scope, not an assumption about what it must have been.
+	writeOAuthTokens(w, issued, issued.Scope)
 }
 
 func writeOAuthTokens(w http.ResponseWriter, issued store.IssuedOAuthTokens, scope string) {
@@ -145,6 +157,12 @@ func writeOAuthTokens(w http.ResponseWriter, issued store.IssuedOAuthTokens, sco
 		RefreshToken: issued.RefreshToken,
 		Scope:        scope,
 	})
+}
+
+// oauthValidPKCELength reports whether a PKCE challenge or verifier is within
+// the length RFC 7636 section 4.1 requires.
+func oauthValidPKCELength(value string) bool {
+	return len(value) >= 43 && len(value) <= 128
 }
 
 // oauthVerifyPKCE checks a code verifier against the S256 challenge recorded

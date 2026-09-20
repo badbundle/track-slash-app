@@ -179,6 +179,8 @@ The discovery documents and both token endpoints answer `Access-Control-Allow-Or
 
 The consent screen at `/oauth/authorize` is the one response whose `form-action` is widened beyond `'self'`, to the single origin the connector registered, because browsers apply that directive across a form submission's whole redirect chain. Every other route keeps the strict policy.
 
+A connector's access token is deliberately less powerful than an API token the user creates themselves: it cannot create, list or revoke tokens over REST or MCP, and it is not accepted as a browser session cookie. Both limits exist so a connector cannot mint a credential that outlives the consent it was granted under.
+
 Client secrets are stored as hashes and cannot be recovered; a lost secret means registering a new connector. Revoking a connector scrubs its secret, forgets every remembered approval, and revokes its access and refresh tokens in one transaction. Access tokens live for an hour and refresh tokens for 90 days with rotation on each use. See `OAUTH.md`.
 
 ## Object Storage

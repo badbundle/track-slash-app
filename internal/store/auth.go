@@ -41,6 +41,13 @@ func (s *Store) CreateAuthToken(ctx context.Context, p CreateAuthTokenParams) (C
 	if !p.Kind.Valid() {
 		return CreatedAuthToken{}, fmt.Errorf("invalid token kind: %w", ErrConflict)
 	}
+	// Connector access tokens are minted by the authorization server, which
+	// records the client they belong to. One created here would have no client
+	// behind it, so nothing could revoke it and the tokens page would count it
+	// as a connection that does not exist.
+	if p.Kind == model.AuthTokenKindOAuth {
+		return CreatedAuthToken{}, fmt.Errorf("oauth tokens are issued through the authorization server: %w", ErrConflict)
+	}
 	raw, err := generateToken()
 	if err != nil {
 		return CreatedAuthToken{}, err

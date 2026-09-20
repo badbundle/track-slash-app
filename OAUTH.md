@@ -38,7 +38,14 @@ would imply an enforcement boundary that does not exist elsewhere in trackslash.
 | `auth_tokens` | Access tokens, as `kind = 'oauth'` with an `oauth_client_id` |
 
 Lifetimes: authorization codes 1 minute, access tokens 1 hour, refresh tokens
-90 days with rotation on every use.
+90 days with rotation on every use. PKCE challenges and verifiers are held to
+the 43-to-128-character range RFC 7636 section 4.1 requires, in Go as well as by
+the column constraint, so a malformed one is reported to the client rather than
+failing an insert.
+
+Consent is remembered per (client, user, scope). The scope is part of the match
+because an approval is for what the consent screen showed; a request for
+anything else has to be approved on its own terms.
 
 ## Decisions worth knowing
 
@@ -65,10 +72,44 @@ revoke every token that (client, user) pair holds before reporting the failure.
 The revocation is committed before the error is returned; failing the
 transaction instead would roll back the very thing that makes detection useful.
 
+**A code is looked up by client, not merely checked against one.** Both
+`ConsumeOAuthAuthorizationCode` and `RotateOAuthRefreshToken` take the
+authenticated client and match on it in the locking `SELECT`. Checking the
+binding after consuming would let any registered client — and on this instance
+any signed-in user can register one — burn a code belonging to someone else.
+The rightful client's exchange would then look like a replay, and replay revokes
+the whole grant. Matching in the query means a foreign code is simply not found
+and nothing is mutated.
+
+**A connector cannot manage credentials.** `requireFirstPartyToken` (and
+`requireMCPFirstPartyToken` on the MCP surface) refuses the token endpoints to a
+token whose kind is `oauth`. A connector that could mint an API token would
+escape its own revocation: `CreateAuthToken` records no `oauth_client_id`, so
+nothing that revokes a connector can reach such a token, and an unexpiring one
+would outlive the consent it was created under. `CreateAuthToken` also refuses
+the `oauth` kind outright, so the only way an `oauth` row exists is through the
+authorization server, which always records the client behind it.
+
+**A connector's token is not a browser session.** `uiAuthMiddleware` rejects the
+`oauth` kind. The UI's CSRF token is derived from whatever value sits in the
+session cookie, so anything holding a raw access token could otherwise drive the
+whole signed-in UI — including registering a second connector for that user,
+which revoking the first would not touch.
+
 **Redirect URIs are matched byte for byte.** They decide where an authorization
 code is delivered, so there is no normalisation, case folding, or prefix match.
 Nothing at all is sent to an unregistered address — not even an error — because
 that would be an open redirector carrying the victim's `state`.
+
+Registration is correspondingly strict. Userinfo is refused, per RFC 6749
+section 3.1.2 — browsers disagree about whether to strip or prompt on it, and
+trackslash would be placing a fresh authorization code next to a password in a
+`Location` header. The host is restricted to the characters a real host name or
+IP literal needs: Go's URL parser accepts `;`, `,`, `*` and `'` in a host, and
+the consent page splices that origin into its `Content-Security-Policy`, where a
+`;` would add a whole directive and a `,` would split the header into two
+policies. `oauthSafeHost` enforces the same allowlist again at the point of
+use, so the property does not rest on registration alone.
 
 **`form-action` is widened on exactly two responses.** The global CSP is
 `form-action 'self'`, and Chromium and WebKit apply it across a form

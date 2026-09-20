@@ -118,6 +118,18 @@ func uiValidateOAuthRedirectURI(candidate string) error {
 	if parsed.Fragment != "" || strings.Contains(candidate, "#") {
 		return errors.New("Redirect URIs cannot contain a fragment.")
 	}
+	// RFC 6749 section 3.1.2 excludes userinfo. Browsers disagree about whether
+	// to strip or prompt on it, and trackslash would be putting a fresh
+	// authorization code next to a password in a Location header.
+	if parsed.User != nil {
+		return errors.New("Redirect URIs cannot contain a username or password.")
+	}
+	// Go's URL parser accepts ';' ',' '*' and '\'' in a host. The consent page
+	// splices this origin into its Content-Security-Policy, where those
+	// characters would add or split directives.
+	if !oauthSafeHost(parsed.Host) {
+		return errors.New("Redirect URI host may only contain letters, digits, dots, hyphens, and a port.")
+	}
 	switch parsed.Scheme {
 	case "https":
 		return nil

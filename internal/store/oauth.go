@@ -164,9 +164,12 @@ func (s *Store) AuthenticateOAuthClient(ctx context.Context, clientID, secret st
 	)
 	if err != nil {
 		if isNoRows(err) {
-			// Compare against a throwaway digest so an unknown client costs the
-			// same as a known one with the wrong secret.
-			decoy := tokenHash("")
+			// Hash the presented secret anyway, so an unknown client does the
+			// same work as a known one with a wrong secret. The database round
+			// trip dominates either way, so this narrows the signal rather than
+			// removing it; the failure budget in the token endpoint is what
+			// actually makes probing client IDs impractical.
+			decoy := tokenHash(secret)
 			subtle.ConstantTimeCompare(decoy[:], decoy[:])
 			return model.OAuthClient{}, ErrUnauthorized
 		}
@@ -203,6 +206,12 @@ func (s *Store) DisableOAuthClientForUser(ctx context.Context, userID, id uuid.U
 		if _, err := tx.Exec(ctx, `DELETE FROM oauth_client_consents WHERE client_id = $1`, id); err != nil {
 			return err // defensive: DB outage past the rows-affected check
 		}
+		// Codes the client has not exchanged yet die with it. Client
+		// authentication would already refuse the exchange, but revocation
+		// should not rest on a filter in a different function.
+		if _, err := tx.Exec(ctx, `DELETE FROM oauth_authorization_codes WHERE client_id = $1`, id); err != nil {
+			return err // defensive: DB outage past the rows-affected check
+		}
 		if _, err := tx.Exec(ctx, `
 			UPDATE oauth_refresh_tokens SET revoked_at = now()
 			WHERE client_id = $1 AND revoked_at IS NULL
@@ -218,15 +227,21 @@ func (s *Store) DisableOAuthClientForUser(ctx context.Context, userID, id uuid.U
 }
 
 // OAuthClientConsented reports whether this user has already approved this
-// client. A remembered approval is what lets a reconnect skip the consent
-// screen; revoking the client deletes the record, so the next one asks again.
-func (s *Store) OAuthClientConsented(ctx context.Context, clientID, userID uuid.UUID) (bool, error) {
+// client for this scope. A remembered approval is what lets a reconnect skip
+// the consent screen; revoking the client deletes the record, so the next one
+// asks again.
+//
+// The scope is part of the match. An approval is for what was shown on the
+// consent screen, so a request for anything else has to be approved on its own
+// terms rather than inheriting a decision the user did not make.
+func (s *Store) OAuthClientConsented(ctx context.Context, clientID, userID uuid.UUID, scope string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRow(ctx, `
 		SELECT EXISTS (
-			SELECT 1 FROM oauth_client_consents WHERE client_id = $1 AND user_id = $2
+			SELECT 1 FROM oauth_client_consents
+			WHERE client_id = $1 AND user_id = $2 AND scope = $3
 		)
-	`, clientID, userID).Scan(&exists)
+	`, clientID, userID, scope).Scan(&exists)
 	return exists, err
 }
 
@@ -289,13 +304,20 @@ type ConsumedOAuthCode struct {
 	Resource      string
 }
 
-// ConsumeOAuthAuthorizationCode claims a code exactly once.
+// ConsumeOAuthAuthorizationCode claims a code exactly once, for the client it
+// was issued to.
+//
+// clientID is part of the lookup, not a check applied afterwards. A client that
+// presents someone else's code must not be able to consume it: doing so would
+// burn the code and leave the rightful client's next exchange looking like a
+// replay, which revokes that client's entire grant. Matching in the query means
+// a foreign code is simply not found and nothing is mutated.
 //
 // The row is locked before it is marked consumed, so two simultaneous exchanges
 // cannot both succeed. A code that was already consumed means someone replayed
 // it, which means a copy leaked: every token the pair holds is revoked before
 // ErrOAuthReplay is returned, per RFC 6749 section 4.1.2.
-func (s *Store) ConsumeOAuthAuthorizationCode(ctx context.Context, raw string) (ConsumedOAuthCode, error) {
+func (s *Store) ConsumeOAuthAuthorizationCode(ctx context.Context, raw string, clientID uuid.UUID) (ConsumedOAuthCode, error) {
 	hash := tokenHash(raw)
 	var out ConsumedOAuthCode
 	var replayed bool
@@ -305,9 +327,9 @@ func (s *Store) ConsumeOAuthAuthorizationCode(ctx context.Context, raw string) (
 		err := tx.QueryRow(ctx, `
 			SELECT client_id, user_id, redirect_uri, code_challenge, scope, resource, expires_at, consumed_at
 			FROM oauth_authorization_codes
-			WHERE code_hash = $1
+			WHERE code_hash = $1 AND client_id = $2
 			FOR UPDATE
-		`, hash[:]).Scan(&out.ClientID, &out.UserID, &out.RedirectURI, &out.CodeChallenge,
+		`, hash[:], clientID).Scan(&out.ClientID, &out.UserID, &out.RedirectURI, &out.CodeChallenge,
 			&out.Scope, &out.Resource, &expires, &consumed)
 		if err != nil {
 			if isNoRows(err) {
@@ -353,6 +375,9 @@ type IssuedOAuthTokens struct {
 	AccessToken  string
 	RefreshToken string
 	ExpiresIn    int
+	// Scope is the grant's scope, carried back so the token endpoint reports
+	// what was actually granted rather than assuming.
+	Scope string
 }
 
 // IssueOAuthTokens mints an access and refresh token pair for an approved
@@ -424,6 +449,7 @@ func issueOAuthTokens(ctx context.Context, tx pgx.Tx, p IssueOAuthTokensParams, 
 	out.AccessToken = access
 	out.RefreshToken = refresh
 	out.ExpiresIn = int(oauthAccessTokenTTL.Seconds())
+	out.Scope = p.Scope
 	return nil
 }
 

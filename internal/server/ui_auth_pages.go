@@ -210,6 +210,19 @@ func (s *Server) uiAuthMiddleware(next http.Handler) http.Handler {
 			writeUIInternalError(w, "ui auth middleware authenticate token", err)
 			return
 		}
+		// A connector's access token is not a browser session. The CSRF token is
+		// derived from whatever is in this cookie, so anything holding the raw
+		// token could otherwise drive the signed-in UI — including registering
+		// another connector for this user, which no revocation would reach.
+		if auth.Token.Kind == model.AuthTokenKindOAuth {
+			s.clearUISessionCookie(w, r)
+			if s.anonymousProjectReadAllowed(r, false) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			redirectUILogin(w, r)
+			return
+		}
 		ctx := context.WithValue(r.Context(), authContextKey{}, authContext{User: auth.User, Token: auth.Token})
 		ctx = store.WithActor(ctx, auth.User.ID)
 		next.ServeHTTP(w, r.WithContext(ctx))
