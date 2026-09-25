@@ -110,7 +110,7 @@ func TestUIProjectsPageListsVisibleProjectsAndCreatesProject(t *testing.T) {
 	}
 
 	body = e.uiGet(t, "/projects/new", token)
-	for _, want := range []string{"New project", "Create project", `action="/projects"`, `id="project-key"`, `id="project-name"`, `id="project-description"`} {
+	for _, want := range []string{"New project", "Create project", `action="/projects"`, `id="project-key"`, `id="project-name"`, `id="project-description"`, `placeholder="What is this project for? Markdown is supported."`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("new project body missing %q: %s", want, body)
 		}

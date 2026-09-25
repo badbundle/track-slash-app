@@ -27,6 +27,7 @@ func TestUINewIssueCreatesIssueWithAllFieldsAndDefaultReporter(t *testing.T) {
 		`data-sidebar-view=""`,
 		`method="post" action="/issues"`,
 		`hx-post="/issues"`,
+		`id="issue-description" name="description" rows="5" data-autogrow-textarea placeholder="Describe the issue: context, steps to reproduce, acceptance criteria… Markdown is supported."`,
 		`id="new-issue-project-form" method="get" action="/issues/new/panel"`,
 		`id="issue-project" name="project"`,
 		`type="hidden" name="project_id" value=""`,

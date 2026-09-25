@@ -109,6 +109,18 @@ func uiContextBody(panel *uiContextManagerData) uiDescriptionBodyData {
 	return uiDescriptionBodyData{Source: panel.ActiveContext.Body, HTML: panel.ActiveHTML, EmptyLabel: "No content yet."}
 }
 
+// Placeholders hint at what belongs in an empty Markdown description. The
+// shared editors and the standalone create forms use the same text so an
+// empty field reads the same wherever it is written.
+const (
+	uiIssueDescriptionPlaceholder   = "Describe the issue: context, steps to reproduce, acceptance criteria… Markdown is supported."
+	uiProjectDescriptionPlaceholder = "What is this project for? Markdown is supported."
+	uiSprintDescriptionPlaceholder  = "What should this sprint achieve? Markdown is supported."
+)
+
+func uiIssueDescriptionPlaceholderText() string   { return uiIssueDescriptionPlaceholder }
+func uiProjectDescriptionPlaceholderText() string { return uiProjectDescriptionPlaceholder }
+
 func uiIssueDescriptionEditor(panel *uiIssuePanelData) uiDescriptionEditorData {
 	return uiDescriptionEditorData{
 		Name:        "description",
@@ -117,7 +129,7 @@ func uiIssueDescriptionEditor(panel *uiIssuePanelData) uiDescriptionEditorData {
 		Autofocus:   true,
 		UploadURL:   uiIssueAttachmentsPath(panel.Issue),
 		ListTarget:  "#issue-attachments-list",
-		Placeholder: "Description",
+		Placeholder: uiIssueDescriptionPlaceholder,
 	}
 }
 
@@ -129,19 +141,19 @@ func uiSprintDescriptionEditor(project model.Project, sprint model.Sprint, sourc
 		Autofocus:   autofocus,
 		UploadURL:   uiProjectSprintAttachmentsPath(project, sprint),
 		ListTarget:  "#sprint-attachments-" + sprint.Ref,
-		Placeholder: "Description",
+		Placeholder: uiSprintDescriptionPlaceholder,
 	}
 }
 
 func uiProjectDescriptionEditor(project model.Project, source string) uiDescriptionEditorData {
 	return uiDescriptionEditorData{
 		Name: "description", Source: source, Rows: 7, Autofocus: true,
-		UploadURL: uiProjectAttachmentsPath(project), ListTarget: "#project-attachments-list", Placeholder: "Description",
+		UploadURL: uiProjectAttachmentsPath(project), ListTarget: "#project-attachments-list", Placeholder: uiProjectDescriptionPlaceholder,
 	}
 }
 
 func uiNewSprintDescriptionEditor(source string) uiDescriptionEditorData {
-	return uiDescriptionEditorData{Name: "goal", Source: source, Rows: 4, Placeholder: "Description"}
+	return uiDescriptionEditorData{Name: "goal", Source: source, Rows: 4, Placeholder: uiSprintDescriptionPlaceholder}
 }
 
 func uiStorageObjectMarkdown(object model.StorageObject) string {

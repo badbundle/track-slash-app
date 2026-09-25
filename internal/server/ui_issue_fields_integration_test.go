@@ -242,7 +242,7 @@ func TestUIEditDescriptionUpdatesAndClearsIssuePanel(t *testing.T) {
 		`hx-post="` + e.issuePath(issue) + `/description"`,
 		`hx-push-url="false"`,
 		`name="description"`,
-		`placeholder="Description"`,
+		`placeholder="Describe the issue: context, steps to reproduce, acceptance criteria… Markdown is supported."`,
 		`aria-label="Save description"`,
 		`aria-label="Cancel editing description"`,
 		`hx-get="` + e.issuePath(issue) + `/panel"`,
