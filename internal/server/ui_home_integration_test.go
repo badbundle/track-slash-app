@@ -237,6 +237,7 @@ func TestUIRendersPersonalWorkViews(t *testing.T) {
 	if _, err := e.store.GrantProjectAccess(e.ctx, otherProject.ID, user.ID); err != nil {
 		t.Fatalf("GrantProjectAccess other: %v", err)
 	}
+	enableFixtureSprintMode(t, e.ctx, e.pool, otherProject.ID)
 	otherActive, err := e.store.CreateSprint(e.ctx, store.CreateSprintParams{
 		ProjectID: otherProject.ID,
 		Name:      "Other Active Sprint",

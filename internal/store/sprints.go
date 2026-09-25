@@ -368,6 +368,27 @@ type UpdateSprintParams struct {
 func (s *Store) UpdateSprint(ctx context.Context, id uuid.UUID, p UpdateSprintParams) (model.Sprint, error) {
 	var out model.Sprint
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		starting := p.Status != nil && *p.Status == model.SprintStatusActive
+		sprintsEnabled := false
+		if starting {
+			// Starting a sprint takes the project row lock before the sprint
+			// lock, the same order CreateSprint and ReorderPlannedSprints use.
+			// SetProjectSprintsEnabled holds that lock while it checks for an
+			// active sprint, so the two can never interleave.
+			if err := tx.QueryRow(ctx, `
+				SELECT p.sprints_enabled
+				FROM sprints s
+				JOIN projects p ON p.id = s.project_id
+				WHERE s.id = $1 AND s.deleted_at IS NULL AND p.deleted_at IS NULL
+				FOR UPDATE OF p
+			`, id).Scan(&sprintsEnabled); err != nil {
+				if isNoRows(err) {
+					return ErrNotFound
+				}
+				// Defensive: a keyed lookup only fails here on a DB fault.
+				return err
+			}
+		}
 		before, err := scanSprint(tx.QueryRow(ctx, `
 			SELECT id, project_id, number, name, goal, status, planned_order, start_date, end_date,
 			       completed_at, created_at, updated_at
@@ -390,6 +411,9 @@ func (s *Store) UpdateSprint(ctx context.Context, id uuid.UUID, p UpdateSprintPa
 			if err := validateSprintTransition(current, *p.Status); err != nil {
 				return err
 			}
+		}
+		if starting && current == model.SprintStatusPlanned && !sprintsEnabled {
+			return ErrSprintsDisabled
 		}
 		if p.ClearDates || p.StartDate != nil || p.EndDate != nil {
 			startDate, endDate := sprintUpdatedDateRange(before, p)

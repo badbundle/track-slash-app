@@ -805,6 +805,48 @@ func TestListenerReceivesProjectChangelogEvent(t *testing.T) {
 	}
 }
 
+// TestListenerReceivesProjectSprintModeUpdate verifies toggling sprint mode
+// reaches project subscribers through the existing projects trigger, so open
+// clients learn that the Sprint board appeared or disappeared.
+func TestListenerReceivesProjectSprintModeUpdate(t *testing.T) {
+	t.Parallel()
+	ctx, pool, dbURL := newRealtimeDB(t)
+
+	hub := NewHub()
+	runRealtimeListener(t, ctx, dbURL, hub)
+
+	time.Sleep(500 * time.Millisecond)
+
+	projectID := insertRealtimeProject(ctx, t, pool, "rt-sprint-mode")
+	projectSub := newTestClient(16)
+	hub.Subscribe(projectSub, "project:"+projectID)
+
+	if _, err := pool.Exec(ctx, `UPDATE projects SET sprints_enabled = true WHERE id = $1`, projectID); err != nil {
+		t.Fatalf("enable sprint mode: %v", err)
+	}
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-projectSub.send:
+			// The project's own insert can still be in flight when the
+			// subscription starts; only the update is under test.
+			if ev.Entity != EntityProject || ev.Op == OpInsert {
+				continue
+			}
+			if ev.Op != OpUpdate || ev.ID.String() != projectID {
+				t.Fatalf("project event = %#v, want update of %s", ev, projectID)
+			}
+			if ev.Version < 2 {
+				t.Fatalf("project event version = %d, want the bumped version", ev.Version)
+			}
+			return
+		case <-deadline:
+			t.Fatal("did not receive project sprint mode event within 3s")
+		}
+	}
+}
+
 // TestListenerReceivesSoftDeleteAsDelete verifies updating deleted_at emits a
 // realtime delete op so subscribers see the same event kind as hard deletes.
 func TestListenerReceivesSoftDeleteAsDelete(t *testing.T) {

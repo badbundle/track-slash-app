@@ -123,6 +123,10 @@ func uiProjectAccessPath(project model.Project) string {
 	return uiProjectPath(project) + "/member-access"
 }
 
+func uiProjectSprintModePath(project model.Project) string {
+	return uiProjectPath(project) + "/sprint-mode"
+}
+
 func uiProjectBlocksPath(project model.Project) string {
 	return uiProjectPath(project) + "/member-blocks"
 }

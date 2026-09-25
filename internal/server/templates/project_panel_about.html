@@ -240,6 +240,13 @@
             <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Issue creation</dt>
             <dd class="mt-1 text-slate-900 dark:text-slate-100">{{if .AccessSettings.PublicIssueCreation}}Any signed-in user{{else}}Members only{{end}}</dd>
           </div>
+          <div>
+            <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Sprints</dt>
+            <dd class="mt-1" data-project-sprint-mode="{{if .Project.SprintsEnabled}}enabled{{else}}disabled{{end}}">
+              <span class="text-slate-900 dark:text-slate-100">{{if .Project.SprintsEnabled}}Enabled{{else}}Disabled{{end}}</span>
+              <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">{{if .Project.SprintsEnabled}}Work runs sprint by sprint.{{else}}Issues are picked up one at a time.{{end}}</p>
+            </dd>
+          </div>
         </dl>
       </section>
 

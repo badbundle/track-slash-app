@@ -191,6 +191,7 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Post("/{owner}/projects/{key}/members/{username}/delete", s.uiDeleteProjectMember)
 		r.Get("/{owner}/projects/{key}/member-candidates", s.uiProjectMemberCandidates)
 		r.Post("/{owner}/projects/{key}/member-access", s.uiUpdateProjectAccess)
+		r.Post("/{owner}/projects/{key}/sprint-mode", s.uiUpdateProjectSprintMode)
 		r.Post("/{owner}/projects/{key}/member-blocks", s.uiBlockProjectUser)
 		r.Post("/{owner}/projects/{key}/member-blocks/{username}/delete", s.uiUnblockProjectUser)
 		r.Get("/{owner}/projects/{key}/description/edit", s.uiProjectWriteHandler(s.uiEditProjectDescription))

@@ -52,7 +52,7 @@ func (s *Store) CreateProjectAttachment(ctx context.Context, p CreateProjectAtta
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		project, err := scanProject(tx.QueryRow(ctx, `
 			SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
-			       p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+			       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 			FROM projects p
 			JOIN users u ON u.id = p.owner_id
 			WHERE p.id = $1 AND p.deleted_at IS NULL AND u.deleted_at IS NULL
@@ -165,7 +165,7 @@ func (s *Store) DeleteProjectAttachment(ctx context.Context, projectID, storageO
 		}
 		project, err := scanProject(tx.QueryRow(ctx, `
 			SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
-			       p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+			       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 			FROM projects p JOIN users u ON u.id = p.owner_id WHERE p.id = $1
 		`, projectID))
 		if err != nil {

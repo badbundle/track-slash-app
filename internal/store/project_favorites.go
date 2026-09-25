@@ -80,7 +80,7 @@ func (s *Store) ListFavoriteProjects(ctx context.Context, p ListFavoriteProjects
 	q := `
 		SELECT projects.id, projects.owner_id, owner.username, projects.key,
 		       projects.name, projects.description, projects.image_object_id, projects.image_thumbnail_object_id,
-		       projects.created_at, projects.updated_at
+		       projects.sprints_enabled, projects.created_at, projects.updated_at
 		FROM project_favorites pf
 		JOIN projects ON projects.id = pf.project_id
 		JOIN users owner ON owner.id = projects.owner_id

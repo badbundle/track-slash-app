@@ -43,7 +43,19 @@ func newSprintsEnv(t *testing.T) *sprintsTestEnv {
 	if err != nil {
 		t.Fatalf("CreateProjectForUser: %v", err)
 	}
+	enableFixtureSprintMode(t, ctx, pool, proj.ID)
 	return &sprintsTestEnv{ctx: ctx, pool: pool, store: s, projectID: proj.ID}
+}
+
+// enableFixtureSprintMode puts a fixture project in sprint mode, as migration
+// 0044 did for every project that already used sprints. It writes the column
+// directly so the fixture carries no changelog entry of its own. New projects
+// start with sprints disabled; sprint_mode_integration_test.go covers that.
+func enableFixtureSprintMode(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `UPDATE projects SET sprints_enabled = true WHERE id = $1`, projectID); err != nil {
+		t.Fatalf("enable fixture sprint mode: %v", err)
+	}
 }
 
 func uniqueProjectKey(t *testing.T) string {
@@ -535,6 +547,7 @@ func TestUpdateSprintActivationUnique(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject other: %v", err)
 	}
+	enableFixtureSprintMode(t, env.ctx, env.pool, other.ID)
 	sp2, err := env.store.CreateSprint(env.ctx, store.CreateSprintParams{
 		ProjectID: other.ID, Name: "X",
 		StartDate: datePtr(date(2026, 6, 1)), EndDate: datePtr(date(2026, 6, 14)),

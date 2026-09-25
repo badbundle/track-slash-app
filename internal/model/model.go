@@ -441,6 +441,7 @@ type Project struct {
 	Description            string     `json:"description"`
 	ImageObjectID          *uuid.UUID `json:"image_object_id,omitempty"`
 	ImageThumbnailObjectID *uuid.UUID `json:"image_thumbnail_object_id,omitempty"`
+	SprintsEnabled         bool       `json:"sprints_enabled"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
 }

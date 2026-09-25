@@ -22,7 +22,7 @@ func scanProject(row projectScanner) (model.Project, error) {
 	var p model.Project
 	err := row.Scan(
 		&p.ID, &p.OwnerID, &p.OwnerUsername, &p.Key, &p.Name, &p.Description,
-		&p.ImageObjectID, &p.ImageThumbnailObjectID, &p.CreatedAt, &p.UpdatedAt,
+		&p.ImageObjectID, &p.ImageThumbnailObjectID, &p.SprintsEnabled, &p.CreatedAt, &p.UpdatedAt,
 	)
 	return p, err
 }
@@ -45,11 +45,11 @@ func (s *Store) CreateProjectForUser(ctx context.Context, userID uuid.UUID, key,
 			inserted AS (
 				INSERT INTO projects (owner_id, key, name, description)
 				SELECT id, $2, $3, $4 FROM owner
-				RETURNING id, owner_id, key, name, description, image_object_id, image_thumbnail_object_id, created_at, updated_at
+				RETURNING id, owner_id, key, name, description, image_object_id, image_thumbnail_object_id, sprints_enabled, created_at, updated_at
 			)
 			SELECT inserted.id, inserted.owner_id, owner.username, inserted.key,
 			       inserted.name, inserted.description, inserted.image_object_id, inserted.image_thumbnail_object_id,
-			       inserted.created_at, inserted.updated_at
+			       inserted.sprints_enabled, inserted.created_at, inserted.updated_at
 			FROM inserted
 			JOIN owner ON owner.id = inserted.owner_id
 		`
@@ -102,7 +102,7 @@ func (s *Store) CreateProjectForUser(ctx context.Context, userID uuid.UUID, key,
 func (s *Store) GetProject(ctx context.Context, id uuid.UUID) (model.Project, error) {
 	const q = `
 		SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
-		       p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+		       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 		FROM projects p
 		JOIN users u ON u.id = p.owner_id
 		WHERE p.id = $1 AND p.deleted_at IS NULL AND u.deleted_at IS NULL
@@ -122,7 +122,7 @@ func (s *Store) GetProjectByOwnerKey(ctx context.Context, ownerUsername, key str
 	key = strings.ToUpper(strings.TrimSpace(key))
 	const q = `
 		SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
-		       p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+		       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 		FROM projects p
 		JOIN users u ON u.id = p.owner_id
 		WHERE u.username = $1
@@ -165,7 +165,7 @@ func (s *Store) UpdateProject(ctx context.Context, id uuid.UUID, p UpdateProject
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		before, err := scanProject(tx.QueryRow(ctx, `
 			SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
-			       p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+			       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 			FROM projects p
 			JOIN users u ON u.id = p.owner_id
 			WHERE p.id = $1 AND p.deleted_at IS NULL AND u.deleted_at IS NULL
@@ -207,7 +207,7 @@ func (s *Store) UpdateProject(ctx context.Context, id uuid.UUID, p UpdateProject
 			  AND p.deleted_at IS NULL
 			  AND u.deleted_at IS NULL
 			RETURNING p.id, p.owner_id, u.username, p.key, p.name, p.description,
-			          p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+			          p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 		`, strings.Join(sets, ", "), i)
 
 		out, err = scanProject(tx.QueryRow(ctx, q, args...))
@@ -241,6 +241,101 @@ func (s *Store) UpdateProject(ctx context.Context, id uuid.UUID, p UpdateProject
 	return out, nil
 }
 
+var (
+	// ErrSprintsDisabled rejects starting a sprint in a project that is not in
+	// sprint mode. It wraps ErrConflict so every surface answers 409.
+	ErrSprintsDisabled = fmt.Errorf("sprints are disabled for this project: %w", ErrConflict)
+	// ErrActiveSprintBlocksSprintsOff rejects leaving sprint mode while a sprint
+	// is running, so turning sprints off never strands an active sprint.
+	ErrActiveSprintBlocksSprintsOff = fmt.Errorf("complete the active sprint to disable sprints: %w", ErrConflict)
+)
+
+// SetProjectSprintsEnabled switches a project between sprint mode and working
+// one issue at a time. It locks the project row, which UpdateSprint also locks
+// before starting a sprint, so turning sprints off and starting a sprint cannot
+// both succeed. Planned and completed sprints are never touched.
+func (s *Store) SetProjectSprintsEnabled(ctx context.Context, id uuid.UUID, enabled bool) (model.Project, error) {
+	var out model.Project
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		before, err := scanProject(tx.QueryRow(ctx, `
+			SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
+			       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
+			FROM projects p
+			JOIN users u ON u.id = p.owner_id
+			WHERE p.id = $1 AND p.deleted_at IS NULL AND u.deleted_at IS NULL
+			FOR UPDATE OF p
+		`, id))
+		if err != nil {
+			if isNoRows(err) {
+				return ErrNotFound
+			}
+			// Defensive: a keyed row lock only fails here on a DB fault.
+			return err
+		}
+		if before.SprintsEnabled == enabled {
+			out = before
+			return nil
+		}
+		if !enabled {
+			var active bool
+			if err := tx.QueryRow(ctx, `
+				SELECT EXISTS (
+					SELECT 1 FROM sprints
+					WHERE project_id = $1 AND status = 'active' AND deleted_at IS NULL
+				)
+			`, id).Scan(&active); err != nil {
+				// Defensive: an EXISTS probe on a locked project only fails on a DB fault.
+				return err
+			}
+			if active {
+				return ErrActiveSprintBlocksSprintsOff
+			}
+		}
+		out, err = scanProject(tx.QueryRow(ctx, `
+			UPDATE projects p
+			SET sprints_enabled = $2, updated_at = now()
+			FROM users u
+			WHERE p.id = $1 AND p.owner_id = u.id
+			RETURNING p.id, p.owner_id, u.username, p.key, p.name, p.description,
+			          p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
+		`, id, enabled))
+		if err != nil {
+			// Defensive: the row is locked above, so only a DB fault fails the update.
+			return err
+		}
+		summary := fmt.Sprintf("Disabled sprints for project %s", out.Key)
+		if enabled {
+			summary = fmt.Sprintf("Enabled sprints for project %s", out.Key)
+		}
+		return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
+			ProjectID:   out.ID,
+			Entity:      "project",
+			Op:          "update",
+			EntityID:    out.ID,
+			TargetRef:   out.Key,
+			TargetTitle: out.Name,
+			Summary:     summary,
+			Details: model.ProjectChangelogDetails{Changes: []model.ProjectChangelogChange{{
+				Field: "sprints_enabled",
+				Label: "Sprints",
+				From:  changelogEnabledLabel(before.SprintsEnabled),
+				To:    changelogEnabledLabel(out.SprintsEnabled),
+			}}},
+		})
+	})
+	if err != nil {
+		return model.Project{}, err
+	}
+	return out, nil
+}
+
+func changelogEnabledLabel(enabled bool) string {
+	if enabled {
+		return "Enabled"
+	}
+	return "Disabled"
+}
+
 type ProjectsCursor struct {
 	CreatedAt time.Time `json:"t"`
 	ID        uuid.UUID `json:"i"`
@@ -259,7 +354,7 @@ func (s *Store) ListProjects(ctx context.Context, p ListProjectsParams) ([]model
 	q := `
 		SELECT projects.id, projects.owner_id, u.username, projects.key,
 		       projects.name, projects.description, projects.image_object_id, projects.image_thumbnail_object_id,
-		       projects.created_at, projects.updated_at
+		       projects.sprints_enabled, projects.created_at, projects.updated_at
 		FROM projects
 		JOIN users u ON u.id = projects.owner_id
 		WHERE projects.deleted_at IS NULL AND u.deleted_at IS NULL
@@ -369,7 +464,7 @@ func (s *Store) DeleteProject(ctx context.Context, id uuid.UUID) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		project, err := scanProject(tx.QueryRow(ctx, `
 			SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
-			       p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+			       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 			FROM projects p
 			JOIN users u ON u.id = p.owner_id
 			WHERE p.id = $1 AND p.deleted_at IS NULL AND u.deleted_at IS NULL
