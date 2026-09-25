@@ -6,6 +6,31 @@ import (
 	"time"
 )
 
+func TestInsightRange(t *testing.T) {
+	t.Parallel()
+	want := map[InsightRange]string{
+		InsightRangeTwoWeeks:   "2 weeks",
+		InsightRangeThirtyDays: "30 days",
+		InsightRangeNinetyDays: "90 days",
+		InsightRangeAll:        "All time",
+	}
+	ranges := InsightRanges()
+	if len(ranges) != len(want) || ranges[0] != InsightRangeTwoWeeks || ranges[len(ranges)-1] != InsightRangeAll {
+		t.Fatalf("InsightRanges() = %v", ranges)
+	}
+	for _, r := range ranges {
+		if !r.Valid() || r.Label() != want[r] {
+			t.Fatalf("%q valid=%v label=%q", r, r.Valid(), r.Label())
+		}
+	}
+	if !DefaultInsightRange.Valid() {
+		t.Fatal("default insight range is invalid")
+	}
+	if bogus := InsightRange("7d"); bogus.Valid() || bogus.Label() != "7d" {
+		t.Fatalf("unknown range valid=%v label=%q", bogus.Valid(), bogus.Label())
+	}
+}
+
 func TestStatusValid(t *testing.T) {
 	cases := []struct {
 		in   Status

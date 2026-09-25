@@ -361,13 +361,16 @@ func TestUIProjectAboutStats(t *testing.T) {
 	}
 
 	body := e.uiGet(t, e.projectPath()+"/about", token)
-	for _, want := range []string{"Issue stats", "All time", "Last 7 days", "Completion rate", "Weekly snapshot for the last 12 weeks", "Not enough history for a trend yet.", "Weekly ticket completion rate summary", "50%", "Top assignees", "ui-stats", ">2</td>", ">1</td>"} {
+	insightsPath := e.projectPath() + "/insights"
+	for _, want := range []string{"Issue stats", "All time", "Last 7 days", "Top assignees", "ui-stats", ">2</td>", ">1</td>", "data-project-insights-link", `href="` + insightsPath + `"`, `hx-get="` + insightsPath + `/panel"`, "View insights"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("project about stats missing %q: %s", want, body)
 		}
 	}
-	if strings.Contains(body, "No assigned issues.") {
-		t.Fatalf("project about stats rendered empty assignee state: %s", body)
+	for _, notWant := range []string{"No assigned issues.", "Completion rate", "data-insight-chart"} {
+		if strings.Contains(body, notWant) {
+			t.Fatalf("project about stats rendered %q: %s", notWant, body)
+		}
 	}
 }
 
@@ -429,59 +432,6 @@ func TestUIProjectAboutShowsAccessSettings(t *testing.T) {
 		if strings.Contains(anonymousBody, notWant) {
 			t.Fatalf("anonymous public about rendered %q: %s", notWant, anonymousBody)
 		}
-	}
-}
-
-func TestUIProjectCompletionHistoryVisibleToReadonlyAndPublicReaders(t *testing.T) {
-	t.Parallel()
-	e := newHTTPEnv(t)
-	issue, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "completion reader issue"})
-	if err != nil {
-		t.Fatalf("CreateIssue: %v", err)
-	}
-	done := model.StatusDone
-	if _, err := e.store.UpdateIssue(e.ctx, issue.ID, store.UpdateIssueParams{Status: &done}); err != nil {
-		t.Fatalf("UpdateIssue: %v", err)
-	}
-	// The handler dates the chart from the Go clock while these rows are stamped
-	// by Postgres, so a database clock running ahead would drop the issue from
-	// the final point or replay its completion away. An hour of margin settles it.
-	e.backdateCompletionRows(t, issue.ID, "1 hour")
-	readonly, readonlyToken := e.mustUserToken(t, "ui-completion-readonly")
-	if _, err := e.store.SetProjectMemberRole(e.ctx, e.projectID, readonly.ID, model.ProjectMemberRoleReadonly); err != nil {
-		t.Fatalf("SetProjectMemberRole: %v", err)
-	}
-
-	readonlyBody := e.uiGet(t, e.projectPath()+"/about", readonlyToken)
-	for _, want := range []string{"Completion rate", `role="img"`, "Weekly ticket completion rate summary", "100% (1 of 1 tickets completed)"} {
-		if !strings.Contains(readonlyBody, want) {
-			t.Fatalf("readonly completion chart missing %q: %s", want, readonlyBody)
-		}
-	}
-
-	if _, err := e.store.UpdateProjectAccessSettings(e.ctx, e.projectID, model.ProjectAccessSettings{IsPublic: true}); err != nil {
-		t.Fatalf("UpdateProjectAccessSettings: %v", err)
-	}
-	res := e.uiDoNoRedirect(t, http.MethodGet, e.projectPath()+"/about", "", nil)
-	defer res.Body.Close()
-	publicBody := readBody(t, res)
-	if res.StatusCode != http.StatusOK || !strings.Contains(publicBody, "Completion rate") || !strings.Contains(publicBody, "100% (1 of 1 tickets completed)") {
-		t.Fatalf("public completion chart code = %d body = %s", res.StatusCode, publicBody)
-	}
-}
-
-// backdateCompletionRows moves an issue and its changelog out of the window
-// where the Postgres and Go clocks have to agree for a completion chart to
-// render the counts a test expects.
-func (e *httpEnv) backdateCompletionRows(t *testing.T, issueID uuid.UUID, age string) {
-	t.Helper()
-	if _, err := e.pool.Exec(e.ctx,
-		"UPDATE issues SET created_at = now() - $2::interval WHERE id = $1", issueID, age); err != nil {
-		t.Fatalf("backdate issue created_at: %v", err)
-	}
-	if _, err := e.pool.Exec(e.ctx,
-		"UPDATE project_changelog_entries SET created_at = now() - $2::interval WHERE issue_id = $1", issueID, age); err != nil {
-		t.Fatalf("backdate changelog entries: %v", err)
 	}
 }
 

@@ -58,6 +58,10 @@
                 <i data-lucide="users" class="h-4 w-4" aria-hidden="true"></i>
                 <span>Members</span>
               </a>{{end}}
+              <a href="{{projectView .Project "insights"}}" hx-get="{{projectPanel .Project "insights"}}" hx-target="#project-panel-tab-content" hx-select="#project-panel-tab-content" hx-select-oob="#project-breadcrumb,#project-tab-bar,#project-actions-menu,#project-favorite-action" hx-swap="outerHTML" hx-push-url="{{projectView .Project "insights"}}" {{if eq .View "insights"}}aria-current="page"{{end}} class="flex items-center gap-2 rounded-md px-2 py-2 text-sm {{if eq .View "insights"}}bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200{{else}}text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800{{end}} focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500">
+                <i data-lucide="chart-line" class="h-4 w-4" aria-hidden="true"></i>
+                <span>Insights</span>
+              </a>
               <a href="{{projectView .Project "sprints"}}" hx-get="{{projectPanel .Project "sprints"}}" hx-target="#project-panel-tab-content" hx-select="#project-panel-tab-content" hx-select-oob="#project-breadcrumb,#project-tab-bar,#project-actions-menu,#project-favorite-action" hx-swap="outerHTML" hx-push-url="{{projectView .Project "sprints"}}" {{if eq .View "sprints"}}aria-current="page"{{end}} class="flex items-center gap-2 rounded-md px-2 py-2 text-sm {{if eq .View "sprints"}}bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200{{else}}text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800{{end}} focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500">
                 <i data-lucide="archive" class="h-4 w-4" aria-hidden="true"></i>
                 <span>Sprint history</span>
@@ -106,6 +110,8 @@
     {{template "project-panel-sprint-history" .SprintHistoryPage}}
     {{else if eq .View "changelog"}}
     {{template "project-panel-changelog" .}}
+    {{else if eq .View "insights"}}
+    {{template "project-panel-insights" .Insights}}
     {{else if eq .View "context"}}
     {{template "project-panel-context" .ContextManager}}
     {{else if eq .View "whiteboard"}}

@@ -242,6 +242,8 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Get("/{owner}/projects/{key}/changelog", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPage(w, r, "changelog") })
 		r.Get("/{owner}/projects/{key}/changelog/panel", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPanel(w, r, "changelog") })
 		r.Get("/{owner}/projects/{key}/changelog/page", s.uiProjectChangelogPage)
+		r.Get("/{owner}/projects/{key}/insights", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPage(w, r, "insights") })
+		r.Get("/{owner}/projects/{key}/insights/panel", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPanel(w, r, "insights") })
 		r.Get("/{owner}/projects/{key}/backlog", func(w http.ResponseWriter, r *http.Request) { s.uiProjectLegacyBacklog(w, r, false) })
 		r.Get("/{owner}/projects/{key}/backlog/panel", func(w http.ResponseWriter, r *http.Request) { s.uiProjectLegacyBacklog(w, r, true) })
 		r.Get("/{owner}/projects/{key}/deleted", s.uiProjectDeletedPage)

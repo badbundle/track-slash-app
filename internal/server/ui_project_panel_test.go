@@ -27,6 +27,7 @@ func TestUIProjectBreadcrumbIncludesCurrentView(t *testing.T) {
 		{view: "members", label: "Members"},
 		{view: "sprints", label: "Sprint history"},
 		{view: "changelog", label: "Changelog"},
+		{view: "insights", label: "Insights"},
 	} {
 		t.Run(tt.view, func(t *testing.T) {
 			items := uiProjectBreadcrumb(project, tt.view).Items
@@ -76,6 +77,9 @@ func TestUIProjectFavoriteViewKeepsSprintHistory(t *testing.T) {
 	}
 	if got := uiProjectPanelView("whiteboard"); got != "whiteboard" {
 		t.Fatalf("uiProjectPanelView(whiteboard) = %q, want whiteboard", got)
+	}
+	if got := uiProjectPanelView("insights"); got != "insights" {
+		t.Fatalf("uiProjectPanelView(insights) = %q, want insights", got)
 	}
 	if got := uiProjectPanelView("unknown"); got != "sprint" {
 		t.Fatalf("uiProjectPanelView(unknown) = %q, want sprint", got)

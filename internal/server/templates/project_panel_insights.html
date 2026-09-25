@@ -1,0 +1,143 @@
+{{define "project-panel-insights"}}
+<section class="py-6" data-project-insights>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <nav aria-label="Date range" class="inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-md border border-slate-200 bg-white p-0.5 dark:border-slate-800 dark:bg-slate-900">
+      {{range .RangeOptions}}
+      <a href="{{.Href}}" hx-get="{{.HXGet}}" hx-target="#project-panel-tab-content" hx-select="#project-panel-tab-content" hx-select-oob="#project-breadcrumb,#project-tab-bar,#project-actions-menu,#project-favorite-action" hx-swap="outerHTML" hx-push-url="{{.Href}}" {{if .Active}}aria-current="true"{{end}} class="whitespace-nowrap rounded px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 {{if .Active}}bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200{{else}}text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100{{end}}">{{.Label}}</a>
+      {{end}}
+    </nav>
+    <p class="text-xs text-slate-500 dark:text-slate-400">{{.PeriodLabel}} · deleted issues excluded</p>
+  </div>
+  <div class="mt-4 grid gap-6 lg:grid-cols-2">
+    {{range .Charts}}{{template "insight-chart" .}}{{end}}
+  </div>
+  {{if not .SprintsEnabled}}
+  <p class="mt-4 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400"><i data-lucide="info" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></i>Sprints are off for this project, so sprint burn-up and velocity are hidden.</p>
+  {{end}}
+  <template data-insight-tooltip-title><p class="font-medium text-slate-900 dark:text-slate-100"></p></template>
+  <template data-insight-tooltip-row><p class="mt-1 flex items-center gap-2"><span data-key class="h-0.5 w-3 shrink-0 rounded-full"></span><span data-value class="font-semibold tabular-nums text-slate-900 dark:text-slate-100"></span><span data-label class="text-slate-500 dark:text-slate-400"></span></p></template>
+  <template data-insight-tooltip-detail><p class="mt-1 text-slate-500 dark:text-slate-400"></p></template>
+</section>
+{{end}}
+
+{{define "insight-chart"}}
+<section id="{{.ID}}" aria-labelledby="{{.ID}}-title" data-insight-chart="{{.Data}}" data-insight-kind="{{.Kind}}" class="min-w-0 rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+  <header class="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+    <div class="flex min-h-7 items-center justify-between gap-3">
+      <h2 id="{{.ID}}-title" class="shrink-0 whitespace-nowrap text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">{{.Title}}</h2>
+      {{if .Sprints}}
+      <details data-close-on-outside class="relative min-w-0">
+        <summary class="inline-flex h-8 max-w-full cursor-pointer list-none items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900">
+          <span class="sr-only">Sprint:</span>
+          <span class="min-w-0 truncate">{{if .SprintPicker}}{{.SprintPicker}}{{else}}Choose sprint{{end}}</span>
+          <i data-lucide="chevron-down" class="h-3.5 w-3.5 shrink-0" aria-hidden="true"></i>
+        </summary>
+        <div class="absolute right-0 top-9 z-20 max-h-72 w-72 max-w-[calc(100vw-3rem)] overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+          {{range .Sprints}}
+          <a href="{{.Href}}" hx-get="{{.HXGet}}" hx-target="#project-panel-tab-content" hx-select="#project-panel-tab-content" hx-select-oob="#project-breadcrumb,#project-tab-bar,#project-actions-menu,#project-favorite-action" hx-swap="outerHTML" hx-push-url="{{.Href}}" {{if .Active}}aria-current="true"{{end}} class="flex items-center gap-2 rounded-md px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 {{if .Active}}bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200{{else}}text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800{{end}}">
+            {{template "sprint-ref" .Ref}}
+            <span class="min-w-0 flex-1 truncate">{{.Name}}</span>
+            {{if eq .Status "active"}}<span class="shrink-0 text-xs font-medium text-emerald-700 dark:text-emerald-300">Active</span>{{end}}
+            {{if .Active}}<i data-lucide="check" class="h-4 w-4 shrink-0" aria-hidden="true"></i>{{end}}
+          </a>
+          {{end}}
+        </div>
+      </details>
+      {{end}}
+    </div>
+    <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{{.Description}}</p>
+  </header>
+  <div class="px-4 py-4">
+    {{if .Stats}}
+    <dl class="flex flex-wrap gap-x-6 gap-y-2">
+      {{range .Stats}}<div><dt class="text-xs text-slate-500 dark:text-slate-400">{{.Label}}</dt><dd class="text-lg font-semibold leading-7 text-slate-900 dark:text-slate-100">{{.Value}}</dd></div>{{end}}
+    </dl>
+    {{end}}
+    {{if .Empty}}
+    <p class="{{if .Stats}}mt-3 {{end}}rounded-md border border-dashed border-slate-300 px-3 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">{{.Empty}}</p>
+    {{else}}
+    <div role="group" aria-label="{{.Title}} series" class="{{if .Stats}}mt-3 {{end}}flex flex-wrap items-center gap-1.5">
+      {{range .Series}}
+      <button type="button" data-insight-toggle="{{.Key}}" aria-pressed="true" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 aria-[pressed=false]:border-dashed aria-[pressed=false]:opacity-60 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800">
+        <span aria-hidden="true" class="{{.KeyClass}}"></span>
+        <span>{{.Label}}</span>
+        {{if .Value}}<span class="font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{.Value}}</span>{{end}}
+      </button>
+      {{end}}
+    </div>
+    <div class="mt-3 grid grid-cols-[2rem_minmax(0,1fr)] gap-x-2">
+      <svg aria-hidden="true" class="{{if eq .Kind "scatter"}}h-56{{else}}h-48{{end}} w-full overflow-visible fill-slate-500 text-[11px] dark:fill-slate-400">
+        {{range .YTicks}}<text x="100%" y="{{.Pos}}" dy="0.32em" text-anchor="end">{{.Label}}</text>{{end}}
+      </svg>
+      <div data-insight-plot {{if ne .Kind "scatter"}}tabindex="0" {{end}}role="group" aria-label="{{.PlotLabel}}" class="relative {{if eq .Kind "scatter"}}h-56{{else}}h-48 touch-pan-y{{end}} rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-4 dark:focus-visible:ring-offset-slate-900">
+        <svg aria-hidden="true" class="absolute inset-0 h-full w-full overflow-visible">
+          {{range .YTicks}}<line x1="0" x2="100%" y1="{{.Pos}}" y2="{{.Pos}}" stroke-width="1" shape-rendering="crispEdges" class="{{if eq .Pos "100%"}}stroke-slate-300 dark:stroke-slate-600{{else}}stroke-slate-100 dark:stroke-slate-800{{end}}"></line>{{end}}
+        </svg>
+        {{if .Columns}}
+        <div class="absolute inset-0 flex">
+          {{range .Columns}}
+          <div data-insight-column="{{.Index}}" class="flex h-full min-w-0 flex-1 justify-center rounded-sm data-[active]:bg-slate-100 dark:data-[active]:bg-slate-800/70">
+            <svg aria-hidden="true" class="h-full w-full max-w-10 overflow-visible">
+              {{range .Bars}}<rect data-series="{{.Series}}" x="{{.X}}" width="{{.Width}}" y="{{.Y}}" height="{{.Height}}" rx="2" class="{{.Class}}"></rect>{{end}}
+            </svg>
+          </div>
+          {{end}}
+        </div>
+        {{end}}
+        {{if or .Areas .Lines}}
+        <svg aria-hidden="true" class="absolute inset-0 h-full w-full overflow-visible" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+          {{range .Areas}}<path data-series="{{.Series}}" data-insight-area d="{{.D}}" stroke="none" class="{{.Class}}"></path>{{end}}
+          {{range .Lines}}<path data-series="{{.Series}}" data-insight-line d="{{.D}}" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" class="{{.Class}}"></path>{{end}}
+        </svg>
+        {{end}}
+        {{if or .Dots .RefLines}}
+        <svg class="absolute inset-0 h-full w-full overflow-visible">
+          {{range .RefLines}}<line aria-hidden="true" data-series="{{.Series}}" x1="0" x2="100%" y1="{{.Y}}" y2="{{.Y}}" stroke-width="1.5" {{if .Dashed}}stroke-dasharray="6 4"{{end}} class="{{.Class}}"></line>{{end}}
+          {{range .Dots}}<a href="{{.Href}}" data-series="{{.Series}}" data-insight-point data-tooltip-disabled data-point-title="{{.Title}}" data-point-value="{{.Value}}" data-point-detail="{{.Detail}}" aria-label="{{.Label}}" class="group focus:outline-none"><circle cx="{{.CX}}" cy="{{.CY}}" r="12" fill="transparent"></circle><circle cx="{{.CX}}" cy="{{.CY}}" r="4.5" stroke-width="2" class="{{.Class}} stroke-white group-hover:stroke-indigo-200 group-focus-visible:stroke-indigo-300 dark:stroke-slate-900 dark:group-hover:stroke-indigo-800 dark:group-focus-visible:stroke-indigo-700"></circle></a>{{end}}
+        </svg>
+        {{end}}
+        {{if or .Areas .Lines}}
+        <svg aria-hidden="true" class="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
+          <line data-insight-crosshair x1="0" x2="0" y1="0" y2="100%" stroke-width="1" class="hidden stroke-slate-400 dark:stroke-slate-500"></line>
+          {{range .Series}}<circle data-insight-marker="{{.Key}}" cx="0" cy="0" r="4.5" stroke-width="2" class="hidden {{.MarkerClass}} stroke-white dark:stroke-slate-900"></circle>{{end}}
+        </svg>
+        {{end}}
+        <svg aria-hidden="true" class="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible">
+          <foreignObject data-insight-tooltip-box x="0" y="0" width="260" height="320" overflow="visible" class="hidden">
+            <div data-insight-tooltip class="w-max max-w-[15rem] rounded-md border border-slate-200 bg-white px-2.5 py-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-950"></div>
+          </foreignObject>
+        </svg>
+      </div>
+      <div></div>
+      <svg aria-hidden="true" class="mt-1.5 h-4 w-full overflow-visible fill-slate-500 text-[11px] dark:fill-slate-400">
+        {{range .XTicks}}<text x="{{.Pos}}" y="11" text-anchor="{{.Anchor}}">{{.Label}}</text>{{end}}
+      </svg>
+    </div>
+    <p data-insight-live aria-live="polite" class="sr-only"></p>
+    {{end}}
+    {{range .Notes}}<p class="mt-3 text-xs leading-5 text-slate-500 dark:text-slate-400">{{.}}</p>{{end}}
+    {{if .Table.Rows}}
+    <details class="mt-3">
+      <summary class="inline-flex cursor-pointer list-none items-center gap-1.5 rounded text-xs font-medium text-slate-600 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-300 dark:hover:text-slate-100">
+        <i data-lucide="table-2" class="h-3.5 w-3.5" aria-hidden="true"></i>
+        Data table
+      </summary>
+      <div class="mt-2 max-h-72 overflow-auto rounded-md border border-slate-100 dark:border-slate-800">
+        <table class="min-w-full text-xs">
+          <caption class="sr-only">{{.Table.Caption}}</caption>
+          <thead class="sticky top-0 bg-slate-50 font-semibold uppercase text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+            <tr>{{range $i, $header := .Table.Headers}}<th scope="col" class="whitespace-nowrap px-3 py-2 {{if lt $i $.Table.LeftColumns}}text-left{{else}}text-right{{end}}">{{$header}}</th>{{end}}</tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+            {{range .Table.Rows}}
+            {{$href := .Href}}
+            <tr>{{range $i, $cell := .Cells}}{{if eq $i 0}}<th scope="row" class="whitespace-nowrap px-3 py-1.5 text-left font-medium text-slate-700 dark:text-slate-300">{{if $href}}<a href="{{$href}}" class="hover:underline">{{template "issue-key" $cell}}</a>{{else}}{{$cell}}{{end}}</th>{{else if lt $i $.Table.LeftColumns}}<td class="max-w-[16rem] truncate px-3 py-1.5 text-left text-slate-700 dark:text-slate-300">{{$cell}}</td>{{else}}<td class="whitespace-nowrap px-3 py-1.5 text-right tabular-nums text-slate-700 dark:text-slate-300">{{$cell}}</td>{{end}}{{end}}</tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </details>
+    {{end}}
+  </div>
+</section>
+{{end}}

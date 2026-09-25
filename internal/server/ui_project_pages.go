@@ -158,7 +158,7 @@ func (s *Server) uiProjectAllIssuePage(w http.ResponseWriter, r *http.Request) {
 // falling back to the default view when the caller names one that does not exist.
 func uiProjectPanelView(raw string) string {
 	switch raw {
-	case "about", "sprint", "planned", "all", "context", "whiteboard", "sprints", "changelog", "members":
+	case "about", "sprint", "planned", "all", "context", "whiteboard", "sprints", "changelog", "insights", "members":
 		return raw
 	default:
 		return "sprint"
@@ -591,11 +591,6 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 			return nil, err
 		}
 		panel.ProjectStats = stats
-		completionHistory, err := s.store.GetProjectCompletionHistory(ctx, store.ProjectCompletionHistoryParams{ProjectID: projectID})
-		if err != nil {
-			return nil, err
-		}
-		panel.CompletionChart = uiProjectCompletionChart(completionHistory)
 		projectTags, _, err := s.store.ListIssueTags(ctx, store.ListIssueTagsParams{
 			ProjectID: projectID,
 			Limit:     MaxLimit,
@@ -741,6 +736,16 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 			return nil, err
 		}
 		panel.ChangelogPage = pageData
+	case "insights":
+		query, err := parseProjectInsightsValues(r.URL.Query())
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", errUIBadRequest, err)
+		}
+		insights, err := s.projectInsights(ctx, project, query)
+		if err != nil {
+			return nil, err
+		}
+		panel.Insights = uiBuildProjectInsights(project, insights, query)
 	case "context":
 		manager, err := s.uiBuildProjectContextManager(ctx, r, projectID)
 		if err != nil {

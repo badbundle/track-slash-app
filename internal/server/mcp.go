@@ -152,6 +152,12 @@ type mcpSprintInput struct {
 	Sprint string `json:"sprint" jsonschema:"sprint ref, for example sprint-1"`
 }
 
+type mcpProjectInsightsInput struct {
+	mcpProjectInput
+	Range  string `json:"range,omitempty" jsonschema:"one of 2w, 30d, 90d, all; defaults to 30d"`
+	Sprint string `json:"sprint,omitempty" jsonschema:"sprint ref for the sprint burn-up, for example sprint-3; defaults to the active sprint, then the latest completed sprint in range"`
+}
+
 type mcpCreateSprintInput struct {
 	mcpProjectInput
 	Name      string  `json:"name,omitempty"`
@@ -488,6 +494,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_search_project_member_candidates", "Search existing users who can be added to a project. Queries shorter than two characters return no candidates. Project owner or admin only.", readOnly, s.mcpSearchProjectMemberCandidates)
 	addMCPTool(srv, "track_list_project_assignees", "List assignable users for project.", readOnly, s.mcpListProjectAssignees)
 	addMCPTool(srv, "track_get_project_stats", "Get project issue status stats.", readOnly, s.mcpGetProjectStats)
+	addMCPTool(srv, "track_get_project_insights", "Get project insight series built from history: burn-up and cumulative flow, created vs resolved, cycle time, sprint burn-up, and sprint velocity.", readOnly, s.mcpGetProjectInsights)
 	addMCPTool(srv, "track_list_project_changelog", "List project changelog entries.", readOnly, s.mcpListProjectChangelog)
 
 	addMCPTool(srv, "track_create_issue", "Create issue in project.", write, s.mcpCreateIssue)
@@ -1330,6 +1337,26 @@ func (s *Server) mcpGetProjectStats(ctx context.Context, req *mcp.CallToolReques
 		return nil, err
 	}
 	return mcpToolOutput{"stats": stats}, nil
+}
+
+func (s *Server) mcpGetProjectInsights(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectInsightsInput) (mcpToolOutput, error) {
+	ctx, auth, err := s.mcpAuth(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.mcpProject(ctx, auth, input.mcpProjectInput)
+	if err != nil {
+		return nil, err
+	}
+	query, err := parseProjectInsightsQuery(input.Range, input.Sprint)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	insights, err := s.projectInsights(ctx, project, query)
+	if err != nil {
+		return nil, err
+	}
+	return mcpToolOutput{"insights": insights}, nil
 }
 
 func (s *Server) mcpListProjectChangelog(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectPageInput) (mcpToolOutput, error) {
