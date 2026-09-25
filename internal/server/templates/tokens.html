@@ -6,15 +6,20 @@
         <h1 class="truncate text-2xl font-semibold tracking-normal">Tokens</h1>
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create and revoke API tokens, and sign out of web sessions.</p>
       </div>
+    </div>
+  </header>
+
+  <section class="py-6">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">API tokens</h2>
+        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Bearer tokens for scripts and agents that call the API or MCP.</p>
+      </div>
       <button type="button" data-modal-open="token-create" aria-haspopup="dialog" aria-controls="token-create" aria-expanded="false" class="inline-flex h-9 items-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-950">
         <i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>
         Create token
       </button>
     </div>
-  </header>
-
-  <section class="py-6">
-    <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">API tokens</h2>
     <div class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
       {{if .Tokens}}
       {{range .Tokens}}
