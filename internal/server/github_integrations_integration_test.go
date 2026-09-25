@@ -20,10 +20,17 @@ import (
 )
 
 type githubHTTPProvider struct {
+	login      string
+	loginErr   error
 	repository githubintegration.Repository
 	snapshot   githubintegration.Snapshot
 	err        error
 	tokens     []string
+}
+
+func (p *githubHTTPProvider) GetAuthenticatedUser(_ context.Context, token string) (string, error) {
+	p.tokens = append(p.tokens, token)
+	return p.login, p.loginErr
 }
 
 func (p *githubHTTPProvider) GetRepository(_ context.Context, token, _, _ string) (githubintegration.Repository, error) {
@@ -53,6 +60,7 @@ func newGitHubHTTPEnv(t *testing.T) (*httpEnv, *githubHTTPProvider) {
 	}
 	prID, prNumber := int64(404), 12
 	provider := &githubHTTPProvider{
+		login:      "octocat",
 		repository: githubintegration.Repository{ID: 77, Owner: "acme", Name: "private", HTMLURL: "https://github.com/acme/private", Private: true},
 		snapshot:   githubintegration.Snapshot{ResourceType: model.GitHubResourcePullRequest, PullRequestID: &prID, PullRequestNumber: &prNumber, Title: "Ship private feature", HTMLURL: "https://github.com/acme/private/pull/12", State: model.GitHubLinkStateDraft},
 	}
@@ -224,7 +232,7 @@ func TestUIGitHubConnectionAndIssueActions(t *testing.T) {
 	if body := e.uiGet(t, aboutPath, e.authToken); !strings.Contains(body, "GitHub repositories") || !strings.Contains(body, "Fine-grained token") || !strings.Contains(body, `data-modal-open="project-github-connection"`) || !strings.Contains(body, `id="project-github-connection" data-client-modal class="fixed inset-0 z-50 hidden`) {
 		t.Fatalf("about page missing GitHub controls: %s", body)
 	}
-	form := url.Values{"repository": {"acme/private"}, "token": {"private-token"}}
+	form := url.Values{"repository": {"acme/private"}, "token_name": {"Work"}, "token": {"private-token"}}
 	provider.err = githubintegration.ErrUnavailable
 	res := e.uiDoNoRedirect(t, http.MethodPost, e.projectPath()+"/github/connections", e.authToken, strings.NewReader(form.Encode()))
 	body := readBody(t, res)
@@ -233,6 +241,11 @@ func TestUIGitHubConnectionAndIssueActions(t *testing.T) {
 		t.Fatalf("UI connect error code=%d body=%s", res.StatusCode, body)
 	}
 	provider.err = nil
+	credentials, err := e.store.ListGitHubCredentials(e.ctx, e.adminID)
+	if err != nil || len(credentials) != 1 {
+		t.Fatalf("saved credentials = %+v, %v", credentials, err)
+	}
+	form = url.Values{"repository": {"acme/private"}, "credential_id": {credentials[0].ID.String()}}
 	res = e.uiDoNoRedirect(t, http.MethodPost, e.projectPath()+"/github/connections", e.authToken, strings.NewReader(form.Encode()))
 	body = readBody(t, res)
 	res.Body.Close()

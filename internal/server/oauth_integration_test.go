@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/bradleymackey/track-slash/internal/model"
 	"github.com/bradleymackey/track-slash/internal/server"
 	"github.com/bradleymackey/track-slash/internal/store"
@@ -1004,6 +1006,10 @@ func TestConnectorTokenCannotManageCredentials(t *testing.T) {
 		{name: "list tokens", method: http.MethodGet, path: "/me/tokens"},
 		{name: "mint a token for another user", method: http.MethodPost,
 			path: "/users/" + e.user.ID.String() + "/tokens", body: map[string]any{"name": "persistence"}},
+		{name: "list saved github tokens", method: http.MethodGet, path: "/me/github-tokens"},
+		{name: "save a github token", method: http.MethodPost, path: "/me/github-tokens", body: map[string]any{"name": "Personal", "token": "x"}},
+		{name: "replace a saved github token", method: http.MethodPatch, path: "/me/github-tokens/" + uuid.NewString(), body: map[string]any{"token": "x"}},
+		{name: "delete a saved github token", method: http.MethodDelete, path: "/me/github-tokens/" + uuid.NewString()},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			code, body := e.doWithToken(t, accessToken, tt.method, tt.path, tt.body)

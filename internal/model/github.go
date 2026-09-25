@@ -47,6 +47,7 @@ type GitHubConnection struct {
 	RepositoryName  string     `json:"repository_name"`
 	RepositoryURL   string     `json:"repository_url"`
 	Private         bool       `json:"private"`
+	CredentialID    *uuid.UUID `json:"credential_id,omitempty"`
 	CreatedByID     uuid.UUID  `json:"created_by_id"`
 	LastValidatedAt time.Time  `json:"last_validated_at"`
 	LastError       string     `json:"last_error,omitempty"`
@@ -57,6 +58,20 @@ type GitHubConnection struct {
 
 func (c GitHubConnection) FullName() string {
 	return c.RepositoryOwner + "/" + c.RepositoryName
+}
+
+// GitHubCredential is a GitHub token saved on a user's account so it can back
+// repository connections in any project that user manages. Like
+// GitHubConnection it carries no secret material.
+type GitHubCredential struct {
+	ID              uuid.UUID `json:"id"`
+	UserID          uuid.UUID `json:"user_id"`
+	Name            string    `json:"name"`
+	GitHubLogin     string    `json:"github_login"`
+	ConnectionCount int       `json:"connection_count"`
+	LastValidatedAt time.Time `json:"last_validated_at"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 type GitHubIssueLink struct {

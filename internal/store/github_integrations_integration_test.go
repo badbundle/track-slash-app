@@ -120,7 +120,7 @@ func TestGitHubConnectionAndIssueLinkLifecycle(t *testing.T) {
 	if err := env.pool.QueryRow(env.ctx, `SELECT token_ciphertext, token_nonce FROM github_repository_connections WHERE id = $1`, connection.ID).Scan(&ciphertext, &nonce); err != nil {
 		t.Fatalf("read scrubbed token: %v", err)
 	}
-	if !bytes.Equal(ciphertext, make([]byte, 17)) || !bytes.Equal(nonce, make([]byte, 12)) {
+	if ciphertext != nil || nonce != nil {
 		t.Fatalf("token not scrubbed: %x %x", ciphertext, nonce)
 	}
 	replacement, err := env.store.UpsertGitHubConnection(ctx, replacementParams)

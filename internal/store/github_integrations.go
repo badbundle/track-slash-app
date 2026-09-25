@@ -13,6 +13,9 @@ import (
 	"github.com/bradleymackey/track-slash/internal/model"
 )
 
+// UpsertGitHubConnectionParams takes exactly one token source: CredentialID,
+// a credential saved by CreatedByID, or a token encrypted for this connection
+// alone in TokenCiphertext and TokenNonce.
 type UpsertGitHubConnectionParams struct {
 	ProjectID       uuid.UUID
 	RepositoryID    int64
@@ -20,15 +23,20 @@ type UpsertGitHubConnectionParams struct {
 	RepositoryName  string
 	RepositoryURL   string
 	Private         bool
+	CredentialID    *uuid.UUID
 	TokenCiphertext []byte
 	TokenNonce      []byte
 	CreatedByID     uuid.UUID
 }
 
+// GitHubConnectionSecret carries whichever ciphertext backs the connection.
+// When Connection.CredentialID is set it came from that saved credential, and
+// CredentialUserID names the credential's owner.
 type GitHubConnectionSecret struct {
-	Connection model.GitHubConnection
-	Ciphertext []byte `json:"-"`
-	Nonce      []byte `json:"-"`
+	Connection       model.GitHubConnection
+	CredentialUserID uuid.UUID
+	Ciphertext       []byte `json:"-"`
+	Nonce            []byte `json:"-"`
 }
 
 type githubConnectionScanner interface {
@@ -39,15 +47,28 @@ func scanGitHubConnection(row githubConnectionScanner) (model.GitHubConnection, 
 	var out model.GitHubConnection
 	err := row.Scan(
 		&out.ID, &out.ProjectID, &out.RepositoryID, &out.RepositoryOwner, &out.RepositoryName,
-		&out.RepositoryURL, &out.Private, &out.CreatedByID, &out.LastValidatedAt, &out.LastError,
-		&out.DisabledAt, &out.CreatedAt, &out.UpdatedAt,
+		&out.RepositoryURL, &out.Private, &out.CredentialID, &out.CreatedByID, &out.LastValidatedAt,
+		&out.LastError, &out.DisabledAt, &out.CreatedAt, &out.UpdatedAt,
 	)
 	return out, err
 }
 
 const githubConnectionColumns = `
 	id, project_id, repository_id, repository_owner, repository_name, repository_url,
-	private, created_by_id, last_validated_at, last_error, disabled_at, created_at, updated_at
+	private, credential_id, created_by_id, last_validated_at, last_error, disabled_at, created_at, updated_at
+`
+
+const githubConnectionColumnsQualified = `
+	c.id, c.project_id, c.repository_id, c.repository_owner, c.repository_name, c.repository_url,
+	c.private, c.credential_id, c.created_by_id, c.last_validated_at, c.last_error, c.disabled_at, c.created_at, c.updated_at
+`
+
+// githubConnectionDisconnect is the SET list that retires a connection. The
+// credential reference goes with the ciphertext so a saved credential can be
+// deleted once nothing active uses it.
+const githubConnectionDisconnect = `
+	disabled_at = now(), credential_id = NULL, token_ciphertext = NULL,
+	token_nonce = NULL, updated_at = now()
 `
 
 func (s *Store) UpsertGitHubConnection(ctx context.Context, p UpsertGitHubConnectionParams) (model.GitHubConnection, error) {
@@ -60,18 +81,32 @@ func (s *Store) UpsertGitHubConnection(ctx context.Context, p UpsertGitHubConnec
 			}
 			return err // defensive: DB outage past the no-rows branch
 		}
+		if p.CredentialID != nil {
+			// FOR SHARE holds off a concurrent DeleteGitHubCredential until this
+			// connection is committed, so the delete sees and disconnects it.
+			var credentialExists bool
+			if err := tx.QueryRow(ctx, `
+				SELECT true FROM github_credentials WHERE id = $1 AND user_id = $2 FOR SHARE
+			`, *p.CredentialID, p.CreatedByID).Scan(&credentialExists); err != nil {
+				if isNoRows(err) {
+					return fmt.Errorf("saved GitHub token not found: %w", ErrNotFound)
+				}
+				return err // defensive: DB outage past the no-rows branch
+			}
+		}
 		var err error
 		out, err = scanGitHubConnection(tx.QueryRow(ctx, `
 			INSERT INTO github_repository_connections (
 				project_id, repository_id, repository_owner, repository_name, repository_url,
-				private, token_ciphertext, token_nonce, created_by_id
+				private, credential_id, token_ciphertext, token_nonce, created_by_id
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			ON CONFLICT (project_id, repository_id) DO UPDATE SET
 				repository_owner = EXCLUDED.repository_owner,
 				repository_name = EXCLUDED.repository_name,
 				repository_url = EXCLUDED.repository_url,
 				private = EXCLUDED.private,
+				credential_id = EXCLUDED.credential_id,
 				token_ciphertext = EXCLUDED.token_ciphertext,
 				token_nonce = EXCLUDED.token_nonce,
 				created_by_id = EXCLUDED.created_by_id,
@@ -81,12 +116,17 @@ func (s *Store) UpsertGitHubConnection(ctx context.Context, p UpsertGitHubConnec
 				updated_at = now()
 			RETURNING `+githubConnectionColumns,
 			p.ProjectID, p.RepositoryID, p.RepositoryOwner, p.RepositoryName, p.RepositoryURL,
-			p.Private, p.TokenCiphertext, p.TokenNonce, p.CreatedByID,
+			p.Private, p.CredentialID, p.TokenCiphertext, p.TokenNonce, p.CreatedByID,
 		))
 		if err != nil {
 			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-				return fmt.Errorf("repository connection already exists: %w", ErrConflict)
+			if errors.As(err, &pgErr) {
+				switch pgErr.Code {
+				case "23505":
+					return fmt.Errorf("repository connection already exists: %w", ErrConflict)
+				case "23514":
+					return fmt.Errorf("invalid repository connection: %w", ErrConflict)
+				}
 			}
 			return err
 		}
@@ -145,19 +185,27 @@ func (s *Store) GetGitHubConnection(ctx context.Context, id uuid.UUID) (model.Gi
 
 func (s *Store) GetGitHubConnectionSecret(ctx context.Context, id uuid.UUID) (GitHubConnectionSecret, error) {
 	var out GitHubConnectionSecret
+	var credentialUserID *uuid.UUID
 	err := s.db.QueryRow(ctx, `
-		SELECT `+githubConnectionColumns+`, token_ciphertext, token_nonce
-		FROM github_repository_connections
-		WHERE id = $1 AND disabled_at IS NULL
+		SELECT `+githubConnectionColumnsQualified+`,
+		       g.user_id,
+		       COALESCE(g.token_ciphertext, c.token_ciphertext),
+		       COALESCE(g.token_nonce, c.token_nonce)
+		FROM github_repository_connections c
+		LEFT JOIN github_credentials g ON g.id = c.credential_id
+		WHERE c.id = $1 AND c.disabled_at IS NULL
 	`, id).Scan(
 		&out.Connection.ID, &out.Connection.ProjectID, &out.Connection.RepositoryID,
 		&out.Connection.RepositoryOwner, &out.Connection.RepositoryName, &out.Connection.RepositoryURL,
-		&out.Connection.Private, &out.Connection.CreatedByID, &out.Connection.LastValidatedAt,
-		&out.Connection.LastError, &out.Connection.DisabledAt, &out.Connection.CreatedAt,
-		&out.Connection.UpdatedAt, &out.Ciphertext, &out.Nonce,
+		&out.Connection.Private, &out.Connection.CredentialID, &out.Connection.CreatedByID,
+		&out.Connection.LastValidatedAt, &out.Connection.LastError, &out.Connection.DisabledAt,
+		&out.Connection.CreatedAt, &out.Connection.UpdatedAt, &credentialUserID, &out.Ciphertext, &out.Nonce,
 	)
 	if isNoRows(err) {
 		return GitHubConnectionSecret{}, ErrNotFound
+	}
+	if credentialUserID != nil {
+		out.CredentialUserID = *credentialUserID
 	}
 	return out, err
 }
@@ -166,8 +214,7 @@ func (s *Store) DisconnectGitHubConnection(ctx context.Context, projectID, id uu
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		connection, err := scanGitHubConnection(tx.QueryRow(ctx, `
 			UPDATE github_repository_connections
-			SET disabled_at = now(), token_ciphertext = decode(repeat('00', 17), 'hex'),
-			    token_nonce = decode(repeat('00', 12), 'hex'), updated_at = now()
+			SET `+githubConnectionDisconnect+`
 			WHERE id = $1 AND project_id = $2 AND disabled_at IS NULL
 			RETURNING `+githubConnectionColumns,
 			id, projectID,
@@ -178,23 +225,29 @@ func (s *Store) DisconnectGitHubConnection(ctx context.Context, projectID, id uu
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `
-			UPDATE issue_github_links
-			SET last_error = 'Repository connection is unavailable; showing the last known state',
-			    refresh_locked_at = NULL, updated_at = now()
-			WHERE connection_id = $1 AND deleted_at IS NULL
-		`, connection.ID); err != nil {
-			return err
-		}
-		return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
-			ProjectID:   projectID,
-			Entity:      "github_connection",
-			Op:          "delete",
-			EntityID:    connection.ID,
-			TargetRef:   connection.FullName(),
-			TargetTitle: connection.FullName(),
-			Summary:     "Disconnected GitHub repository " + connection.FullName(),
-		})
+		return recordGitHubConnectionDisconnected(ctx, tx, connection, "Disconnected GitHub repository "+connection.FullName())
+	})
+}
+
+// recordGitHubConnectionDisconnected leaves the connection's issue links
+// showing their last known state and writes the project changelog entry.
+func recordGitHubConnectionDisconnected(ctx context.Context, tx pgx.Tx, connection model.GitHubConnection, summary string) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE issue_github_links
+		SET last_error = 'Repository connection is unavailable; showing the last known state',
+		    refresh_locked_at = NULL, updated_at = now()
+		WHERE connection_id = $1 AND deleted_at IS NULL
+	`, connection.ID); err != nil {
+		return err
+	}
+	return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
+		ProjectID:   connection.ProjectID,
+		Entity:      "github_connection",
+		Op:          "delete",
+		EntityID:    connection.ID,
+		TargetRef:   connection.FullName(),
+		TargetTitle: connection.FullName(),
+		Summary:     summary,
 	})
 }
 

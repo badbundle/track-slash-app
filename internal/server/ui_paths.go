@@ -87,6 +87,16 @@ func uiProjectDeletePath(project model.Project) string {
 	return uiProjectPath(project) + "/delete"
 }
 
+const uiSettingsGitHubTokensPath = "/settings/github-tokens"
+
+func uiSettingsGitHubTokenPath(credential model.GitHubCredential) string {
+	return uiSettingsGitHubTokensPath + "/" + credential.ID.String()
+}
+
+func uiSettingsGitHubTokenDeletePath(credential model.GitHubCredential) string {
+	return uiSettingsGitHubTokenPath(credential) + "/delete"
+}
+
 func uiProjectGitHubConnectionsPath(project model.Project) string {
 	return uiProjectPath(project) + "/github/connections"
 }

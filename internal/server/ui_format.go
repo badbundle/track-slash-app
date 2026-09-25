@@ -315,6 +315,48 @@ func uiPasskeyCreateModal(uiLoginPanelData) uiModalData {
 	}
 }
 
+func uiGitHubTokenCreateModal(panel *uiTokenPanelData) uiModalData {
+	return uiModalData{
+		ID:               "github-token-create",
+		Title:            "Add GitHub token",
+		Description:      "Save a fine-grained personal access token once and use it in any project you manage.",
+		WidthClass:       "max-w-lg",
+		CancelLabel:      "Cancel adding GitHub token",
+		ClientControlled: true,
+		Open:             uiGitHubTokenFormError(panel, uiGitHubTokenNewForm) != "",
+	}
+}
+
+func uiGitHubTokenEditModal(panel *uiTokenPanelData, credential model.GitHubCredential) uiModalData {
+	return uiModalData{
+		ID:               "github-token-edit-" + credential.ID.String(),
+		Title:            "Edit GitHub token",
+		Description:      "Rename it, or paste a replacement when it expires. Every repository that uses it switches to the new token.",
+		WidthClass:       "max-w-lg",
+		CancelLabel:      "Cancel editing GitHub token",
+		ClientControlled: true,
+		Open:             uiGitHubTokenFormError(panel, credential.ID.String()) != "",
+	}
+}
+
+// uiGitHubTokenFormError is the error for one GitHub token form: "new", or a
+// saved token's ID.
+func uiGitHubTokenFormError(panel *uiTokenPanelData, form string) string {
+	if panel.GitHubTokenFormFor != form {
+		return ""
+	}
+	return panel.GitHubTokenError
+}
+
+// uiGitHubTokenFormValue is the name a GitHub token form shows: what the user
+// just submitted when that form failed, otherwise fallback.
+func uiGitHubTokenFormValue(panel *uiTokenPanelData, form, fallback string) string {
+	if panel.GitHubTokenFormFor == form && panel.GitHubTokenError != "" {
+		return panel.GitHubTokenNameInput
+	}
+	return fallback
+}
+
 func uiProjectMemberCreateModal(panel *uiProjectPanelData) uiModalData {
 	return uiModalData{
 		ID:               "project-member-create",

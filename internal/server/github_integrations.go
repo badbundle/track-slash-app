@@ -20,9 +20,12 @@ type githubConnectionsResponse struct {
 	Connections []model.GitHubConnection `json:"connections"`
 }
 
+// connectGitHubRepositoryRequest takes a saved token by credential_id, or a
+// token for this connection alone.
 type connectGitHubRepositoryRequest struct {
-	Repository string `json:"repository"`
-	Token      string `json:"token"`
+	Repository   string    `json:"repository"`
+	CredentialID uuid.UUID `json:"credential_id"`
+	Token        string    `json:"token"`
 }
 
 type createGitHubIssueLinkRequest struct {
@@ -57,8 +60,12 @@ func (s *Server) connectGitHubRepository(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if !requireGitHubCredentialUse(w, r, req.CredentialID) {
+		return
+	}
 	connection, err := s.githubIntegration.ConnectRepository(r.Context(), githubintegration.ConnectRepositoryParams{
-		ProjectID: project.ID, Repository: strings.TrimSpace(req.Repository), Token: strings.TrimSpace(req.Token), CreatedByID: currentUser(r).ID,
+		ProjectID: project.ID, Repository: strings.TrimSpace(req.Repository), CredentialID: req.CredentialID,
+		Token: strings.TrimSpace(req.Token), CreatedByID: currentUser(r).ID,
 	})
 	if err != nil {
 		writeGitHubIntegrationError(w, err)
