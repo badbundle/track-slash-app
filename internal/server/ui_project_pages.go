@@ -456,6 +456,21 @@ func (s *Server) uiBuildNewIssuePanel(ctx context.Context, r *http.Request, inpu
 	return &input, nil
 }
 
+// uiApplyProjectHeaderAccess sets the permission-dependent fields of the
+// project header every project view shares. Views must not fill these by
+// hand: one that skipped them lost New issue, Edit name, the Members and
+// Delete project actions and the owner crumb, and offered anonymous readers a
+// favourite button.
+func uiApplyProjectHeaderAccess(panel *uiProjectPanelData, user model.User, permissions store.ProjectPermissions) {
+	panel.Anonymous = user.ID == uuid.Nil
+	panel.CanWrite = permissions.CanWrite
+	panel.CanCreateIssues = permissions.CanCreateIssues
+	panel.PublicIssueCreationEnabled = permissions.IsPublic && permissions.PublicIssueCreation && !permissions.IsBlocked
+	panel.CanManageMembers = permissions.CanManageMembers
+	panel.CanDeleteProject = permissions.CanDelete
+	panel.OwnerCrumb = user.ID != panel.Project.OwnerID
+}
+
 func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, projectID uuid.UUID, view string) (*uiProjectPanelData, error) {
 	if err := s.uiRequireProjectAccess(ctx, currentUser(r), projectID); err != nil {
 		return nil, err
@@ -499,24 +514,18 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 	}
 
 	panel := &uiProjectPanelData{
-		CSRFToken:                  uiSessionCSRFToken(r),
-		Project:                    project,
-		View:                       view,
-		Anonymous:                  currentUser(r).ID == uuid.Nil,
-		CanWrite:                   permissions.CanWrite,
-		CanCreateIssues:            permissions.CanCreateIssues,
-		PublicIssueCreationEnabled: permissions.IsPublic && permissions.PublicIssueCreation && !permissions.IsBlocked,
-		CanManageMembers:           permissions.CanManageMembers,
-		CanDeleteProject:           permissions.CanDelete,
-		OwnerCrumb:                 currentUser(r).ID != project.OwnerID,
-		Favorite:                   favorite,
-		ProjectTabs:                uiProjectTabs(project, view, assigneeIDs),
-		AssigneeFilterActive:       len(assigneeIDs) > 0,
-		ClearAssigneeHref:          uiProjectViewPath(project, view),
-		ClearAssigneeHXGet:         uiProjectPanelPath(project, view),
-		ClearAssigneeHXPush:        uiProjectViewPath(project, view),
-		DeleteNotice:               deleteNotice,
+		CSRFToken:            uiSessionCSRFToken(r),
+		Project:              project,
+		View:                 view,
+		Favorite:             favorite,
+		ProjectTabs:          uiProjectTabs(project, view, assigneeIDs),
+		AssigneeFilterActive: len(assigneeIDs) > 0,
+		ClearAssigneeHref:    uiProjectViewPath(project, view),
+		ClearAssigneeHXGet:   uiProjectPanelPath(project, view),
+		ClearAssigneeHXPush:  uiProjectViewPath(project, view),
+		DeleteNotice:         deleteNotice,
 	}
+	uiApplyProjectHeaderAccess(panel, currentUser(r), permissions)
 	// The permissions lookup already read both access columns, so About and
 	// Members render them without a second round trip.
 	panel.AccessSettings = model.ProjectAccessSettings{

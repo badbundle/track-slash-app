@@ -351,6 +351,7 @@ func (s *Server) renderUIProjectContextManager(w http.ResponseWriter, r *http.Re
 		Project:   panel.Project, View: "context", Favorite: favorite,
 		ProjectTabs: uiProjectTabs(panel.Project, "context", nil), ContextManager: panel,
 	}
+	uiApplyProjectHeaderAccess(projectPanel, currentUser(r), panel.permissions)
 	if isHTMXRequest(r) {
 		renderUITemplate(w, http.StatusOK, "project-panel", projectPanel)
 		return
@@ -445,12 +446,13 @@ func (s *Server) uiBuildProjectContextManager(ctx context.Context, r *http.Reque
 		items = append(items, uiContextManagerItemFromSummary(contextItem))
 	}
 	return &uiContextManagerData{
-		CSRFToken: uiSessionCSRFToken(r),
-		Mode:      "project",
-		Project:   project,
-		CanWrite:  permissions.CanWrite,
-		Items:     items,
-		HasMore:   hasMore,
+		CSRFToken:   uiSessionCSRFToken(r),
+		Mode:        "project",
+		Project:     project,
+		CanWrite:    permissions.CanWrite,
+		Items:       items,
+		HasMore:     hasMore,
+		permissions: permissions,
 	}, nil
 }
 
