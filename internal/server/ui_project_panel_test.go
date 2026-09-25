@@ -22,6 +22,7 @@ func TestUIProjectBreadcrumbIncludesCurrentView(t *testing.T) {
 		{view: "planned", label: "Planned"},
 		{view: "all", label: "All"},
 		{view: "context", label: "Context"},
+		{view: "whiteboard", label: "Whiteboard"},
 		{view: "about", label: "About"},
 		{view: "members", label: "Members"},
 		{view: "sprints", label: "Sprint history"},
@@ -72,6 +73,9 @@ func TestUIProjectFavoriteViewKeepsSprintHistory(t *testing.T) {
 	t.Parallel()
 	if got := uiProjectPanelView("sprints"); got != "sprints" {
 		t.Fatalf("uiProjectPanelView(sprints) = %q, want sprints", got)
+	}
+	if got := uiProjectPanelView("whiteboard"); got != "whiteboard" {
+		t.Fatalf("uiProjectPanelView(whiteboard) = %q, want whiteboard", got)
 	}
 	if got := uiProjectPanelView("unknown"); got != "sprint" {
 		t.Fatalf("uiProjectPanelView(unknown) = %q, want sprint", got)
@@ -302,15 +306,16 @@ func TestUIProjectPanelRendersCohesiveHeaderAndAboutDetails(t *testing.T) {
 	plannedIdx := strings.Index(tabMarkup, `href="/bradley/projects/TRACK/planned"`)
 	allIdx := strings.Index(tabMarkup, `href="/bradley/projects/TRACK/all"`)
 	contextIdx := strings.Index(tabMarkup, `href="/bradley/projects/TRACK/context"`)
-	if aboutIdx < 0 || sprintsIdx < 0 || plannedIdx < 0 || allIdx < 0 || contextIdx < 0 || sprintsIdx > plannedIdx || plannedIdx > allIdx || allIdx > contextIdx || contextIdx > aboutIdx {
-		t.Fatalf("project tabs not ordered sprint, planned, all, context, about: sprint=%d planned=%d all=%d context=%d about=%d body=%s", sprintsIdx, plannedIdx, allIdx, contextIdx, aboutIdx, body)
+	whiteboardIdx := strings.Index(tabMarkup, `href="/bradley/projects/TRACK/whiteboard"`)
+	if aboutIdx < 0 || sprintsIdx < 0 || plannedIdx < 0 || allIdx < 0 || contextIdx < 0 || whiteboardIdx < 0 || sprintsIdx > plannedIdx || plannedIdx > allIdx || allIdx > contextIdx || contextIdx > whiteboardIdx || whiteboardIdx > aboutIdx {
+		t.Fatalf("project tabs not ordered sprint, planned, all, context, whiteboard, about: sprint=%d planned=%d all=%d context=%d whiteboard=%d about=%d body=%s", sprintsIdx, plannedIdx, allIdx, contextIdx, whiteboardIdx, aboutIdx, body)
 	}
 	for _, overflowOnly := range []string{`href="/bradley/projects/TRACK/sprints"`, `href="/bradley/projects/TRACK/changelog"`} {
 		if strings.Contains(tabMarkup, overflowOnly) {
 			t.Fatalf("overflow-only view rendered in project tabs %q: %s", overflowOnly, body)
 		}
 	}
-	for _, path := range []string{"context", "about"} {
+	for _, path := range []string{"context", "whiteboard", "about"} {
 		href := `href="/bradley/projects/TRACK/` + path + `"`
 		if got := strings.Count(header, href); got != 2 {
 			t.Fatalf("project %s view should render once as a desktop tab and once in the mobile overflow menu; got %d: %s", path, got, body)

@@ -41,6 +41,8 @@ Project, issue, and sprint description Markdown may reference attached files by 
 
 Rendering resolves `object-N` only against attachments on the current project, issue, or sprint description. Missing, unattached, and cross-parent object refs render inert text instead of links or images.
 
+Project whiteboard pages render through the same Markdown pipeline but have no attachments, so every `object-N` ref in a whiteboard page renders as inert text and external images follow the rule below.
+
 Issue comments render through the same Markdown pipeline as the issue description. `object-N` refs in a comment resolve against that issue's attachments; comments have no attachment store of their own.
 
 External Markdown image URLs do not render inline. They become inert, no-referrer links using their alt text, for example:

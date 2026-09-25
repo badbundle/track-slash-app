@@ -179,6 +179,12 @@ func TestStorageObjectRef(t *testing.T) {
 	}
 }
 
+func TestWhiteboardPageRef(t *testing.T) {
+	if got := WhiteboardPageRef(12); got != "whiteboard-12" {
+		t.Fatalf("WhiteboardPageRef(12) = %q, want whiteboard-12", got)
+	}
+}
+
 func TestSprintStatusValid(t *testing.T) {
 	cases := []struct {
 		in   SprintStatus

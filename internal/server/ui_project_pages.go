@@ -158,7 +158,7 @@ func (s *Server) uiProjectAllIssuePage(w http.ResponseWriter, r *http.Request) {
 // falling back to the default view when the caller names one that does not exist.
 func uiProjectPanelView(raw string) string {
 	switch raw {
-	case "about", "sprint", "planned", "all", "context", "sprints", "changelog", "members":
+	case "about", "sprint", "planned", "all", "context", "whiteboard", "sprints", "changelog", "members":
 		return raw
 	default:
 		return "sprint"
@@ -750,6 +750,11 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 			return nil, err
 		}
 		panel.ContextManager = manager
+	case "whiteboard":
+		panel.Whiteboard, err = s.uiBuildWhiteboard(ctx, r, project, permissions.CanWrite)
+		if err != nil {
+			return nil, err
+		}
 	case "members":
 		if !permissions.CanManageMembers {
 			return nil, errUIForbidden

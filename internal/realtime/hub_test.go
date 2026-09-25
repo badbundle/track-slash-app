@@ -193,6 +193,34 @@ func TestProjectBlockEventFansOutToProjectTopic(t *testing.T) {
 	}
 }
 
+func TestWhiteboardPageEventFansOutToPageAndProjectTopics(t *testing.T) {
+	hub := NewHub()
+	projectID := uuid.New()
+	pageID := uuid.New()
+	pageSub := newTestClient(4)
+	projectSub := newTestClient(4)
+	unrelated := newTestClient(4)
+	hub.Subscribe(pageSub, WhiteboardPageTopic(pageID))
+	hub.Subscribe(projectSub, ProjectTopic(projectID))
+	hub.Subscribe(unrelated, WhiteboardPageTopic(uuid.New()))
+
+	hub.Publish(Event{Op: OpDelete, Entity: EntityWhiteboardPage, ID: pageID, ProjectID: &projectID, Version: 2})
+
+	if ev, ok := recv(t, pageSub, time.Second); !ok || ev.Entity != EntityWhiteboardPage || ev.Op != OpDelete {
+		t.Fatalf("page subscriber event = %#v, received = %v", ev, ok)
+	}
+	if ev, ok := recv(t, projectSub, time.Second); !ok || ev.Entity != EntityWhiteboardPage {
+		t.Fatalf("project subscriber event = %#v, received = %v", ev, ok)
+	}
+	if _, ok := recv(t, unrelated, 100*time.Millisecond); ok {
+		t.Fatal("unrelated whiteboard subscriber received event")
+	}
+	got := (Event{Entity: EntityWhiteboardPage, ID: pageID}).Topics()
+	if len(got) != 1 || got[0] != WhiteboardPageTopic(pageID) {
+		t.Fatalf("whiteboard topics without project ID = %v, want only the page topic", got)
+	}
+}
+
 func TestContextAttachmentEventFansOutToContextAndProjectTopics(t *testing.T) {
 	hub := NewHub()
 	projectID := uuid.New()
@@ -648,6 +676,7 @@ func TestParseTopic(t *testing.T) {
 		{"issue_context_link:" + id.String(), "issue_context_link", false},
 		{"issue_tag:" + id.String(), "issue_tag", false},
 		{"issue_tag_link:" + id.String(), "issue_tag_link", false},
+		{"whiteboard_page:" + id.String(), "whiteboard_page", false},
 		{"user:" + id.String(), "", true},
 		{"issue:not-a-uuid", "", true},
 		{"sprint:not-a-uuid", "", true},
@@ -656,6 +685,7 @@ func TestParseTopic(t *testing.T) {
 		{"issue_context_link:not-a-uuid", "", true},
 		{"issue_tag:not-a-uuid", "", true},
 		{"issue_tag_link:not-a-uuid", "", true},
+		{"whiteboard_page:not-a-uuid", "", true},
 		{"", "", true},
 	}
 	for _, tc := range cases {

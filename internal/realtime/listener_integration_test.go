@@ -706,6 +706,51 @@ func TestListenerReceivesProjectAttachmentEvent(t *testing.T) {
 	waitForProjectAttachmentEvent(t, projectSub, attachmentID, projectID, OpDelete)
 }
 
+func TestListenerReceivesWhiteboardPageEvents(t *testing.T) {
+	t.Parallel()
+	ctx, pool, dbURL := newRealtimeDB(t)
+	hub := NewHub()
+	runRealtimeListener(t, ctx, dbURL, hub)
+	time.Sleep(500 * time.Millisecond)
+
+	projectID := insertRealtimeProject(ctx, t, pool, "rt-whiteboard")
+	var ownerID string
+	if err := pool.QueryRow(ctx, `SELECT owner_id::text FROM projects WHERE id = $1`, projectID).Scan(&ownerID); err != nil {
+		t.Fatalf("select owner: %v", err)
+	}
+
+	projectSub := newTestClient(32)
+	hub.Subscribe(projectSub, "project:"+projectID)
+	var pageID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO whiteboard_pages (project_id, number, title, body, created_by_id, updated_by_id)
+		VALUES ($1, 1, 'Ideas', 'First thought.', $2, $2)
+		RETURNING id::text
+	`, projectID, ownerID).Scan(&pageID); err != nil {
+		t.Fatalf("insert whiteboard page: %v", err)
+	}
+	waitForWhiteboardPageEvent(t, projectSub, pageID, projectID, OpInsert)
+
+	pageSub := newTestClient(32)
+	hub.Subscribe(pageSub, "whiteboard_page:"+pageID)
+	if _, err := pool.Exec(ctx, `UPDATE whiteboard_pages SET body = 'Second thought.' WHERE id = $1`, pageID); err != nil {
+		t.Fatalf("update whiteboard page: %v", err)
+	}
+	waitForWhiteboardPageEvent(t, pageSub, pageID, projectID, OpUpdate)
+	waitForWhiteboardPageEvent(t, projectSub, pageID, projectID, OpUpdate)
+
+	if _, err := pool.Exec(ctx, `UPDATE whiteboard_pages SET deleted_at = now() WHERE id = $1`, pageID); err != nil {
+		t.Fatalf("soft-delete whiteboard page: %v", err)
+	}
+	waitForWhiteboardPageEvent(t, pageSub, pageID, projectID, OpDelete)
+	waitForWhiteboardPageEvent(t, projectSub, pageID, projectID, OpDelete)
+
+	if _, err := pool.Exec(ctx, `DELETE FROM whiteboard_pages WHERE id = $1`, pageID); err != nil {
+		t.Fatalf("hard-delete whiteboard page: %v", err)
+	}
+	waitForWhiteboardPageEvent(t, pageSub, pageID, projectID, OpDelete)
+}
+
 func TestListenerReceivesContextAttachmentEvent(t *testing.T) {
 	t.Parallel()
 	ctx, pool, dbURL := newRealtimeDB(t)
@@ -1090,6 +1135,25 @@ func waitForProjectAttachmentEvent(t *testing.T, c *Client, attachmentID, projec
 			return
 		case <-deadline:
 			t.Fatalf("did not receive project attachment %s event within 3s", op)
+		}
+	}
+}
+
+func waitForWhiteboardPageEvent(t *testing.T, c *Client, pageID, projectID string, op Op) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-c.send:
+			if ev.Entity != EntityWhiteboardPage || ev.Op != op || ev.ID.String() != pageID {
+				continue
+			}
+			if ev.ProjectID == nil || ev.ProjectID.String() != projectID {
+				t.Errorf("project_id = %v, want %s", ev.ProjectID, projectID)
+			}
+			return
+		case <-deadline:
+			t.Fatalf("did not receive whiteboard page %s event within 3s", op)
 		}
 	}
 }

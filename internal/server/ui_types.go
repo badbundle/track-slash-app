@@ -532,6 +532,7 @@ type uiProjectPanelData struct {
 	ContextItems                    []uiProjectContextItem
 	ContextHasMore                  bool
 	ContextManager                  *uiContextManagerData
+	Whiteboard                      *uiWhiteboardData
 	DeleteNotice                    *uiIssueDeleteNotice
 	SprintIssuesHasMore             bool
 	PlannedHasMore                  bool

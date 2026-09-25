@@ -77,6 +77,12 @@ func renderProjectContextMarkdown(project model.Project, contextItem model.Proje
 	})
 }
 
+// renderWhiteboardMarkdown renders a whiteboard page with the shared safe
+// pipeline. Pages have no attachments, so object-N refs stay inert text.
+func renderWhiteboardMarkdown(page model.WhiteboardPage) template.HTML {
+	return renderMarkdown(page.Body, nil)
+}
+
 func renderDescriptionMarkdown(source string, objects []model.StorageObject, contentHref func(model.StorageObject) string) template.HTML {
 	targets := make(map[string]markdownTarget, len(objects))
 	for _, object := range objects {
