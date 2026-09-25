@@ -13,6 +13,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 - Render profile images and initials fallbacks as circles everywhere. The shared `user-avatar` component owns the crop shape so individual screens cannot diverge.
 - Keep profile and project image selection, upload, and removal in the shared image-picker modal. Owning panels show only the current image and a compact Add/Change action.
+- In the project About `Details` card, the image row puts the project image on the leading edge and the Change action on the trailing edge, vertically centred on the image.
 - Identify the signed-in account as `@username` in the profile overlay instead of showing a generic role label such as `Member` or `Admin`.
 
 ## Controls

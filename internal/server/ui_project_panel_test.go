@@ -263,6 +263,17 @@ func TestUIProjectPanelRendersCohesiveHeaderAndAboutDetails(t *testing.T) {
 		t.Fatalf("project title card should not render manage tags in overflow menu: %s", body)
 	}
 	requireMarkupOrder(t, body, ">Details</h2>", ">Tags</dt>")
+	// The Change image action sits on the row's trailing edge, centred on the
+	// image, rather than hanging off the image's top edge.
+	imageRowStart := strings.Index(body, ">Project image</dt>")
+	imageRowEnd := strings.Index(body, ">Key</dt>")
+	if imageRowStart < 0 || imageRowEnd < imageRowStart {
+		t.Fatalf("project about view missing the project image row: %s", body)
+	}
+	imageRow := body[imageRowStart:imageRowEnd]
+	projectThumbnail := `/bradley/projects/TRACK/image/thumbnail/content?v=` + projectThumbnailID.String()
+	requireMarkupOrder(t, imageRow, `<dd class="mt-2 flex items-center justify-between gap-3">`, projectThumbnail)
+	requireMarkupOrder(t, imageRow, projectThumbnail, `data-modal-open="project-image-picker"`)
 	if strings.Contains(body, ">Context</dt>") || strings.Contains(body, `aria-label="Manage context"`) {
 		t.Fatalf("project about should not render context in details: %s", body)
 	}
