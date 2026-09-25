@@ -20,6 +20,10 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 - Every icon-only action needs a concise, action-oriented `aria-label` and the shared app tooltip on pointer hover and keyboard focus. Do not show redundant tooltips while equivalent text is visibly rendered, and do not rely on native `title` tooltips for interactive controls.
 
+## Forms
+
+- Create forms stack their fields in one left-aligned column, each labelled above its control with even spacing, so tab order follows the visual order. Free-text fields (title, description) span the card; short metadata fields (priority, people, dates) share a narrower column width. On New issue the order is Priority, Reporter, Assignee, then Due date.
+
 ## Issue Detail
 
 - Keep the issue-title edit action attached to the title's final character at every viewport width. Long titles may wrap before that final character-and-action unit, but the action must never become an orphaned line by itself.
