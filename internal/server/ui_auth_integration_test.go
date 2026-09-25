@@ -59,6 +59,36 @@ func TestUILoginRejectsBadCredentials(t *testing.T) {
 	}
 }
 
+// A failed password attempt comes back with the password form already open,
+// the error announced, and the return path kept, so the user can retry
+// without hunting for the collapsed form again.
+func TestUILoginFailedPasswordReopensPasswordForm(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	for _, tt := range []struct {
+		name  string
+		form  url.Values
+		error string
+	}{
+		{name: "wrong credentials", form: url.Values{"username": {"not-a-user"}, "password": {"not-a-password"}, "next": {"/tokens"}}, error: "Username or password not accepted."},
+		{name: "missing password", form: url.Values{"username": {"not-a-user"}, "next": {"/tokens"}}, error: "Username and password required."},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			res := e.uiDoPreAuthForm(t, "/login", tt.form)
+			body := readBody(t, res)
+			res.Body.Close()
+			if res.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("code = %d body = %s", res.StatusCode, body)
+			}
+			for _, want := range []string{tt.error, `role="alert"`, `<details data-password-login open class=`, `autofocus autocomplete="username"`, `name="next" value="/tokens"`, `name="csrf_token" value="`} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("failed login body missing %q: %s", want, body)
+				}
+			}
+		})
+	}
+}
+
 func TestUIAuthPagesRenderPasskeyControls(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)
@@ -68,7 +98,7 @@ func TestUIAuthPagesRenderPasskeyControls(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("login code = %d body = %s", res.StatusCode, body)
 	}
-	for _, want := range []string{"Sign in with passkey", `data-passkey-login`, `/static/auth.js`, `meta name="csrf-token"`, `name="csrf_token"`} {
+	for _, want := range []string{"Log in with passkey", `data-passkey-login`, "Log in with password", `<details data-password-login class=`, `/static/auth.js`, `meta name="csrf-token"`, `name="csrf_token"`, `name="next" value="/tokens"`} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("login body missing %q: %s", want, body)
 		}

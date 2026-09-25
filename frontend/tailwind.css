@@ -130,3 +130,157 @@ html[data-mobile-sidebar-open] [data-mobile-sidebar] { visibility: visible; tran
 @media (prefers-reduced-motion: reduce) {
   [data-app-tooltip] { transform: none; transition: none; }
 }
+
+/*
+  Signed-out auth pages (login, signup) get a branded animated backdrop. This is
+  the one deliberate exception to the no-gradient rule; see "Login page" in
+  DESIGN_CONTEXT.md. The shapes are soft radial/linear gradients rather than
+  filter: blur(), and only transform and opacity animate, so every frame is a
+  compositor-only move of a few pre-rasterised layers. The backdrop is fixed,
+  clipped, and ignores pointer events, so it can never scroll or shift layout.
+*/
+.auth-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  contain: strict;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgb(238 242 255) 0%, transparent 60%),
+    rgb(248 250 252);
+}
+.auth-backdrop > * { position: absolute; }
+.auth-backdrop-orb {
+  width: 72vmax;
+  height: 72vmax;
+  border-radius: 9999px;
+  opacity: 0.9;
+}
+.auth-backdrop-orb-indigo {
+  top: -34vmax;
+  left: -24vmax;
+  background: radial-gradient(closest-side, rgb(99 102 241 / 0.55), rgb(99 102 241 / 0.22) 55%, transparent);
+}
+.auth-backdrop-orb-violet {
+  right: -30vmax;
+  bottom: -38vmax;
+  background: radial-gradient(closest-side, rgb(168 85 247 / 0.45), rgb(168 85 247 / 0.18) 55%, transparent);
+}
+.auth-backdrop-orb-sky {
+  top: 18%;
+  right: -26vmax;
+  width: 56vmax;
+  height: 56vmax;
+  background: radial-gradient(closest-side, rgb(56 189 248 / 0.38), rgb(56 189 248 / 0.14) 55%, transparent);
+}
+.auth-backdrop-orb-rose {
+  bottom: -30vmax;
+  left: -22vmax;
+  width: 60vmax;
+  height: 60vmax;
+  background: radial-gradient(closest-side, rgb(236 72 153 / 0.26), rgb(236 72 153 / 0.1) 55%, transparent);
+}
+/* A soft halo directly behind the card that gently breathes. */
+.auth-backdrop-glow {
+  top: 50%;
+  left: 50%;
+  width: 52rem;
+  height: 52rem;
+  margin: -26rem 0 0 -26rem;
+  border-radius: 9999px;
+  background: radial-gradient(closest-side, rgb(99 102 241 / 0.32), rgb(99 102 241 / 0.1) 60%, transparent);
+  opacity: 0.85;
+}
+.auth-backdrop-grid {
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgb(15 23 42 / 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(15 23 42 / 0.06) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 75%);
+}
+/* Light beams at the icon's slash angle, sweeping across the page. */
+.auth-backdrop-slash {
+  top: 50%;
+  left: 50%;
+  width: 14vmax;
+  height: 240vmax;
+  margin: -120vmax 0 0 -7vmax;
+  background: linear-gradient(90deg, transparent, rgb(99 102 241 / 0.16) 45%, rgb(129 140 248 / 0.28) 50%, rgb(99 102 241 / 0.16) 55%, transparent);
+  transform: rotate(31.6deg) translateX(-18vmax);
+  opacity: 0.8;
+}
+.auth-backdrop-slash-2 {
+  width: 6vmax;
+  margin-left: -3vmax;
+  transform: rotate(31.6deg) translateX(22vmax);
+  opacity: 0.6;
+}
+.auth-page summary::-webkit-details-marker { display: none; }
+@keyframes auth-orb-drift-a {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(14vmax, 10vmax, 0) scale(1.12); }
+  100% { transform: translate3d(4vmax, 20vmax, 0) scale(0.94); }
+}
+@keyframes auth-orb-drift-b {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-16vmax, -8vmax, 0) scale(1.1); }
+  100% { transform: translate3d(-6vmax, -18vmax, 0) scale(0.92); }
+}
+@keyframes auth-orb-drift-c {
+  0% { transform: translate3d(0, 0, 0) scale(0.9); }
+  50% { transform: translate3d(-22vmax, 12vmax, 0) scale(1.15); }
+  100% { transform: translate3d(-10vmax, -10vmax, 0) scale(1); }
+}
+@keyframes auth-orb-drift-d {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(18vmax, -12vmax, 0) scale(1.18); }
+  100% { transform: translate3d(8vmax, -4vmax, 0) scale(0.96); }
+}
+@keyframes auth-glow-breathe {
+  from { opacity: 0.55; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1.06); }
+}
+@keyframes auth-slash-sweep {
+  0% { transform: rotate(31.6deg) translateX(-70vmax); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: rotate(31.6deg) translateX(70vmax); opacity: 0; }
+}
+@keyframes auth-fields-enter {
+  from { opacity: 0; transform: translateY(-0.25rem); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .auth-backdrop-orb { will-change: transform; }
+  .auth-backdrop-glow, .auth-backdrop-slash { will-change: transform, opacity; }
+  .auth-backdrop-orb-indigo { animation: auth-orb-drift-a 26s ease-in-out infinite alternate; }
+  .auth-backdrop-orb-violet { animation: auth-orb-drift-b 30s ease-in-out infinite alternate; }
+  .auth-backdrop-orb-sky { animation: auth-orb-drift-c 22s ease-in-out infinite alternate; }
+  .auth-backdrop-orb-rose { animation: auth-orb-drift-d 24s ease-in-out infinite alternate; }
+  .auth-backdrop-glow { animation: auth-glow-breathe 6s ease-in-out infinite alternate; }
+  .auth-backdrop-slash-1 { animation: auth-slash-sweep 14s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+  .auth-backdrop-slash-2 { animation: auth-slash-sweep 14s cubic-bezier(0.45, 0, 0.55, 1) -7s infinite; }
+  [data-password-login][open] > [data-password-login-fields] { animation: auth-fields-enter 180ms ease-out both; }
+}
+@media (prefers-color-scheme: dark) {
+  .auth-backdrop {
+    background:
+      radial-gradient(120% 80% at 50% 0%, rgb(30 27 75) 0%, transparent 60%),
+      rgb(2 6 23);
+  }
+  .auth-backdrop-orb-indigo { background: radial-gradient(closest-side, rgb(79 70 229 / 0.55), rgb(79 70 229 / 0.2) 55%, transparent); }
+  .auth-backdrop-orb-violet { background: radial-gradient(closest-side, rgb(147 51 234 / 0.42), rgb(147 51 234 / 0.15) 55%, transparent); }
+  .auth-backdrop-orb-sky { background: radial-gradient(closest-side, rgb(14 165 233 / 0.3), rgb(14 165 233 / 0.1) 55%, transparent); }
+  .auth-backdrop-orb-rose { background: radial-gradient(closest-side, rgb(219 39 119 / 0.22), rgb(219 39 119 / 0.08) 55%, transparent); }
+  .auth-backdrop-glow { background: radial-gradient(closest-side, rgb(99 102 241 / 0.6), rgb(79 70 229 / 0.2) 55%, transparent); }
+  .auth-backdrop-grid {
+    background-image:
+      linear-gradient(to right, rgb(148 163 184 / 0.07) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(148 163 184 / 0.07) 1px, transparent 1px);
+  }
+  .auth-backdrop-slash { background: linear-gradient(90deg, transparent, rgb(99 102 241 / 0.14) 45%, rgb(165 180 252 / 0.22) 50%, rgb(99 102 241 / 0.14) 55%, transparent); }
+}
