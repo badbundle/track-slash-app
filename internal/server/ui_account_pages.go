@@ -28,83 +28,158 @@ func (s *Server) uiRealtime(w http.ResponseWriter, r *http.Request) {
 	s.hub.Handler(s.uiWebSocketOrigins, s.authorizeTopic).ServeHTTP(w, r)
 }
 
+// The account pages a signed-in user manages for themselves. Profile, Login,
+// and Notifications replaced one Settings page that mixed all three, so they
+// keep its /settings prefix; Tokens predates them and keeps its own path.
+const (
+	uiProfilePath       = "/settings/profile"
+	uiLoginSettingsPath = "/settings/login"
+	uiNotificationsPath = "/settings/notifications"
+	uiTokensPath        = "/tokens"
+)
+
+// uiAccountPages is the order the account pages appear in, in both the
+// sidebar's account group and the account menu.
+var uiAccountPages = []uiAccountPage{
+	{View: "profile", Label: "Profile", Path: uiProfilePath, Icon: "circle-user-round"},
+	{View: "login", Label: "Login", Path: uiLoginSettingsPath, Icon: "key-round"},
+	{View: "notifications", Label: "Notifications", Path: uiNotificationsPath, Icon: "bell"},
+	{View: "tokens", Label: "Tokens", Path: uiTokensPath, Icon: "braces"},
+}
+
+func uiAccountPageLinks() []uiAccountPage {
+	return uiAccountPages
+}
+
+// uiSettingsPage keeps the old general Settings address working now that its
+// sections live on their own pages. It lands on Profile, and the query rides
+// along so a bookmarked or shared link keeps its parameters.
 func (s *Server) uiSettingsPage(w http.ResponseWriter, r *http.Request) {
-	s.renderUISettings(w, r, currentUser(r), "", false, "", false)
+	target := uiWithRequestQuery(r, uiProfilePath)
+	if isHTMXRequest(r) {
+		// htmx would follow a 303 and swap Profile into #main while the address
+		// bar still showed /settings. HX-Redirect makes the browser navigate.
+		w.Header().Set("HX-Redirect", target)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (s *Server) uiProfilePage(w http.ResponseWriter, r *http.Request) {
+	s.renderUIProfile(w, r, currentUser(r), "", false)
+}
+
+func (s *Server) uiLoginSettingsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderUILoginSettings(w, r, "", false)
+}
+
+func (s *Server) uiNotificationsPage(w http.ResponseWriter, r *http.Request) {
+	s.renderUINotifications(w, r)
 }
 
 func (s *Server) uiUpdateProfile(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.renderUISettings(w, r, currentUser(r), "Unable to read form.", false, "", false)
+		s.renderUIProfile(w, r, currentUser(r), "Unable to read form.", false)
 		return
 	}
 	user, err := s.store.UpdateUserProfile(r.Context(), currentUser(r).ID, r.Form.Get("name"), r.Form.Get("email"))
 	if err != nil {
-		s.renderUISettings(w, r, currentUser(r), err.Error(), false, "", false)
+		s.renderUIProfile(w, r, currentUser(r), err.Error(), false)
 		return
 	}
-	s.renderUISettings(w, r, user, "", true, "", false)
+	s.renderUIProfile(w, r, user, "", true)
 }
 
 func (s *Server) uiUpdatePassword(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.renderUISettings(w, r, currentUser(r), "", false, "Unable to read form.", false)
+		s.renderUILoginSettings(w, r, "Unable to read form.", false)
 		return
 	}
 	if err := s.store.ChangePassword(r.Context(), currentUser(r).ID, r.Form.Get("current_password"), r.Form.Get("new_password")); err != nil {
 		if errors.Is(err, store.ErrUnauthorized) {
-			s.renderUISettings(w, r, currentUser(r), "", false, "Current password not accepted.", false)
+			s.renderUILoginSettings(w, r, "Current password not accepted.", false)
 			return
 		}
-		s.renderUISettings(w, r, currentUser(r), "", false, err.Error(), false)
+		s.renderUILoginSettings(w, r, err.Error(), false)
 		return
 	}
-	s.renderUISettings(w, r, currentUser(r), "", false, "", true)
+	s.renderUILoginSettings(w, r, "", true)
 }
 
-func (s *Server) renderUISettings(w http.ResponseWriter, r *http.Request, user model.User, profileError string, profileSaved bool, passwordError string, passwordChanged bool) {
-	projects, err := s.uiVisibleProjects(r.Context(), user)
-	if err != nil {
-		writeUIInternalError(w, "ui settings visible projects", err)
-		return
-	}
+// renderUIProfile takes the user explicitly because a successful update must
+// render the row it just wrote, which the request's signed-in user predates.
+func (s *Server) renderUIProfile(w http.ResponseWriter, r *http.Request, user model.User, profileError string, profileSaved bool) {
+	s.renderUIAccountPage(w, r, user, "profile", uiShellData{
+		ProfilePanel: &uiProfilePanelData{
+			CSRFToken:    uiSessionCSRFToken(r),
+			User:         user,
+			ProfileError: profileError,
+			ProfileSaved: profileSaved,
+		},
+	})
+}
+
+// The internal-error branches in the account renderers below are defensive:
+// they read the signed-in user's own rows, so only a DB outage reaches them.
+func (s *Server) renderUILoginSettings(w http.ResponseWriter, r *http.Request, passwordError string, passwordChanged bool) {
+	user := currentUser(r)
 	passkeyCredentials, err := s.store.ListPasskeyCredentials(r.Context(), user.ID)
 	if err != nil {
-		writeUIInternalError(w, "ui settings passkey credentials", err)
+		writeUIInternalError(w, "ui login passkey credentials", err)
 		return
 	}
 	passwordLogin, err := s.store.PasswordLoginState(r.Context(), user.ID)
 	if err != nil {
-		writeUIInternalError(w, "ui settings password login state", err)
+		writeUIInternalError(w, "ui login password login state", err)
 		return
 	}
-	pushPreferences, err := s.store.GetPushNotificationPreferences(r.Context(), user.ID)
-	if err != nil {
-		writeUIInternalError(w, "ui settings push preferences", err)
-		return
-	}
-	pushDeviceCount, err := s.store.CountActivePushSubscriptions(r.Context(), user.ID)
-	if err != nil {
-		writeUIInternalError(w, "ui settings push subscriptions", err)
-		return
-	}
-	s.renderUIShell(w, r, http.StatusOK, uiShellData{
-		User:     user,
-		Projects: projects,
-		SettingsPanel: &uiSettingsPanelData{
+	s.renderUIAccountPage(w, r, user, "login", uiShellData{
+		LoginPanel: &uiLoginPanelData{
 			CSRFToken:       uiSessionCSRFToken(r),
-			User:            user,
-			ProfileError:    profileError,
-			ProfileSaved:    profileSaved,
 			PasswordError:   passwordError,
 			PasswordChanged: passwordChanged,
 			PasswordLogin:   passwordLogin,
 			Passkeys:        passkeyCredentials,
+		},
+	})
+}
+
+func (s *Server) renderUINotifications(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	pushPreferences, err := s.store.GetPushNotificationPreferences(r.Context(), user.ID)
+	if err != nil {
+		writeUIInternalError(w, "ui notifications push preferences", err)
+		return
+	}
+	pushDeviceCount, err := s.store.CountActivePushSubscriptions(r.Context(), user.ID)
+	if err != nil {
+		writeUIInternalError(w, "ui notifications push subscriptions", err)
+		return
+	}
+	s.renderUIAccountPage(w, r, user, "notifications", uiShellData{
+		NotificationPanel: &uiNotificationPanelData{
+			CSRFToken:       uiSessionCSRFToken(r),
 			PushEnabled:     s.webPushPublicKey != "",
 			PushPublicKey:   s.webPushPublicKey,
 			PushPreferences: pushPreferences,
 			PushDeviceCount: pushDeviceCount,
 		},
 	})
+}
+
+// renderUIAccountPage puts one account page in the shell and marks its entry in
+// the sidebar's account group as the current page.
+func (s *Server) renderUIAccountPage(w http.ResponseWriter, r *http.Request, user model.User, view string, shell uiShellData) {
+	projects, err := s.uiVisibleProjects(r.Context(), user)
+	if err != nil {
+		writeUIInternalError(w, "ui "+view+" visible projects", err)
+		return
+	}
+	shell.User = user
+	shell.Projects = projects
+	shell.SidebarActive = uiSidebarState{View: view}
+	s.renderUIShell(w, r, http.StatusOK, shell)
 }
 
 func (s *Server) uiCreateToken(w http.ResponseWriter, r *http.Request) {
@@ -174,21 +249,12 @@ func (s *Server) renderUITokenPanel(w http.ResponseWriter, r *http.Request, pane
 		writeUIInternalError(w, "ui tokens list oauth clients", err)
 		return
 	}
-	projects, err := s.uiVisibleProjects(r.Context(), currentUser(r))
-	if err != nil {
-		writeUIInternalError(w, "ui tokens visible projects", err)
-		return
-	}
 	panel.CSRFToken = uiSessionCSRFToken(r)
 	panel.Tokens = tokens
 	panel.ActiveSessions = activeSessions
 	panel.ConnectedApps = connectedApps
 	panel.OAuthClients = clients
-	s.renderUIShell(w, r, http.StatusOK, uiShellData{
-		User:       currentUser(r),
-		Projects:   projects,
-		TokenPanel: &panel,
-	})
+	s.renderUIAccountPage(w, r, currentUser(r), "tokens", uiShellData{TokenPanel: &panel})
 }
 
 // uiPartitionAuthTokens keeps API tokens for the per-row list and reduces web

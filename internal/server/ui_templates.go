@@ -37,6 +37,7 @@ var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
 	"tokenCreateModal":               uiTokenCreateModal,
 	"oauthClientCreateModal":         uiOAuthClientCreateModal,
 	"passkeyCreateModal":             uiPasskeyCreateModal,
+	"accountPages":                   uiAccountPageLinks,
 	"byteSize":                       uiByteSize,
 	"issueAssignee":                  uiIssueAssigneePath,
 	"issueAssigneeEdit":              uiIssueAssigneeEditPath,

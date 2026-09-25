@@ -302,7 +302,7 @@ func uiOAuthClientCreateModal(panel *uiTokenPanelData) uiModalData {
 	}
 }
 
-func uiPasskeyCreateModal(uiSettingsPanelData) uiModalData {
+func uiPasskeyCreateModal(uiLoginPanelData) uiModalData {
 	return uiModalData{
 		ID:               "passkey-create",
 		Title:            "Add a passkey",

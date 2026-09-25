@@ -84,7 +84,7 @@ Browser mutations use CSRF tokens bound to either the pre-login flow or the auth
 
 ### Browser push notifications
 
-Browser push is optional and remains unavailable in Settings until a stable VAPID key pair and operator contact are configured. Generate the pair once—the same pair must remain in use so existing browser subscriptions continue to work:
+Browser push is optional and remains unavailable on the Notifications account page until a stable VAPID key pair and operator contact are configured. Generate the pair once—the same pair must remain in use so existing browser subscriptions continue to work:
 
 ```bash
 /app/trackd -generate-vapid-keys
@@ -100,7 +100,7 @@ TRACK_SLASH_VAPID_SUBSCRIBER=mailto:ops@example.com
 
 `TRACK_SLASH_VAPID_SUBSCRIBER` must be a `mailto:` or `https:` operator contact URI. The public key is sent to browsers; the private key must not be exposed. The migration job still needs only `DATABASE_URL`.
 
-The frontend process runs the push outbox worker in the same Go binary. It claims jobs from Postgres, re-checks current issue access immediately before delivery, retries transient provider/network failures, and records terminal failures. Push provider endpoints require outbound HTTPS. Browser permission is requested only when a signed-in user selects **Enable on this browser** in Settings, and production browser Push APIs require a secure HTTPS origin.
+The frontend process runs the push outbox worker in the same Go binary. It claims jobs from Postgres, re-checks current issue access immediately before delivery, retries transient provider/network failures, and records terminal failures. Push provider endpoints require outbound HTTPS. Browser permission is requested only when a signed-in user selects **Enable on this browser** on the Notifications account page, and production browser Push APIs require a secure HTTPS origin.
 
 ### GitHub repository links
 

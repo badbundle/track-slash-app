@@ -45,7 +45,7 @@ func (s *Server) uiUpdatePushNotificationPreferences(w http.ResponseWriter, r *h
 		writeUIStoreError(w, err)
 		return
 	}
-	http.Redirect(w, r, "/settings#notifications", http.StatusSeeOther)
+	http.Redirect(w, r, uiNotificationsPath, http.StatusSeeOther)
 }
 
 func (s *Server) uiPushSubscriptionState(w http.ResponseWriter, r *http.Request) {

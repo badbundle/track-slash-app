@@ -54,12 +54,12 @@ func TestUIUserAvatarFallbackAndImageRendering(t *testing.T) {
 	}
 }
 
-func TestUISettingsProfileImageControls(t *testing.T) {
+func TestUIProfileImageControls(t *testing.T) {
 	t.Parallel()
 
 	userID := uuid.MustParse("23f14acb-6a57-4035-a046-33e93ffbd5bb")
 	thumbID := uuid.MustParse("6a0d51f8-4a4f-46d5-8de1-726a7823d8f4")
-	data := uiSettingsPanelData{
+	data := uiProfilePanelData{
 		User: model.User{
 			ID:                            userID,
 			Username:                      "ada",
@@ -69,8 +69,8 @@ func TestUISettingsProfileImageControls(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	if err := uiTemplates.ExecuteTemplate(&buf, "settings-panel", data); err != nil {
-		t.Fatalf("ExecuteTemplate settings with image: %v", err)
+	if err := uiTemplates.ExecuteTemplate(&buf, "profile-panel", data); err != nil {
+		t.Fatalf("ExecuteTemplate profile with image: %v", err)
 	}
 	body := buf.String()
 	for _, want := range []string{
@@ -90,17 +90,17 @@ func TestUISettingsProfileImageControls(t *testing.T) {
 		`rounded-full`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("settings image state missing %q: %s", want, body)
+			t.Fatalf("profile image state missing %q: %s", want, body)
 		}
 	}
 
 	buf.Reset()
 	data.User.ProfileImageThumbnailObjectID = nil
-	if err := uiTemplates.ExecuteTemplate(&buf, "settings-panel", data); err != nil {
-		t.Fatalf("ExecuteTemplate settings without image: %v", err)
+	if err := uiTemplates.ExecuteTemplate(&buf, "profile-panel", data); err != nil {
+		t.Fatalf("ExecuteTemplate profile without image: %v", err)
 	}
 	body = buf.String()
 	if !strings.Contains(body, "AL") || !strings.Contains(body, "Add image") || strings.Contains(body, `action="/settings/profile-image/delete"`) || strings.Contains(body, "<img") {
-		t.Fatalf("settings fallback state = %s", body)
+		t.Fatalf("profile fallback state = %s", body)
 	}
 }

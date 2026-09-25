@@ -465,6 +465,40 @@ func TestUIShellRendersResponsiveAccessibleSidebar(t *testing.T) {
 	if strings.Contains(body, `data-sidebar-legal`) || strings.Contains(body, `aria-label="Legal"`) {
 		t.Fatalf("shell sidebar must not render legal links: %s", body)
 	}
+	accountStart := strings.Index(body, `<nav aria-label="Account" data-sidebar-account`)
+	footerStart := strings.Index(body, `<details data-close-on-outside`)
+	if accountStart < 0 || footerStart < accountStart {
+		t.Fatalf("account group must sit directly above the account footer: %s", body)
+	}
+	account := body[accountStart:footerStart]
+	if !strings.Contains(account, `<div class="wide-only`) || !strings.Contains(account, `>Account</div>`) {
+		t.Fatalf("account group heading must leave the layout when collapsed: %s", account)
+	}
+	for _, page := range []struct{ view, path, label, icon string }{
+		{view: "profile", path: "/settings/profile", label: "Profile", icon: "circle-user-round"},
+		{view: "login", path: "/settings/login", label: "Login", icon: "key-round"},
+		{view: "notifications", path: "/settings/notifications", label: "Notifications", icon: "bell"},
+		{view: "tokens", path: "/tokens", label: "Tokens", icon: "braces"},
+	} {
+		link := `<a data-nav-link data-sidebar-link data-sidebar-view="` + page.view + `" href="` + page.path + `" hx-get="` + page.path + `" hx-target="#main" hx-push-url="` + page.path + `" aria-label="` + page.label + `"`
+		for _, want := range []string{
+			link,
+			`data-nav-icon data-lucide="` + page.icon + `"`,
+			`<span class="wide-only min-w-0">
+            <span class="block truncate font-medium">` + page.label + `</span>`,
+		} {
+			if !strings.Contains(account, want) {
+				t.Fatalf("account group missing %q: %s", want, account)
+			}
+		}
+		menuLink := `<a href="` + page.path + `" class="block rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">` + page.label + `</a>`
+		if !strings.Contains(body[menuStart:], menuLink) {
+			t.Fatalf("account menu missing %q: %s", menuLink, body[menuStart:])
+		}
+	}
+	if strings.Contains(body, `href="/settings"`) {
+		t.Fatalf("shell still links to the removed general Settings page: %s", body)
+	}
 	for _, roleLabel := range []string{">Member<", ">Admin<"} {
 		if strings.Contains(body, roleLabel) {
 			t.Fatalf("member menu should show @username instead of role label %q: %s", roleLabel, body)
@@ -670,6 +704,10 @@ func TestUIShellRendersOneActiveSidebarDestination(t *testing.T) {
 			wantMarker: `data-sidebar-project-id="` + projectID.String() + `"`,
 			wantCount:  1,
 		},
+		{name: "profile", active: uiSidebarState{View: "profile"}, wantMarker: `data-sidebar-view="profile"`, wantCount: 1},
+		{name: "login", active: uiSidebarState{View: "login"}, wantMarker: `data-sidebar-view="login"`, wantCount: 1},
+		{name: "notifications", active: uiSidebarState{View: "notifications"}, wantMarker: `data-sidebar-view="notifications"`, wantCount: 1},
+		{name: "tokens", active: uiSidebarState{View: "tokens"}, wantMarker: `data-sidebar-view="tokens"`, wantCount: 1},
 		{name: "project without favorite", active: uiSidebarState{View: "project", ProjectID: projectID}},
 		{name: "no active destination"},
 	}
@@ -730,7 +768,7 @@ func TestUIPanelsUseConsistentResponsivePageFrame(t *testing.T) {
 		{name: "issue", path: "templates/issue_panel.html"},
 		{name: "context manager", path: "templates/context_manager.html"},
 		{name: "tag manager", path: "templates/tag_manager.html"},
-		{name: "settings", path: "templates/settings.html"},
+		{name: "account pages", path: "templates/settings.html"},
 		{name: "tokens", path: "templates/tokens.html"},
 		{name: "empty shell", path: "templates/shell_main.html"},
 	} {

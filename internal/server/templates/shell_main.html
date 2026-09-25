@@ -29,8 +29,12 @@
       {{template "tag-manager-panel" .TagManager}}
       {{else if .TokenPanel}}
       {{template "token-panel" .TokenPanel}}
-      {{else if .SettingsPanel}}
-      {{template "settings-panel" .SettingsPanel}}
+      {{else if .ProfilePanel}}
+      {{template "profile-panel" .ProfilePanel}}
+      {{else if .LoginPanel}}
+      {{template "login-panel" .LoginPanel}}
+      {{else if .NotificationPanel}}
+      {{template "notifications-panel" .NotificationPanel}}
       {{else}}
       <section class="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-6">
         <h1 class="text-xl font-semibold">No work</h1>

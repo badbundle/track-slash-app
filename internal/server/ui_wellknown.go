@@ -5,8 +5,8 @@ import (
 	"net/http"
 )
 
-// The password and passkey managers both live on the settings page.
-const uiCredentialSettingsPath = "/settings"
+// The password and passkey managers both live on the Login account page.
+const uiCredentialSettingsPath = uiLoginSettingsPath
 
 // uiChangePassword implements the W3C well-known URL for changing passwords, so
 // a password manager can deep-link a user straight to rotation.
@@ -21,7 +21,7 @@ func (s *Server) uiChangePassword(w http.ResponseWriter, r *http.Request) {
 }
 
 // uiPasskeyEndpoints lets a credential manager point a user at passkey
-// enrolment and management. Both live on the settings page.
+// enrolment and management. Both live on the Login account page.
 func (s *Server) uiPasskeyEndpoints(w http.ResponseWriter, r *http.Request) {
 	origin := s.uiRequestOrigin(r)
 	w.Header().Set("Content-Type", "application/json")

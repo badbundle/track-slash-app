@@ -26,14 +26,20 @@ func (s *Server) uiProjectPage(w http.ResponseWriter, r *http.Request) {
 // dropping the filter and sort parameters it arrived with, so a bookmarked or
 // shared filtered URL does not land on the unfiltered view.
 func uiRedirectPreservingQuery(w http.ResponseWriter, r *http.Request, target string) {
-	if r.URL.RawQuery != "" {
-		separator := "?"
-		if strings.Contains(target, "?") {
-			separator = "&"
-		}
-		target += separator + r.URL.RawQuery
+	http.Redirect(w, r, uiWithRequestQuery(r, target), http.StatusSeeOther)
+}
+
+// uiWithRequestQuery appends the incoming query to target, choosing the
+// separator by whether target already carries a query of its own.
+func uiWithRequestQuery(r *http.Request, target string) string {
+	if r.URL.RawQuery == "" {
+		return target
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	separator := "?"
+	if strings.Contains(target, "?") {
+		separator = "&"
+	}
+	return target + separator + r.URL.RawQuery
 }
 
 func (s *Server) uiProjectWorkPage(w http.ResponseWriter, r *http.Request, view string) {
