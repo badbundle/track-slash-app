@@ -724,6 +724,37 @@ func TestUINewIssuePanelRendersAllCreateFields(t *testing.T) {
 			t.Fatalf("new issue priority picker stylesheet missing %q", want)
 		}
 	}
+	// Placeholder hints must beat Preflight's input::placeholder rule, which a
+	// bare ::placeholder selector loses to on specificity.
+	for _, want := range []string{
+		"input::placeholder,textarea::placeholder{color:#64748b}",
+		"input::placeholder,textarea::placeholder{color:#94a3b8}}",
+	} {
+		if !strings.Contains(string(css), want) {
+			t.Fatalf("stylesheet missing placeholder contrast rule %q", want)
+		}
+	}
+
+	// Public submitters never pick people, so the column holds just Priority
+	// and Due date.
+	buf.Reset()
+	if err := uiTemplates.ExecuteTemplate(&buf, "new-issue-panel", &uiNewIssuePanelData{
+		Project:          project,
+		HasProject:       true,
+		ProjectID:        project.ID.String(),
+		PublicSubmission: true,
+		Priority:         string(model.PriorityP2),
+	}); err != nil {
+		t.Fatalf("ExecuteTemplate public: %v", err)
+	}
+	public := buf.String()
+	requireMarkupOrder(t, public, `data-new-issue-fields class="mt-4 space-y-4 sm:max-w-xs"`, `id="issue-priority-label">Priority</span>`)
+	requireMarkupOrder(t, public, `id="issue-priority-label">Priority</span>`, `id="issue-due-date-label">Due date</span>`)
+	for _, notWant := range []string{`id="issue-reporter"`, `id="issue-assignee"`, `<datalist id="new-issue-members">`} {
+		if strings.Contains(public, notWant) {
+			t.Fatalf("public new issue panel rendered %q: %s", notWant, public)
+		}
+	}
 }
 
 func TestUINewIssueProjectFilter(t *testing.T) {

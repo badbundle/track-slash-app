@@ -48,10 +48,10 @@
       <p class="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">This project accepts public issue submissions. You will be recorded as the reporter and project members will triage the issue.</p>
       {{end}}
 
-      <div class="mt-4 grid gap-4 sm:grid-cols-3">
-        <div class="min-w-0">
+      <div data-new-issue-fields class="mt-4 space-y-4 sm:max-w-xs">
+        <div>
           <span class="block text-xs font-medium text-slate-500 dark:text-slate-400" id="issue-priority-label">Priority</span>
-          <div class="mt-2 flex flex-wrap items-center gap-1" role="listbox" aria-labelledby="issue-priority-label" data-priority-picker>
+          <div class="mt-1 flex flex-wrap items-center gap-1" role="listbox" aria-labelledby="issue-priority-label" data-priority-picker>
             {{range priorityOptions}}
             <label role="option" aria-selected="{{if eq (newIssueSelectedPriority $) .Priority}}true{{else}}false{{end}}" class="rounded-full p-0.5 transition hover:opacity-80">
               <input class="peer sr-only" type="radio" name="priority" value="{{.Priority}}" {{if eq (newIssueSelectedPriority $) .Priority}}checked{{end}}>
@@ -62,32 +62,30 @@
             {{end}}
           </div>
         </div>
-        <div class="min-w-0" data-checkbox-reveal>
-          <label class="inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800" for="issue-due-date-toggle">
-            <input id="issue-due-date-toggle" type="checkbox" data-checkbox-reveal-toggle aria-controls="issue-due-date-field" aria-expanded="{{if .DueDate}}true{{else}}false{{end}}" {{if .DueDate}}checked{{end}} class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950">
-            <span>Due date</span>
+        {{if not .PublicSubmission}}
+        <div>
+          <label class="block text-xs font-medium text-slate-500 dark:text-slate-400" for="issue-reporter">Reporter</label>
+          <input id="issue-reporter" name="reporter" value="{{.ReporterInput}}" list="new-issue-members" autocomplete="off" class="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="@username">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-500 dark:text-slate-400" for="issue-assignee">Assignee</label>
+          <input id="issue-assignee" name="assignee" value="{{.AssigneeInput}}" list="new-issue-members" autocomplete="off" class="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="@username">
+        </div>
+        {{end}}
+        <div data-checkbox-reveal>
+          <span class="block text-xs font-medium text-slate-500 dark:text-slate-400" id="issue-due-date-label">Due date</span>
+          <label class="mt-1 inline-flex h-10 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800" for="issue-due-date-toggle">
+            <input id="issue-due-date-toggle" type="checkbox" data-checkbox-reveal-toggle aria-controls="issue-due-date-field" aria-expanded="{{if .DueDate}}true{{else}}false{{end}}" {{if .DueDate}}checked{{end}} aria-describedby="issue-due-date-label" class="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950">
+            <span>Set a due date</span>
           </label>
           <div id="issue-due-date-field" data-checkbox-reveal-panel {{if not .DueDate}}hidden{{end}} class="mt-2">
             <label class="sr-only" for="issue-due-date">Due date</label>
             <input id="issue-due-date" type="date" name="due_date" value="{{.DueDate}}" {{if not .DueDate}}disabled{{end}} class="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
           </div>
         </div>
-        {{if not .PublicSubmission}}
-        <div class="min-w-0">
-          <label class="block text-xs font-medium text-slate-500 dark:text-slate-400" for="issue-assignee">Assignee</label>
-          <input id="issue-assignee" name="assignee" value="{{.AssigneeInput}}" list="new-issue-members" autocomplete="off" class="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="@username">
-        </div>
-        {{end}}
       </div>
 
       {{if not .PublicSubmission}}
-      <div class="mt-4 grid gap-4 sm:grid-cols-3">
-        <div class="min-w-0">
-          <label class="block text-xs font-medium text-slate-500 dark:text-slate-400" for="issue-reporter">Reporter</label>
-          <input id="issue-reporter" name="reporter" value="{{.ReporterInput}}" list="new-issue-members" autocomplete="off" class="mt-1 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="@username">
-        </div>
-      </div>
-
       <datalist id="new-issue-members">
         {{range .MemberOptions}}
         <option value="@{{.Username}}">{{if .Name}}{{.Name}}{{else}}@{{.Username}}{{end}}{{if .Email}} - {{.Email}}{{end}}</option>

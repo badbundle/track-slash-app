@@ -3,11 +3,12 @@
 @tailwind utilities;
 
 /* Preflight's gray-400 placeholder is under 3:1 on white. slate-500 and, on
-   dark inputs, slate-400 keep hints legible at 4.5:1 or better. */
+   dark inputs, slate-400 keep hints legible at 4.5:1 or better. The selectors
+   match Preflight's own so these later rules win on source order. */
 @layer base {
-  ::placeholder { color: theme("colors.slate.500"); }
+  input::placeholder, textarea::placeholder { color: theme("colors.slate.500"); }
   @media (prefers-color-scheme: dark) {
-    ::placeholder { color: theme("colors.slate.400"); }
+    input::placeholder, textarea::placeholder { color: theme("colors.slate.400"); }
   }
 }
 

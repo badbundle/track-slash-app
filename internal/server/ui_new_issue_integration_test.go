@@ -111,6 +111,21 @@ func TestUINewIssueCreatesIssueWithAllFieldsAndDefaultReporter(t *testing.T) {
 			t.Fatalf("new issue page missing %q: %s", want, body)
 		}
 	}
+	// Metadata fields share one left-aligned column, each labelled above its
+	// control, with Assignee directly below Reporter and Due date last.
+	if !strings.Contains(body, `data-new-issue-fields class="mt-4 space-y-4 sm:max-w-xs"`) || strings.Contains(body, "sm:grid-cols-3") {
+		t.Fatalf("new issue metadata fields should stack in one column: %s", body)
+	}
+	for _, pair := range [][2]string{
+		{`id="issue-description"`, `id="issue-priority-label">Priority</span>`},
+		{`id="issue-priority-label">Priority</span>`, `for="issue-reporter">Reporter</label>`},
+		{`for="issue-reporter">Reporter</label>`, `for="issue-assignee">Assignee</label>`},
+		{`for="issue-assignee">Assignee</label>`, `id="issue-due-date-label">Due date</span>`},
+		{`id="issue-due-date-label">Due date</span>`, `aria-describedby="issue-due-date-label"`},
+		{`aria-describedby="issue-due-date-label"`, "<span>Set a due date</span>"},
+	} {
+		requireMarkupOrder(t, body, pair[0], pair[1])
+	}
 	if err := e.store.FavoriteProject(e.ctx, reporter.ID, e.projectID); err != nil {
 		t.Fatalf("FavoriteProject: %v", err)
 	}
