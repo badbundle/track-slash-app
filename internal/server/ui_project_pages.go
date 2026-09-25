@@ -254,9 +254,27 @@ func (s *Server) uiBuildProjectsPanel(ctx context.Context, user model.User) (*ui
 		last := projects[len(projects)-1]
 		cursor = &store.ProjectsCursor{CreatedAt: last.CreatedAt, ID: last.ID}
 	}
+	ownerIDs := make([]uuid.UUID, 0, len(all))
+	seen := make(map[uuid.UUID]bool, len(all))
+	for _, project := range all {
+		if !seen[project.OwnerID] {
+			seen[project.OwnerID] = true
+			ownerIDs = append(ownerIDs, project.OwnerID)
+		}
+	}
+	owners, err := s.store.ListUserProfilesByID(ctx, ownerIDs)
+	if err != nil {
+		// Defensive: the project listing just succeeded; this needs a DB outage.
+		return nil, err
+	}
+	ownersByID := make(map[uuid.UUID]model.User, len(owners))
+	for _, owner := range owners {
+		ownersByID[owner.ID] = owner
+	}
 	return &uiProjectsPanelData{
 		Projects: all,
 		HasMore:  hasMore,
+		Owners:   ownersByID,
 	}, nil
 }
 

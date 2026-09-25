@@ -729,6 +729,21 @@ type uiProjectsPanelData struct {
 	Projects []model.Project
 	HasMore  bool
 	Owner    *model.User
+	// Owners holds the public profile of every listed project's owner, keyed
+	// by user ID, so each row can say whose project it is.
+	Owners map[uuid.UUID]model.User
+}
+
+const uiProjectOwnerAvatarClass = "grid h-6 w-6 shrink-0 place-items-center border border-slate-300 bg-white text-[10px] font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+
+// OwnerAvatar is the avatar on the trailing edge of a project row. An owner
+// missing from Owners falls back to the username the project already carries.
+func (p *uiProjectsPanelData) OwnerAvatar(project model.Project) uiUserAvatarData {
+	owner, ok := p.Owners[project.OwnerID]
+	if !ok {
+		return uiUserAvatarFields(project.OwnerID, "", project.OwnerUsername, "", nil, uiProjectOwnerAvatarClass)
+	}
+	return uiUserAvatarFields(owner.ID, owner.Name, owner.Username, "", owner.ProfileImageThumbnailObjectID, uiProjectOwnerAvatarClass)
 }
 
 type uiNewProjectPanelData struct {

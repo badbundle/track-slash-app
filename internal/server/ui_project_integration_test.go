@@ -102,6 +102,48 @@ func TestUIProjectsPageListsVisibleProjectsAndCreatesProject(t *testing.T) {
 			t.Fatalf("projects body still included project form %q: %s", notWant, body)
 		}
 	}
+
+	// Every row names its owner on the trailing edge, whether the viewer owns
+	// the project or is a member of someone else's.
+	ownProject, err := e.store.CreateProjectForUser(e.ctx, user.ID, uniqueProjectKey(t), "Viewer Owned Project", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForUser own: %v", err)
+	}
+	body = e.uiGet(t, "/projects", token)
+	for _, tc := range []struct {
+		project  string
+		username string
+	}{
+		{project: "http-test", username: e.ownerUsername},
+		{project: ownProject.Name, username: user.Username},
+	} {
+		rowStart := strings.Index(body, ">"+tc.project+"</span>")
+		if rowStart < 0 {
+			t.Fatalf("projects body missing row %q: %s", tc.project, body)
+		}
+		rowEnd := strings.Index(body[rowStart:], "</a>")
+		if rowEnd < 0 {
+			t.Fatalf("projects row %q is not closed: %s", tc.project, body)
+		}
+		row := body[rowStart : rowStart+rowEnd]
+		for _, want := range []string{
+			`data-project-owner title="Owned by @` + tc.username + `"`,
+			`<span class="sr-only">Owned by</span>`,
+			`<span class="hidden min-w-0 truncate sm:block">@` + tc.username + `</span>`,
+			`class="grid h-6 w-6 shrink-0 place-items-center border border-slate-300`,
+		} {
+			if !strings.Contains(row, want) {
+				t.Fatalf("projects row %q missing owner markup %q: %s", tc.project, want, row)
+			}
+		}
+		requireMarkupOrder(t, row, "data-project-owner", `data-lucide="chevron-right"`)
+		if strings.Count(row, "<a ") != 0 {
+			t.Fatalf("projects row %q nested a link inside the row link: %s", tc.project, row)
+		}
+	}
+	if !strings.Contains(body, "grid-cols-[2.25rem_4.5rem_minmax(0,1fr)_auto_auto]") {
+		t.Fatalf("projects list should reserve a column for the owner: %s", body)
+	}
 	if strings.Contains(body, `href="`+e.projectPath()+`/backlog"`) {
 		t.Fatalf("projects body included backlog row action: %s", body)
 	}
@@ -198,7 +240,9 @@ func TestUIOwnerProjectListingsAndBreadcrumbAccess(t *testing.T) {
 			t.Fatalf("owner project listing missing %q: %s", want, body)
 		}
 	}
-	for _, notWant := range []string{hidden.Name, deleted.Name, owned.Name, `aria-label="New project"`} {
+	// The owner listing already names its owner in the heading, so rows skip
+	// the per-row owner and its column.
+	for _, notWant := range []string{hidden.Name, deleted.Name, owned.Name, `aria-label="New project"`, "data-project-owner", "grid-cols-[2.25rem_4.5rem_minmax(0,1fr)_auto_auto]"} {
 		if strings.Contains(body, notWant) {
 			t.Fatalf("owner project listing leaked or rendered %q: %s", notWant, body)
 		}

@@ -153,6 +153,35 @@ func (s *Store) ListUsers(ctx context.Context, p ListUsersParams) ([]model.User,
 	return users, hasMore, nil
 }
 
+// ListUserProfilesByID returns the live users among ids, ordered by username.
+// It is for rendering people to other users, so it never reads email or the
+// admin flag: those stay empty and false. Unknown and deleted ids are skipped.
+func (s *Store) ListUserProfilesByID(ctx context.Context, ids []uuid.UUID) ([]model.User, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	const q = `SELECT id, username, '', name, false, created_at, profile_image_object_id, profile_image_thumbnail_object_id
+		FROM users WHERE id = ANY($1) AND deleted_at IS NULL ORDER BY username`
+	rows, err := s.db.Query(ctx, q, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	users := make([]model.User, 0, len(ids))
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
 func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	tag, err := s.db.Exec(ctx, `
 		UPDATE users SET deleted_at = now()
