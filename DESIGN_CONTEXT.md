@@ -9,6 +9,14 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Dense issue rows should reflow into stacked, readable metadata on narrow screens and return to the compact column layout at `sm` and above.
 - Keep primary tabs on one line. On narrow project pages, keep `Sprint`, `Planned`, and `All` visible and move `Context` and `About` into the project overflow menu instead of wrapping or scrolling the tab bar. `Changelog` always lives in project overflow.
 
+## Login page
+
+- The signed-out auth pages — `/login` and its sibling `/signup` — are the one deliberate exception to the no-hero, no-gradient, no-ornament guidance. The user asked for a branded, animated front door. Do not "fix" it back to the plain in-app card, and do not carry the treatment into signed-in pages, the OAuth consent interstitial, or legal pages.
+- Both pages share the `auth-page-open`/`auth-page-close` shell in `login.html`: a fixed, clipped, pointer-events-free animated backdrop (soft indigo/violet/sky/rose gradient orbs, a masked grid, a breathing halo behind the card, and light beams at the icon's slash angle), then one centered card with the `static/icon.svg` icon and a large `trackslash` wordmark, then the legal links.
+- The wordmark uses the same treatment as the sidebar and app bar — the default Tailwind sans stack at `font-semibold` — scaled up with display tracking. There is no separate brand font file; do not add one from a font CDN.
+- The backdrop is pure CSS in `frontend/tailwind.css` under the `.auth-backdrop` classes. Only `transform` and `opacity` animate, the shapes are gradients rather than `filter: blur()`, and every animation sits behind `prefers-reduced-motion: no-preference`, so reduced-motion users get the same scene held still. CSP forbids inline styles, so keep it as classes in the compiled stylesheet. Keep the card surface near-opaque with no `backdrop-filter`, so text stays readable and nothing re-blurs every frame.
+- Login is passkey-first. `Log in with passkey` is the primary button and the first focusable control. `Log in with password` is a small native `<details>` disclosure below it that holds the username and password fields; it stays collapsed until asked for. It renders open after a failed password attempt, and `auth.js` opens it when the browser has no WebAuthn. Opening it moves focus to the username field.
+
 ## User Identity
 
 - Render profile images and initials fallbacks as circles everywhere. The shared `user-avatar` component owns the crop shape so individual screens cannot diverge.

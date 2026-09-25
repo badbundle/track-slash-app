@@ -163,6 +163,17 @@
     const action = loginButton ? login(button) : signup(button);
     action.catch((err) => showStatus(err && err.message ? err.message : "Passkey request failed.")).finally(() => setBusy(button, false));
   });
+  // The password form sits in a native <details> disclosure so it stays
+  // keyboard operable and usable without this script. Opening it always lands
+  // the user in the username field, and a browser that cannot do passkeys gets
+  // it open from the start, since the password form is its only way in.
+  const passwordLogin = document.querySelector("[data-password-login]");
+  if (passwordLogin) {
+    passwordLogin.addEventListener("toggle", () => {
+      if (passwordLogin.open) passwordLogin.querySelector("input[name='username']")?.focus();
+    });
+    if (!passkeysSupported()) passwordLogin.open = true;
+  }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", createIcons);
   } else {
