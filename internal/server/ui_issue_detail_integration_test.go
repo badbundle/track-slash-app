@@ -228,7 +228,7 @@ func TestUIRendersIssueDetailPage(t *testing.T) {
 		}
 	}
 	if strings.Contains(body, `name="description"`) ||
-		strings.Contains(body, `placeholder="Description"`) ||
+		strings.Contains(body, `placeholder="Describe the issue: context, steps to reproduce, acceptance criteria… Markdown is supported."`) ||
 		strings.Contains(body, `name="priority"`) ||
 		strings.Contains(body, `aria-label="Sub-issue priority"`) {
 		t.Fatalf("sub-issue composer should be title-only: %s", body)

@@ -42,7 +42,7 @@
       <input id="issue-title" name="title" value="{{.Title}}" autocomplete="off" {{if .HasProject}}autofocus{{end}} class="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" placeholder="Issue title">
 
       <label class="mt-4 block text-xs font-medium text-slate-500 dark:text-slate-400" for="issue-description">Description</label>
-      <textarea id="issue-description" name="description" rows="5" data-autogrow-textarea class="mt-1 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">{{.Description}}</textarea>
+      <textarea id="issue-description" name="description" rows="5" data-autogrow-textarea placeholder="{{issueDescriptionPlaceholder}}" class="mt-1 w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">{{.Description}}</textarea>
 
       {{if .PublicSubmission}}
       <p class="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">This project accepts public issue submissions. You will be recorded as the reporter and project members will triage the issue.</p>

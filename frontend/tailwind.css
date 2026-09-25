@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Preflight's gray-400 placeholder is under 3:1 on white. slate-500 and, on
+   dark inputs, slate-400 keep hints legible at 4.5:1 or better. */
+@layer base {
+  ::placeholder { color: theme("colors.slate.500"); }
+  @media (prefers-color-scheme: dark) {
+    ::placeholder { color: theme("colors.slate.400"); }
+  }
+}
+
 body, [data-mobile-sidebar] { height: 100vh; }
 [data-mobile-sidebar] { visibility: hidden; transform: translateX(-100%); }
 html[data-mobile-sidebar-open] [data-mobile-sidebar] { visibility: visible; transform: translateX(0); }

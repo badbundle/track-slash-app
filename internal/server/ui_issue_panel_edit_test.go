@@ -229,7 +229,7 @@ func TestUIIssuePanelRendersDescriptionEditForm(t *testing.T) {
 		`hx-target="#main"`,
 		`hx-push-url="false"`,
 		`name="description"`,
-		`placeholder="Description"`,
+		`placeholder="` + uiIssueDescriptionPlaceholder + `"`,
 		`data-submit-shortcut="meta-enter"`,
 		`aria-label="Save description"`,
 		`data-lucide="check"`,
