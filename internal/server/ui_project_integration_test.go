@@ -503,6 +503,17 @@ func TestUIProjectMemberManagerAndReadonlyRendering(t *testing.T) {
 			t.Fatalf("member page missing %q: %s", want, pageBody)
 		}
 	}
+	// The member count stays on the header's trailing edge at every width,
+	// and the Blocked users actions never squeeze their label onto two lines.
+	for _, want := range []string{
+		`<header class="flex items-start justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">`,
+		`<div class="flex shrink-0 items-center gap-2">`,
+	} {
+		if !strings.Contains(pageBody, want) {
+			t.Fatalf("member page missing aligned layout %q: %s", want, pageBody)
+		}
+	}
+	requireMarkupOrder(t, pageBody, ">Blocked users</h3>", `<div class="flex shrink-0 items-center gap-2">`)
 	candidatesPath := e.projectPath() + "/member-candidates"
 	for _, want := range []string{
 		`name="username" value=""`,

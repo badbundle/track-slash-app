@@ -23,6 +23,18 @@ func TestUITokensPageCreatesAndRevokesToken(t *testing.T) {
 			t.Fatalf("tokens page missing modal behavior %q: %s", want, body)
 		}
 	}
+	// Create token belongs to the API tokens section, on its trailing edge,
+	// the way Register connector sits on the Connectors section.
+	requireMarkupOrder(t, body, `>API tokens</h2>`, `data-modal-open="token-create"`)
+	requireMarkupOrder(t, body, `data-modal-open="token-create"`, `>Connectors</h2>`)
+	headerStart := strings.Index(body, `<h1 `)
+	headerEnd := strings.Index(body[headerStart:], `</header>`)
+	if headerStart < 0 || headerEnd < 0 {
+		t.Fatalf("tokens page missing its header: %s", body)
+	}
+	if header := body[headerStart : headerStart+headerEnd]; strings.Contains(header, `data-modal-open="token-create"`) {
+		t.Fatalf("tokens page header should not carry the section's create action: %s", header)
+	}
 	csrfToken := uiCSRFTokenForTest("session", token)
 	if !strings.Contains(body, `name="csrf_token" value="`+csrfToken+`"`) {
 		t.Fatalf("tokens page missing session-bound CSRF field: %s", body)
@@ -235,7 +247,7 @@ func TestUIAccountPagesRenderTheirOwnSections(t *testing.T) {
 	e := newHTTPEnv(t)
 	_, token := newUIPasswordAccount(t, e, "uiaccount", "correct-horse-battery")
 
-	profileSections := []string{"Display name", `action="/settings/profile"`, `data-modal-open="profile-image-picker"`, "Save profile"}
+	profileSections := []string{"Display name", `action="/settings/profile"`, `data-modal-open="profile-image-picker"`, "Save profile", `<div class="mt-4 flex items-center justify-between gap-3">`}
 	loginSections := []string{"data-password-login-panel", "Current password", `action="/settings/password"`, "data-passkeys-panel", "Saved passkeys", `data-modal-open="passkey-create"`}
 	notificationSections := []string{"data-push-notifications", "Browser notifications", "Notification categories", `action="/settings/push/preferences"`}
 	tokenSections := []string{`data-modal-open="token-create"`, "API tokens", "Connectors", "Web sessions"}
