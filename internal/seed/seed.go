@@ -197,6 +197,14 @@ func projectHasContent(ctx context.Context, st *store.Store, projectID uuid.UUID
 func seedProject(ctx context.Context, st *store.Store, userID uuid.UUID, project model.Project, def projectDefinition, summary *ProjectSummary) error {
 	issueByKey := map[string]model.Issue{}
 
+	// Every demo project runs in sprint mode: it seeds completed, active and
+	// planned sprints, and sprints can only start once the mode is on.
+	project, err := st.SetProjectSprintsEnabled(ctx, project.ID, true)
+	if err != nil {
+		return err
+	}
+	summary.Project = project
+
 	completed, err := createSprint(ctx, st, project.ID, def.CompletedSprint, summary)
 	if err != nil {
 		return err

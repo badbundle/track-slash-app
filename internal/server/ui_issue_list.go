@@ -18,7 +18,7 @@ func uiProjectTabs(project model.Project, view string, assigneeIDs []uuid.UUID) 
 	if view == "sprint" {
 		sprintAssigneeIDs = assigneeIDs
 	}
-	return uiTabBarData{
+	tabs := uiTabBarData{
 		Label: "Project views",
 		Items: []uiTabItem{
 			{
@@ -85,6 +85,39 @@ func uiProjectTabs(project model.Project, view string, assigneeIDs []uuid.UUID) 
 			},
 		},
 	}
+	if !project.SprintsEnabled {
+		// Without sprint mode there is never an active sprint to show, so the
+		// Sprint board is not a destination and All becomes the landing view.
+		tabs.Items = tabs.Items[1:]
+	}
+	return tabs
+}
+
+// uiProjectHomeView is the view a project opens on: the Sprint board in sprint
+// mode, otherwise the All list.
+func uiProjectHomeView(project model.Project) string {
+	if project.SprintsEnabled {
+		return "sprint"
+	}
+	return "all"
+}
+
+// uiProjectViewFor swaps views that only exist in sprint mode for the
+// project's landing view, so stale links and bookmarks still land somewhere
+// useful after sprints are disabled.
+func uiProjectViewFor(project model.Project, view string) string {
+	if view == "sprint" {
+		return uiProjectHomeView(project)
+	}
+	return view
+}
+
+func uiProjectHomePath(project model.Project) string {
+	return uiProjectViewPath(project, uiProjectHomeView(project))
+}
+
+func uiProjectHomePanelPath(project model.Project) string {
+	return uiProjectPanelPath(project, uiProjectHomeView(project))
 }
 
 func uiWorkTabs(view string, query uiIssueListQuery) uiTabBarData {

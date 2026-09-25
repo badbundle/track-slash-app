@@ -580,6 +580,8 @@ func uiMarkSprintIssue(panel *uiProjectPanelData, sprint model.Sprint, form uiSp
 
 func uiSprintStoreMessage(err error) string {
 	switch {
+	case errors.Is(err, store.ErrSprintsDisabled):
+		return "Sprints are disabled for this project. Enable sprints to start one."
 	case errors.Is(err, store.ErrConflict):
 		return "Sprint change conflicts with current sprint state."
 	case errors.Is(err, store.ErrNotFound):

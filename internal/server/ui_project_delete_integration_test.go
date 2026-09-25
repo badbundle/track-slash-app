@@ -39,15 +39,15 @@ func TestUIProjectDeleteFromActionsMenu(t *testing.T) {
 	deletePath := projectPath + "/delete"
 	ownerProjects := "/" + owner.Username + "/projects"
 
-	menu := e.uiGet(t, projectPath+"/sprint", ownerToken)
-	if !strings.Contains(menu, `href="`+deletePath+`?view=sprint"`) || !strings.Contains(menu, "<span>Delete project</span>") {
+	menu := e.uiGet(t, projectPath+"/all", ownerToken)
+	if !strings.Contains(menu, `href="`+deletePath+`?view=all"`) || !strings.Contains(menu, "<span>Delete project</span>") {
 		t.Fatalf("project actions menu missing delete entry: %s", menu)
 	}
 	if strings.Contains(menu, `id="project-delete"`) {
 		t.Fatalf("delete dialog rendered before it was asked for: %s", menu)
 	}
 
-	dialog := e.uiGet(t, deletePath+"?view=sprint", ownerToken)
+	dialog := e.uiGet(t, deletePath+"?view=all", ownerToken)
 	for _, want := range []string{
 		`id="project-delete"`,
 		`action="` + deletePath + `"`,
@@ -55,7 +55,7 @@ func TestUIProjectDeleteFromActionsMenu(t *testing.T) {
 		`name="key"`,
 		"Type " + project.Key + " to confirm",
 		"This cannot be undone from the app.",
-		`hx-get="` + projectPath + `/sprint/panel"`,
+		`hx-get="` + projectPath + `/all/panel"`,
 	} {
 		if !strings.Contains(dialog, want) {
 			t.Fatalf("delete dialog missing %q: %s", want, dialog)
@@ -67,8 +67,8 @@ func TestUIProjectDeleteFromActionsMenu(t *testing.T) {
 	if kept := e.uiGet(t, deletePath+"?view=context", ownerToken); !strings.Contains(kept, `hx-get="`+projectPath+`/context/panel"`) {
 		t.Fatalf("delete dialog lost the context view: %s", kept)
 	}
-	if fallback := e.uiGet(t, deletePath+"?view=nonsense", ownerToken); !strings.Contains(fallback, `hx-get="`+projectPath+`/sprint/panel"`) {
-		t.Fatalf("unknown view did not fall back to the sprint panel: %s", fallback)
+	if fallback := e.uiGet(t, deletePath+"?view=nonsense", ownerToken); !strings.Contains(fallback, `hx-get="`+projectPath+`/all/panel"`) {
+		t.Fatalf("unknown view did not fall back to the project's landing panel: %s", fallback)
 	}
 
 	// htmx gets the panel fragment, not a second whole document.
@@ -97,7 +97,7 @@ func TestUIProjectDeleteFromActionsMenu(t *testing.T) {
 	}
 
 	res := e.uiDoNoRedirect(t, http.MethodPost, deletePath, ownerToken, strings.NewReader(url.Values{
-		"view": {"sprint"},
+		"view": {"all"},
 		"key":  {"WRONGKEY"},
 	}.Encode()))
 	defer res.Body.Close()
@@ -114,7 +114,7 @@ func TestUIProjectDeleteFromActionsMenu(t *testing.T) {
 
 	// The confirmation is case-insensitive; the input is uppercased on screen.
 	res = e.uiDoNoRedirectWithHeaders(t, http.MethodPost, deletePath, ownerToken, strings.NewReader(url.Values{
-		"view": {"sprint"},
+		"view": {"all"},
 		"key":  {strings.ToLower(project.Key)},
 	}.Encode()), map[string]string{"HX-Request": "true"})
 	defer res.Body.Close()
@@ -162,7 +162,7 @@ func TestUIProjectDeleteIsOwnerAndAdminOnly(t *testing.T) {
 	}
 	projectPath := uiProjectPathFor(project)
 
-	menu := e.uiGet(t, projectPath+"/sprint", memberToken)
+	menu := e.uiGet(t, projectPath+"/all", memberToken)
 	if strings.Contains(menu, "Delete project") || strings.Contains(menu, projectPath+`/delete?`) {
 		t.Fatalf("write member sees the delete action: %s", menu)
 	}
@@ -181,7 +181,7 @@ func TestUIProjectDeleteIsOwnerAndAdminOnly(t *testing.T) {
 	}
 
 	// A site admin may remove a project owned by somebody else.
-	adminMenu := e.uiGet(t, projectPath+"/sprint", e.authToken)
+	adminMenu := e.uiGet(t, projectPath+"/all", e.authToken)
 	if !strings.Contains(adminMenu, "<span>Delete project</span>") {
 		t.Fatalf("admin menu missing delete entry: %s", adminMenu)
 	}

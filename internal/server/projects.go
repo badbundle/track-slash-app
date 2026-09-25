@@ -25,6 +25,12 @@ type updateProjectReq struct {
 	Description *string `json:"description,omitempty"`
 }
 
+// projectSprintModeReq uses a pointer so an empty or misspelled body is
+// rejected instead of silently disabling sprints.
+type projectSprintModeReq struct {
+	SprintsEnabled *bool `json:"sprints_enabled"`
+}
+
 type projectResponse struct {
 	model.Project
 	Favorite bool `json:"favorite"`
@@ -140,6 +146,39 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		params.Description = &description
 	}
 	updated, err := s.store.UpdateProject(r.Context(), project.ID, params)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	out, err := s.projectResponse(r.Context(), currentUser(r), updated)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// updateProjectSprintMode turns sprints on or off. It sits beside the access
+// settings and shares their owner-or-admin rule, because it changes how the
+// whole project works rather than editing its content.
+func (s *Server) updateProjectSprintMode(w http.ResponseWriter, r *http.Request) {
+	project, ok := s.projectFromRoute(w, r)
+	if !ok {
+		return
+	}
+	if !s.requireProjectMemberManagement(w, r, project.ID) {
+		return
+	}
+	var req projectSprintModeReq
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if req.SprintsEnabled == nil {
+		writeError(w, http.StatusBadRequest, "sprints_enabled required")
+		return
+	}
+	updated, err := s.store.SetProjectSprintsEnabled(r.Context(), project.ID, *req.SprintsEnabled)
 	if err != nil {
 		writeStoreError(w, err)
 		return

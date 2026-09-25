@@ -230,6 +230,7 @@ func (s *Server) Router() http.Handler {
 					r.Get("/", s.getProject)
 					r.Get("/access", s.getProjectAccess)
 					r.Patch("/access", s.updateProjectAccess)
+					r.Patch("/sprint-mode", s.updateProjectSprintMode)
 					r.Patch("/", s.updateProject)
 					r.Delete("/", s.deleteProject)
 					r.Post("/image", s.createProjectImage)

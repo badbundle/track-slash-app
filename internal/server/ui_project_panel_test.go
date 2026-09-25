@@ -160,6 +160,7 @@ func TestUIProjectPanelRendersCohesiveHeaderAndAboutDetails(t *testing.T) {
 		Name:                   "Track Slash",
 		Description:            "Fast issue tracking.",
 		ImageThumbnailObjectID: &projectThumbnailID,
+		SprintsEnabled:         true,
 		CreatedAt:              time.Date(2026, 6, 1, 9, 30, 0, 0, time.UTC),
 		UpdatedAt:              time.Date(2026, 6, 2, 10, 45, 0, 0, time.UTC),
 	}

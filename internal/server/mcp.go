@@ -348,6 +348,11 @@ type mcpUpdateProjectAccessInput struct {
 	PublicIssueCreation bool `json:"public_issue_creation"`
 }
 
+type mcpUpdateProjectSprintModeInput struct {
+	mcpProjectInput
+	SprintsEnabled bool `json:"sprints_enabled" jsonschema:"true runs work sprint by sprint; false picks issues up one at a time and stops sprints from starting"`
+}
+
 type mcpProjectBlockInput struct {
 	mcpProjectInput
 	Username string `json:"username"`
@@ -468,13 +473,14 @@ func (s *Server) newMCPServer() *mcp.Server {
 
 	addMCPTool(srv, "track_create_project", "Create a project owned by current user.", write, s.mcpCreateProject)
 	addMCPTool(srv, "track_list_projects", "List projects visible to current user.", readOnly, s.mcpListProjects)
-	addMCPTool(srv, "track_get_project", "Get project by owner and key.", readOnly, s.mcpGetProject)
+	addMCPTool(srv, "track_get_project", "Get project by owner and key, including whether sprints are enabled.", readOnly, s.mcpGetProject)
 	addMCPTool(srv, "track_delete_project", "Soft-delete a project. Project owner or admin only.", write, s.mcpDeleteProject)
 	addMCPTool(srv, "track_list_project_members", "List project members and roles.", readOnly, s.mcpListProjectMembers)
 	addMCPTool(srv, "track_grant_project_member", "Add a project member or update their role. Project owner or admin only.", write, s.mcpGrantProjectMember)
 	addMCPTool(srv, "track_revoke_project_member", "Remove a project member. Project owner or admin only.", write, s.mcpRevokeProjectMember)
 	addMCPTool(srv, "track_get_project_access", "Get public access settings for project.", readOnly, s.mcpGetProjectAccess)
 	addMCPTool(srv, "track_update_project_access", "Update public access settings. Project owner or admin only.", write, s.mcpUpdateProjectAccess)
+	addMCPTool(srv, "track_update_project_sprint_mode", "Enable or disable sprints for a project. Disabling fails while a sprint is active; planned and completed sprints are kept. Project owner or admin only.", write, s.mcpUpdateProjectSprintMode)
 	addMCPTool(srv, "track_list_project_blocks", "List users blocked from project. Project owner or admin only.", readOnly, s.mcpListProjectBlocks)
 	addMCPTool(srv, "track_block_project_user", "Block user from project. Project owner or admin only.", write, s.mcpBlockProjectUser)
 	addMCPTool(srv, "track_unblock_project_user", "Unblock user from project. Project owner or admin only.", write, s.mcpUnblockProjectUser)
@@ -505,7 +511,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_list_sprints", "List project sprints.", readOnly, s.mcpListSprints)
 	addMCPTool(srv, "track_list_sprint_history_issues", "List issues captured when a completed sprint finished.", readOnly, s.mcpListSprintHistoryIssues)
 	addMCPTool(srv, "track_get_sprint", "Get project sprint.", readOnly, s.mcpGetSprint)
-	addMCPTool(srv, "track_update_sprint", "Update project sprint.", write, s.mcpUpdateSprint)
+	addMCPTool(srv, "track_update_sprint", "Update project sprint. Setting status to active starts a planned sprint, which requires sprints to be enabled for the project.", write, s.mcpUpdateSprint)
 	addMCPTool(srv, "track_delete_sprint", "Delete project sprint.", write, s.mcpDeleteSprint)
 	addMCPTool(srv, "track_complete_sprint", "Complete project sprint.", write, s.mcpCompleteSprint)
 	addMCPTool(srv, "track_reorder_planned_sprints", "Reorder planned sprints.", write, s.mcpReorderPlannedSprints)
@@ -1142,6 +1148,25 @@ func (s *Server) mcpUpdateProjectAccess(ctx context.Context, req *mcp.CallToolRe
 	}
 	s.disconnectRealtimeClients()
 	return mcpToolOutput{"access": settings}, nil
+}
+
+func (s *Server) mcpUpdateProjectSprintMode(ctx context.Context, req *mcp.CallToolRequest, input mcpUpdateProjectSprintModeInput) (mcpToolOutput, error) {
+	ctx, auth, err := s.mcpAuth(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.mcpProject(ctx, auth, input.mcpProjectInput)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.requireMCPProjectMemberManagement(ctx, auth, project.ID); err != nil {
+		return nil, err
+	}
+	updated, err := s.store.SetProjectSprintsEnabled(ctx, project.ID, input.SprintsEnabled)
+	if err != nil {
+		return nil, err
+	}
+	return mcpToolOutput{"project": updated}, nil
 }
 
 func (s *Server) mcpListProjectBlocks(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectInput) (mcpToolOutput, error) {

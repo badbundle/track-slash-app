@@ -480,6 +480,8 @@ type uiProjectPanelData struct {
 	Members                         []model.ProjectMember
 	AccessSettings                  model.ProjectAccessSettings
 	AccessError                     string
+	SprintModeLocked                bool
+	SprintModeError                 string
 	BlockedUsers                    []model.ProjectUserBlock
 	BlockInput                      string
 	BlockError                      string

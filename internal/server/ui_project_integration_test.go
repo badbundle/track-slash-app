@@ -201,8 +201,9 @@ func TestUIProjectsPageListsVisibleProjectsAndCreatesProject(t *testing.T) {
 	if res.StatusCode != http.StatusSeeOther {
 		t.Fatalf("create code = %d body = %s", res.StatusCode, readBody(t, res))
 	}
+	// New projects start without sprints, so they open on All.
 	loc := res.Header.Get("Location")
-	if loc != "/"+user.Username+"/projects/"+key+"/sprint" {
+	if loc != "/"+user.Username+"/projects/"+key+"/all" {
 		t.Fatalf("Location = %q", loc)
 	}
 	body = e.uiGet(t, loc, token)
@@ -822,6 +823,7 @@ func TestUIRendersProjectSprintBoard(t *testing.T) {
 	if _, err := e.store.GrantProjectAccess(e.ctx, otherProject.ID, user.ID); err != nil {
 		t.Fatalf("GrantProjectAccess other: %v", err)
 	}
+	enableFixtureSprintMode(t, e.ctx, e.pool, otherProject.ID)
 	otherSprint, err := e.store.CreateSprint(e.ctx, store.CreateSprintParams{
 		ProjectID: otherProject.ID,
 		Name:      "Other Sprint",

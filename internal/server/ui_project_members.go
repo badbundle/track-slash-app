@@ -204,6 +204,38 @@ func (s *Server) uiUpdateProjectAccess(w http.ResponseWriter, r *http.Request) {
 	renderUITemplate(w, http.StatusOK, "project-panel", panel)
 }
 
+func (s *Server) uiUpdateProjectSprintMode(w http.ResponseWriter, r *http.Request) {
+	project, ok := s.uiProjectFromRoute(w, r)
+	if !ok {
+		return
+	}
+	if err := s.uiRequireProjectMemberManagement(r.Context(), currentUser(r), project.ID); err != nil {
+		writeUIStoreError(w, err)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		writeUIStoreError(w, errUIBadRequest)
+		return
+	}
+	message := ""
+	if _, err := s.store.SetProjectSprintsEnabled(r.Context(), project.ID, r.Form.Get("sprints_enabled") == "on"); err != nil {
+		if !errors.Is(err, store.ErrActiveSprintBlocksSprintsOff) {
+			// Defensive: the project was just resolved and authorized, so only a
+			// concurrent project delete or a DB fault lands here.
+			writeUIStoreError(w, err)
+			return
+		}
+		message = "Sprints were not disabled because a sprint is active."
+	}
+	panel, err := s.uiBuildProjectMemberPanel(r.Context(), r, project, "", model.ProjectMemberRoleMember, "")
+	if err != nil {
+		writeUIStoreError(w, err)
+		return
+	}
+	panel.SprintModeError = message
+	renderUITemplate(w, http.StatusOK, "project-panel", panel)
+}
+
 func (s *Server) uiBlockProjectUser(w http.ResponseWriter, r *http.Request) {
 	project, ok := s.uiProjectFromRoute(w, r)
 	if !ok {

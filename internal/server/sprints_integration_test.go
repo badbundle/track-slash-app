@@ -67,6 +67,7 @@ func newHTTPEnvWithOptions(t *testing.T, options server.Options) *httpEnv {
 	if err != nil {
 		t.Fatalf("CreateProjectForUser: %v", err)
 	}
+	enableFixtureSprintMode(t, ctx, db.Pool, proj.ID)
 	token, err := s.CreateAuthToken(ctx, store.CreateAuthTokenParams{
 		UserID: admin.ID,
 		Kind:   model.AuthTokenKindAPI,
@@ -79,6 +80,17 @@ func newHTTPEnvWithOptions(t *testing.T, options server.Options) *httpEnv {
 	return &httpEnv{
 		ctx: ctx, ts: ts, pool: db.Pool, store: s, projectID: proj.ID, projKey: key, ownerUsername: admin.Username,
 		adminID: admin.ID, authToken: token.RawToken,
+	}
+}
+
+// enableFixtureSprintMode puts a fixture project in sprint mode, as migration
+// 0044 did for every project that already used sprints. It writes the column
+// directly so the fixture carries no changelog entry of its own. New projects
+// start with sprints disabled; sprint_mode_integration_test.go covers that.
+func enableFixtureSprintMode(t *testing.T, ctx context.Context, pool *pgxpool.Pool, projectID uuid.UUID) {
+	t.Helper()
+	if _, err := pool.Exec(ctx, `UPDATE projects SET sprints_enabled = true WHERE id = $1`, projectID); err != nil {
+		t.Fatalf("enable fixture sprint mode: %v", err)
 	}
 }
 
@@ -645,6 +657,7 @@ func createSprintFor(t *testing.T, e *httpEnv, name, start, end string) model.Sp
 
 func createCompletedSprintAtFor(t *testing.T, e *httpEnv, projectID uuid.UUID, name string, start, end time.Time, completedAt *time.Time) model.Sprint {
 	t.Helper()
+	enableFixtureSprintMode(t, e.ctx, e.pool, projectID)
 	sprint, err := e.store.CreateSprint(e.ctx, store.CreateSprintParams{
 		ProjectID: projectID,
 		Name:      name,

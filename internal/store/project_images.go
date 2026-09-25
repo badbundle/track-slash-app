@@ -41,7 +41,7 @@ func (s *Store) ReplaceProjectImage(ctx context.Context, projectID, objectID, th
 			FROM users u
 			WHERE p.id = $1 AND p.owner_id = u.id AND p.deleted_at IS NULL AND u.deleted_at IS NULL
 			RETURNING p.id, p.owner_id, u.username, p.key, p.name, p.description,
-			          p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+			          p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 		`, projectID, objectID, thumbnailObjectID))
 		if err != nil {
 			if isNoRows(err) {
@@ -91,7 +91,7 @@ func (s *Store) RemoveProjectImage(ctx context.Context, projectID uuid.UUID) (Re
 			FROM users u
 			WHERE p.id = $1 AND p.owner_id = u.id AND p.deleted_at IS NULL AND u.deleted_at IS NULL
 			RETURNING p.id, p.owner_id, u.username, p.key, p.name, p.description,
-			          p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+			          p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 		`, projectID))
 		if err != nil {
 			if isNoRows(err) {
@@ -151,7 +151,7 @@ func (s *Store) GetProjectImageObject(ctx context.Context, projectID uuid.UUID, 
 func projectForImageUpdate(ctx context.Context, tx pgx.Tx, projectID uuid.UUID) (model.Project, error) {
 	project, err := scanProject(tx.QueryRow(ctx, `
 		SELECT p.id, p.owner_id, u.username, p.key, p.name, p.description,
-		       p.image_object_id, p.image_thumbnail_object_id, p.created_at, p.updated_at
+		       p.image_object_id, p.image_thumbnail_object_id, p.sprints_enabled, p.created_at, p.updated_at
 		FROM projects p
 		JOIN users u ON u.id = p.owner_id
 		WHERE p.id = $1 AND p.deleted_at IS NULL AND u.deleted_at IS NULL

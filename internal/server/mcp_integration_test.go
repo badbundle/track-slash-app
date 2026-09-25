@@ -57,6 +57,7 @@ func newMCPHTTPEnv(t *testing.T, storageSvc *objectstorage.Service) *httpEnv {
 	if err != nil {
 		t.Fatalf("CreateProjectForUser: %v", err)
 	}
+	enableFixtureSprintMode(t, ctx, db.Pool, proj.ID)
 	token, err := st.CreateAuthToken(ctx, store.CreateAuthTokenParams{
 		UserID: admin.ID,
 		Kind:   model.AuthTokenKindAPI,

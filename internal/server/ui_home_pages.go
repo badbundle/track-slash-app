@@ -20,7 +20,7 @@ func (s *Server) uiHome(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/projects", http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, uiProjectViewPath(projects[0], "sprint"), http.StatusSeeOther)
+	http.Redirect(w, r, uiProjectHomePath(projects[0]), http.StatusSeeOther)
 }
 
 func (s *Server) uiWorkPage(w http.ResponseWriter, r *http.Request, view string) {
@@ -110,7 +110,7 @@ func (s *Server) uiCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeUIStoreError(w, err)
 		return
 	}
-	http.Redirect(w, r, uiProjectViewPath(project, "sprint"), http.StatusSeeOther)
+	http.Redirect(w, r, uiProjectHomePath(project), http.StatusSeeOther)
 }
 
 func (s *Server) uiNewIssuePage(w http.ResponseWriter, r *http.Request) {

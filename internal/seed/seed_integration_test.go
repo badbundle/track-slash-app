@@ -38,6 +38,14 @@ func TestSeedCreatesSubIssues(t *testing.T) {
 		if project.SubIssuesCreated == 0 {
 			t.Fatalf("project %s SubIssuesCreated = 0", project.Project.Key)
 		}
+		// Demo projects seed an active sprint, so they run in sprint mode.
+		stored, err := st.GetProject(ctx, project.Project.ID)
+		if err != nil {
+			t.Fatalf("GetProject %s: %v", project.Project.Key, err)
+		}
+		if !project.Project.SprintsEnabled || !stored.SprintsEnabled {
+			t.Fatalf("project %s sprints enabled = summary %t, stored %t; want both true", project.Project.Key, project.Project.SprintsEnabled, stored.SprintsEnabled)
+		}
 		totalSubIssues += project.SubIssuesCreated
 
 		all, _, err := st.ListIssues(ctx, store.ListIssuesParams{

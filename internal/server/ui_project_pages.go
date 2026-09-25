@@ -19,7 +19,7 @@ func (s *Server) uiProjectPage(w http.ResponseWriter, r *http.Request) {
 		writeUIStoreError(w, err)
 		return
 	}
-	uiRedirectPreservingQuery(w, r, uiProjectViewPath(project, "sprint"))
+	uiRedirectPreservingQuery(w, r, uiProjectHomePath(project))
 }
 
 // uiRedirectPreservingQuery sends the browser to a canonical view without
@@ -45,6 +45,14 @@ func uiWithRequestQuery(r *http.Request, target string) string {
 func (s *Server) uiProjectWorkPage(w http.ResponseWriter, r *http.Request, view string) {
 	project, ok := s.uiProjectFromRoute(w, r)
 	if !ok {
+		return
+	}
+	if resolved := uiProjectViewFor(project, view); resolved != view {
+		if err := s.uiRequireProjectAccess(r.Context(), currentUser(r), project.ID); err != nil {
+			writeUIStoreError(w, err)
+			return
+		}
+		uiRedirectPreservingQuery(w, r, uiProjectViewPath(project, resolved))
 		return
 	}
 	projects, err := s.uiVisibleProjects(r.Context(), currentUser(r))
@@ -74,6 +82,11 @@ func (s *Server) uiProjectWorkPanel(w http.ResponseWriter, r *http.Request, view
 	if err != nil {
 		writeUIStoreError(w, err)
 		return
+	}
+	if panel.View != view {
+		// The Sprint board was requested for a project without sprint mode and
+		// the panel fell back to the landing view; keep the address bar honest.
+		w.Header().Set("HX-Push-Url", uiWithRequestQuery(r, uiProjectViewPath(project, panel.View)))
 	}
 	renderUITemplate(w, http.StatusOK, "project-panel", panel)
 }
@@ -107,7 +120,7 @@ func (s *Server) uiToggleProjectFavorite(w http.ResponseWriter, r *http.Request)
 	}
 	view := uiProjectPanelView(r.Form.Get("view"))
 	if !isHTMXRequest(r) {
-		http.Redirect(w, r, uiProjectViewPath(project, view), http.StatusSeeOther)
+		http.Redirect(w, r, uiProjectViewPath(project, uiProjectViewFor(project, view)), http.StatusSeeOther)
 		return
 	}
 	favorites, err := s.uiFavoriteProjects(r.Context(), currentUser(r))
@@ -489,6 +502,7 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 	if err != nil {
 		return nil, err
 	}
+	view = uiProjectViewFor(project, view)
 	favorite := false
 	if currentUser(r).ID != uuid.Nil {
 		favorite, err = s.store.IsProjectFavorite(ctx, currentUser(r).ID, projectID)
@@ -747,6 +761,17 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 		panel.BlockedUsers, err = s.store.ListProjectUserBlocks(ctx, projectID)
 		if err != nil {
 			return nil, err
+		}
+		if project.SprintsEnabled {
+			activeSprints, _, err := s.store.ListSprints(ctx, store.ListSprintsParams{
+				ProjectID: projectID,
+				Status:    model.SprintStatusActive,
+				Limit:     1,
+			})
+			if err != nil {
+				return nil, err
+			}
+			panel.SprintModeLocked = len(activeSprints) > 0
 		}
 		panel.MembersPage = true
 		panel.MemberRoleInput = model.ProjectMemberRoleMember
