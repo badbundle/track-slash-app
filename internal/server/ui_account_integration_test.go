@@ -203,15 +203,14 @@ func createdTokenValue(t *testing.T, body string) string {
 	return value
 }
 
-func TestUISettingsPageUpdatesProfileAndPassword(t *testing.T) {
-	t.Parallel()
-	e := newHTTPEnv(t)
-	username := "uisettings" + strings.ToLower(uniqueProjectKey(t))
-	oldPassword := "correct-horse-battery"
-	newPassword := "new-correct-horse"
+// newUIPasswordAccount signs in a fresh password account and returns its
+// username and session token.
+func newUIPasswordAccount(t *testing.T, e *httpEnv, prefix, password string) (string, string) {
+	t.Helper()
+	username := prefix + strings.ToLower(uniqueProjectKey(t))
 	user, err := e.store.CreateAccount(e.ctx, store.CreateAccountParams{
 		Username: username,
-		Password: oldPassword,
+		Password: password,
 		Name:     "Old UI",
 	})
 	if err != nil {
@@ -225,85 +224,286 @@ func TestUISettingsPageUpdatesProfileAndPassword(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAuthToken: %v", err)
 	}
+	return username, token.RawToken
+}
 
-	body := e.uiGet(t, "/settings", token.RawToken)
-	for _, want := range []string{"Settings", "Display name", "Email", "Password login", "On", "Current password", "New password", "Passkeys", "Saved passkeys", "Add a passkey", "Passkey label", "Enter current password", "Required before changing passkeys.", "Continue", "Add passkey", "No passkeys added.", `data-modal-open="passkey-create"`, `id="passkey-create" data-client-modal class="fixed inset-0 z-50 hidden`, `role="dialog" aria-modal="true" aria-labelledby="passkey-create-title"`, `<footer data-settings-footer class="border-t border-slate-200 py-4 dark:border-slate-800">`, `aria-label="Legal"`, `href="/terms"`, `href="/privacy"`, `href="/security"`} {
+// Each account page carries exactly the sections that moved to it from the old
+// general Settings page, plus the shared legal footer, and marks itself as the
+// current page in the sidebar's account group.
+func TestUIAccountPagesRenderTheirOwnSections(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, token := newUIPasswordAccount(t, e, "uiaccount", "correct-horse-battery")
+
+	profileSections := []string{"Display name", `action="/settings/profile"`, `data-modal-open="profile-image-picker"`, "Save profile"}
+	loginSections := []string{"data-password-login-panel", "Current password", `action="/settings/password"`, "data-passkeys-panel", "Saved passkeys", `data-modal-open="passkey-create"`}
+	notificationSections := []string{"data-push-notifications", "Browser notifications", "Notification categories", `action="/settings/push/preferences"`}
+	tokenSections := []string{`data-modal-open="token-create"`, "API tokens", "Connectors", "Web sessions"}
+
+	for _, tt := range []struct {
+		path    string
+		view    string
+		title   string
+		want    []string
+		notWant [][]string
+	}{
+		{path: "/settings/profile", view: "profile", title: "Profile", want: profileSections, notWant: [][]string{loginSections, notificationSections, tokenSections}},
+		{path: "/settings/login", view: "login", title: "Login", want: loginSections, notWant: [][]string{profileSections, notificationSections, tokenSections}},
+		{path: "/settings/notifications", view: "notifications", title: "Notifications", want: notificationSections, notWant: [][]string{profileSections, loginSections, tokenSections}},
+		{path: "/tokens", view: "tokens", title: "Tokens", want: tokenSections, notWant: [][]string{profileSections, loginSections, notificationSections}},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			body := e.uiGet(t, tt.path, token)
+			if !strings.Contains(body, `<section data-sidebar-view="`+tt.view+`" class="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-6">`) {
+				t.Fatalf("%s missing the shared account page frame: %s", tt.path, body)
+			}
+			if !strings.Contains(body, `<h1 class="truncate text-2xl font-semibold tracking-normal">`+tt.title+`</h1>`) {
+				t.Fatalf("%s missing page title %q: %s", tt.path, tt.title, body)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(body, want) {
+					t.Fatalf("%s missing its section marker %q: %s", tt.path, want, body)
+				}
+			}
+			for _, other := range tt.notWant {
+				for _, notWant := range other {
+					if strings.Contains(body, notWant) {
+						t.Fatalf("%s still renders another page's section %q: %s", tt.path, notWant, body)
+					}
+				}
+			}
+
+			footer := uiElementForTest(t, body, `<footer data-account-footer`, `</footer>`)
+			for _, want := range []string{`class="border-t border-slate-200 py-4 dark:border-slate-800"`, `aria-label="Legal"`, `href="/terms"`, `href="/privacy"`, `href="/security"`} {
+				if !strings.Contains(footer, want) {
+					t.Fatalf("%s legal footer missing %q: %s", tt.path, want, footer)
+				}
+			}
+			if got := strings.Count(body, `aria-label="Legal"`); got != 1 {
+				t.Fatalf("%s legal navigation count = %d, want 1: %s", tt.path, got, body)
+			}
+
+			sidebar := uiElementForTest(t, body, `<aside id="app-sidebar"`, `</aside>`)
+			if strings.Contains(sidebar, `aria-label="Legal"`) {
+				t.Fatalf("%s sidebar contains legal links: %s", tt.path, sidebar)
+			}
+			account := uiElementForTest(t, sidebar, `<nav aria-label="Account" data-sidebar-account`, `</nav>`)
+			if got := strings.Count(account, `aria-current="page"`); got != 1 {
+				t.Fatalf("%s account group has %d current pages, want 1: %s", tt.path, got, account)
+			}
+			current := uiElementForTest(t, account, `data-sidebar-view="`+tt.view+`"`, `>`)
+			if !strings.Contains(current, `aria-current="page"`) {
+				t.Fatalf("%s is not the current page in the account group: %s", tt.path, account)
+			}
+		})
+	}
+}
+
+// The old general Settings address lands on Profile and keeps whatever query it
+// was given, so an old bookmark or shared link still works.
+func TestUISettingsRedirectsToProfileKeepingTheQuery(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, token := newUIPasswordAccount(t, e, "uisettingsredirect", "correct-horse-battery")
+
+	for _, tt := range []struct {
+		name         string
+		path         string
+		wantLocation string
+	}{
+		{name: "no query", path: "/settings", wantLocation: "/settings/profile"},
+		{name: "query survives", path: "/settings?utm_source=bookmark&tab=passkeys", wantLocation: "/settings/profile?utm_source=bookmark&tab=passkeys"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			res := e.uiDoNoRedirect(t, http.MethodGet, tt.path, token, nil)
+			res.Body.Close()
+			if res.StatusCode != http.StatusSeeOther {
+				t.Fatalf("code = %d, want 303", res.StatusCode)
+			}
+			if got := res.Header.Get("Location"); got != tt.wantLocation {
+				t.Fatalf("Location = %q, want %q", got, tt.wantLocation)
+			}
+			if body := e.uiGet(t, res.Header.Get("Location"), token); !strings.Contains(body, `data-sidebar-view="profile"`) {
+				t.Fatalf("following %s did not reach Profile: %s", tt.wantLocation, body)
+			}
+		})
+	}
+
+	// htmx would follow a 303 and swap Profile into #main under a stale
+	// address, so an htmx request is told to navigate instead.
+	res := e.uiDoNoRedirectWithHeaders(t, http.MethodGet, "/settings?tab=passkeys", token, nil, map[string]string{"HX-Request": "true"})
+	body := readBody(t, res)
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent || body != "" {
+		t.Fatalf("htmx code = %d body = %q, want 204 and no body", res.StatusCode, body)
+	}
+	if got := res.Header.Get("HX-Redirect"); got != "/settings/profile?tab=passkeys" {
+		t.Fatalf("HX-Redirect = %q, want %q", got, "/settings/profile?tab=passkeys")
+	}
+}
+
+func TestUIAccountPagesRequireSignIn(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+
+	for _, path := range []string{"/settings", "/settings/profile", "/settings/login", "/settings/notifications", "/tokens"} {
+		t.Run(path, func(t *testing.T) {
+			res := e.uiDoNoRedirect(t, http.MethodGet, path, "", nil)
+			res.Body.Close()
+			want := "/login?next=" + url.QueryEscape(path)
+			if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != want {
+				t.Fatalf("code = %d Location = %q, want 303 to %q", res.StatusCode, res.Header.Get("Location"), want)
+			}
+
+			res = e.uiDoNoRedirectWithHeaders(t, http.MethodGet, path, "", nil, map[string]string{"HX-Request": "true"})
+			res.Body.Close()
+			if res.StatusCode != http.StatusNoContent || res.Header.Get("HX-Redirect") != want {
+				t.Fatalf("htmx code = %d HX-Redirect = %q, want 204 to %q", res.StatusCode, res.Header.Get("HX-Redirect"), want)
+			}
+		})
+	}
+}
+
+func TestUIProfilePageUpdatesProfile(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, token := newUIPasswordAccount(t, e, "uiprofile", "correct-horse-battery")
+
+	body := e.uiGet(t, "/settings/profile", token)
+	for _, want := range []string{"Display name", "Email", `value="Old UI"`, "Save profile", `data-modal-open="profile-image-picker"`, `action="/settings/profile-image"`} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("settings body missing %q: %s", want, body)
+			t.Fatalf("profile body missing %q: %s", want, body)
 		}
-	}
-	if got := strings.Count(body, `aria-label="Legal"`); got != 1 {
-		t.Fatalf("settings legal navigation count = %d, want 1: %s", got, body)
-	}
-	footerStart := strings.Index(body, `<footer data-settings-footer`)
-	if footerStart < 0 {
-		t.Fatalf("settings body missing legal footer: %s", body)
-	}
-	footerEnd := strings.Index(body[footerStart:], `</footer>`)
-	if footerEnd < 0 {
-		t.Fatalf("settings body has unterminated legal footer: %s", body)
-	}
-	footer := body[footerStart : footerStart+footerEnd]
-	for _, want := range []string{`aria-label="Legal"`, `href="/terms"`, `href="/privacy"`, `href="/security"`} {
-		if !strings.Contains(footer, want) {
-			t.Fatalf("settings legal footer missing %q: %s", want, footer)
-		}
-	}
-	for _, notWant := range []string{`rounded-lg`, `bg-white`, `dark:bg-slate-900`, `settings-legal-title`, "Review the terms"} {
-		if strings.Contains(footer, notWant) {
-			t.Fatalf("settings legal footer still has boxed treatment %q: %s", notWant, footer)
-		}
-	}
-	sidebarStart := strings.Index(body, `<aside id="app-sidebar"`)
-	if sidebarStart < 0 {
-		t.Fatalf("settings body missing sidebar: %s", body)
-	}
-	sidebarEnd := strings.Index(body[sidebarStart:], `</aside>`)
-	if sidebarEnd < 0 {
-		t.Fatalf("settings body has unterminated sidebar: %s", body)
-	}
-	sidebar := body[sidebarStart : sidebarStart+sidebarEnd]
-	for _, notWant := range []string{`aria-label="Legal"`, `href="/terms"`, `href="/privacy"`, `href="/security"`} {
-		if strings.Contains(sidebar, notWant) {
-			t.Fatalf("settings sidebar still contains legal link %q: %s", notWant, sidebar)
-		}
-	}
-	if strings.Contains(body, "Disable password login") || strings.Contains(body, "Enable password login") {
-		t.Fatalf("settings body shows password login toggle without passkey: %s", body)
-	}
-	for _, rejected := range []string{"Use passkey", "Confirm with", "Security check", "Leave blank to confirm", "Needed to add or remove passkeys.", `for="passkey_name">Name`} {
-		if strings.Contains(body, rejected) {
-			t.Fatalf("settings body still shows confusing passkey copy %q: %s", rejected, body)
-		}
-	}
-	if strings.Contains(body, `data-passkey-password-modal hidden class=`) || strings.Contains(body, `data-passkey-password-modal class="fixed inset-0 z-50 grid`) {
-		t.Fatalf("settings body renders passkey password modal open by default: %s", body)
 	}
 
 	form := url.Values{"name": {"New UI"}, "email": {"ui@example.com"}}
-	res := e.uiDoNoRedirect(t, http.MethodPost, "/settings/profile", token.RawToken, strings.NewReader(form.Encode()))
-	defer res.Body.Close()
+	res := e.uiDoNoRedirect(t, http.MethodPost, "/settings/profile", token, strings.NewReader(form.Encode()))
 	body = readBody(t, res)
+	res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("profile code = %d body = %s", res.StatusCode, body)
 	}
 	if !strings.Contains(body, "Profile saved.") || !strings.Contains(body, "New UI") || !strings.Contains(body, "ui@example.com") {
 		t.Fatalf("profile body missing saved values: %s", body)
 	}
-
-	form = url.Values{"current_password": {"wrong-password"}, "new_password": {newPassword}}
-	res = e.uiDoNoRedirect(t, http.MethodPost, "/settings/password", token.RawToken, strings.NewReader(form.Encode()))
-	defer res.Body.Close()
-	body = readBody(t, res)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Current password not accepted.") {
-		t.Fatalf("bad password code = %d body = %s", res.StatusCode, body)
+	if !strings.Contains(body, `data-sidebar-view="profile"`) {
+		t.Fatalf("profile update did not render the Profile page: %s", body)
 	}
 
-	form = url.Values{"current_password": {oldPassword}, "new_password": {newPassword}}
-	res = e.uiDoNoRedirect(t, http.MethodPost, "/settings/password", token.RawToken, strings.NewReader(form.Encode()))
-	defer res.Body.Close()
+	form = url.Values{"name": {"  "}, "email": {"ui@example.com"}}
+	res = e.uiDoNoRedirect(t, http.MethodPost, "/settings/profile", token, strings.NewReader(form.Encode()))
 	body = readBody(t, res)
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Password changed.") {
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "name required") || strings.Contains(body, "Profile saved.") || !strings.Contains(body, `data-sidebar-view="profile"`) {
+		t.Fatalf("blank name code = %d body = %s", res.StatusCode, body)
+	}
+
+	res = e.uiDoNoRedirect(t, http.MethodPost, "/settings/profile", token, strings.NewReader("name=%zz"))
+	body = readBody(t, res)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Unable to read form.") || !strings.Contains(body, `data-sidebar-view="profile"`) {
+		t.Fatalf("malformed profile form code = %d body = %s", res.StatusCode, body)
+	}
+}
+
+// The image picker posts as a plain form, so its response is the page the
+// browser lands on: it has to be Profile, with the new image in place.
+func TestUIProfileImageUploadAndDeleteRerenderProfile(t *testing.T) {
+	t.Parallel()
+	e, _ := newStorageHTTPEnv(t, 1<<20)
+	user, token := e.mustProjectMemberToken(t, "ui-profile-image")
+
+	res := e.uiDoMultipartContext(t, "/settings/profile-image", token, nil, "face.png", string(testPNG(t, 3, 2)))
+	body := readBody(t, res)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("UI upload code = %d body = %s", res.StatusCode, body)
+	}
+	updated, err := e.store.GetUser(e.ctx, user.ID)
+	if err != nil {
+		t.Fatalf("GetUser after UI upload: %v", err)
+	}
+	if updated.ProfileImageThumbnailObjectID == nil {
+		t.Fatalf("UI upload user missing thumbnail id: %+v", updated)
+	}
+	for _, want := range []string{
+		`data-sidebar-view="profile"`,
+		"Profile saved.",
+		"/users/" + user.ID.String() + "/profile-image/thumbnail/content?v=" + updated.ProfileImageThumbnailObjectID.String(),
+		`action="/settings/profile-image/delete"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("UI upload page missing %q: %s", want, body)
+		}
+	}
+
+	res = e.uiDoNoRedirect(t, http.MethodPost, "/settings/profile-image/delete", token, nil)
+	body = readBody(t, res)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, `data-sidebar-view="profile"`) || strings.Contains(body, `action="/settings/profile-image/delete"`) || strings.Contains(body, "/profile-image/thumbnail/content") {
+		t.Fatalf("UI delete code = %d body = %s", res.StatusCode, body)
+	}
+
+	// A rejected upload answers with the error instead of rendering Profile as
+	// though the image had been saved.
+	res = e.uiDoMultipartContext(t, "/settings/profile-image", token, nil, "face.png", "not an image")
+	body = readBody(t, res)
+	res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest || strings.Contains(body, "Profile saved.") {
+		t.Fatalf("UI invalid upload code = %d body = %s", res.StatusCode, body)
+	}
+}
+
+func TestUILoginPageChangesPassword(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	oldPassword := "correct-horse-battery"
+	newPassword := "new-correct-horse"
+	username, token := newUIPasswordAccount(t, e, "uilogin", oldPassword)
+
+	body := e.uiGet(t, "/settings/login", token)
+	for _, want := range []string{"Password login", "On", "Current password", "New password", "Passkeys", "Saved passkeys", "Add a passkey", "Passkey label", "Enter current password", "Required before changing passkeys.", "Continue", "Add passkey", "No passkeys added.", `data-modal-open="passkey-create"`, `id="passkey-create" data-client-modal class="fixed inset-0 z-50 hidden`, `role="dialog" aria-modal="true" aria-labelledby="passkey-create-title"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("login body missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Disable password login") || strings.Contains(body, "Enable password login") {
+		t.Fatalf("login body shows password login toggle without passkey: %s", body)
+	}
+	for _, rejected := range []string{"Use passkey", "Confirm with", "Security check", "Leave blank to confirm", "Needed to add or remove passkeys.", `for="passkey_name">Name`} {
+		if strings.Contains(body, rejected) {
+			t.Fatalf("login body still shows confusing passkey copy %q: %s", rejected, body)
+		}
+	}
+	if strings.Contains(body, `data-passkey-password-modal hidden class=`) || strings.Contains(body, `data-passkey-password-modal class="fixed inset-0 z-50 grid`) {
+		t.Fatalf("login body renders passkey password modal open by default: %s", body)
+	}
+
+	for _, tt := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "malformed form", body: "current_password=%zz", want: "Unable to read form."},
+		{name: "wrong current password", body: url.Values{"current_password": {"wrong-password"}, "new_password": {newPassword}}.Encode(), want: "Current password not accepted."},
+		{name: "invalid new password", body: url.Values{"current_password": {oldPassword}, "new_password": {"short"}}.Encode(), want: "password must be"},
+	} {
+		res := e.uiDoNoRedirect(t, http.MethodPost, "/settings/password", token, strings.NewReader(tt.body))
+		body = readBody(t, res)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK || !strings.Contains(body, tt.want) || strings.Contains(body, "Password changed.") || !strings.Contains(body, `data-sidebar-view="login"`) {
+			t.Fatalf("%s: code = %d body = %s", tt.name, res.StatusCode, body)
+		}
+	}
+	if _, err := e.store.AuthenticatePassword(e.ctx, username, oldPassword); err != nil {
+		t.Fatalf("rejected changes altered the password: %v", err)
+	}
+
+	form := url.Values{"current_password": {oldPassword}, "new_password": {newPassword}}
+	res := e.uiDoNoRedirect(t, http.MethodPost, "/settings/password", token, strings.NewReader(form.Encode()))
+	body = readBody(t, res)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Password changed.") || !strings.Contains(body, `data-sidebar-view="login"`) {
 		t.Fatalf("password code = %d body = %s", res.StatusCode, body)
 	}
 	if _, err := e.store.AuthenticatePassword(e.ctx, username, oldPassword); !errors.Is(err, store.ErrUnauthorized) {
@@ -314,7 +514,22 @@ func TestUISettingsPageUpdatesProfileAndPassword(t *testing.T) {
 	}
 }
 
-func TestUISettingsPasswordLoginDisabledUsesPasskeyReauth(t *testing.T) {
+// uiElementForTest returns body from the first occurrence of start through the
+// next occurrence of end.
+func uiElementForTest(t *testing.T, body, start, end string) string {
+	t.Helper()
+	from := strings.Index(body, start)
+	if from < 0 {
+		t.Fatalf("missing %q: %s", start, body)
+	}
+	to := strings.Index(body[from:], end)
+	if to < 0 {
+		t.Fatalf("unterminated %q: %s", start, body)
+	}
+	return body[from : from+to]
+}
+
+func TestUILoginPagePasswordLoginDisabledUsesPasskeyReauth(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)
 	username := "uipwdoff" + strings.ToLower(uniqueProjectKey(t))
@@ -341,15 +556,15 @@ func TestUISettingsPasswordLoginDisabledUsesPasskeyReauth(t *testing.T) {
 		t.Fatalf("CreateAuthToken: %v", err)
 	}
 
-	body := e.uiGet(t, "/settings", token.RawToken)
+	body := e.uiGet(t, "/settings/login", token.RawToken)
 	for _, want := range []string{"Password login", "Off", "Enable password login", "Password login is off.", "Passkeys", "Laptop"} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("settings body missing %q: %s", want, body)
+			t.Fatalf("login body missing %q: %s", want, body)
 		}
 	}
 	for _, rejected := range []string{`id="current_password"`, `for="current_password"`, "New password", "Change password", "Enter current password", "Required before changing passkeys.", "<div data-passkey-password-modal", "Disable password login", "Security check", "Confirm with"} {
 		if strings.Contains(body, rejected) {
-			t.Fatalf("disabled password settings still shows %q: %s", rejected, body)
+			t.Fatalf("disabled password login page still shows %q: %s", rejected, body)
 		}
 	}
 
@@ -374,7 +589,7 @@ func TestUISettingsPasswordLoginDisabledUsesPasskeyReauth(t *testing.T) {
 	}
 }
 
-func TestUISettingsPasskeyOnlyAccountHidesPasskeyPasswordField(t *testing.T) {
+func TestUILoginPagePasskeyOnlyAccountHidesPasskeyPasswordField(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)
 	user, err := e.store.CreatePasskeyOnlyAccount(e.ctx, store.CreatePasskeyOnlyAccountParams{
@@ -404,15 +619,15 @@ func TestUISettingsPasskeyOnlyAccountHidesPasskeyPasswordField(t *testing.T) {
 		t.Fatalf("CreateAuthToken: %v", err)
 	}
 
-	body := e.uiGet(t, "/settings", token.RawToken)
+	body := e.uiGet(t, "/settings/login", token.RawToken)
 	for _, want := range []string{"Password login", "No password", "No password is set.", "Passkeys", "Saved passkeys", "Add a passkey", "Passkey label", "MacBook"} {
 		if !strings.Contains(body, want) {
-			t.Fatalf("settings body missing %q: %s", want, body)
+			t.Fatalf("login body missing %q: %s", want, body)
 		}
 	}
 	for _, rejected := range []string{"Security check", "Use passkey", "Confirm with", "Leave blank to confirm", "Needed to add or remove passkeys.", `id="current_password"`, `for="current_password"`, "New password", "Change password", "Enter current password", "Required before changing passkeys.", "<div data-passkey-password-modal", `id="passkey_current_password"`, "Enable password login", "Disable password login"} {
 		if strings.Contains(body, rejected) {
-			t.Fatalf("settings body still shows password passkey copy %q: %s", rejected, body)
+			t.Fatalf("login body still shows password passkey copy %q: %s", rejected, body)
 		}
 	}
 }

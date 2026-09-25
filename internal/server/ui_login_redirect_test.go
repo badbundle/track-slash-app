@@ -61,7 +61,7 @@ func TestUILoginNextPrefersTheBrowserAddressForHTMX(t *testing.T) {
 		currentURL string
 		want       string
 	}{
-		{name: "plain navigation uses the request", requestURI: "/settings", want: "/settings"},
+		{name: "plain navigation uses the request", requestURI: "/settings/profile", want: "/settings/profile"},
 		{name: "htmx uses the browser address", requestURI: "/me/panel", htmx: true, currentURL: "http://localhost:8080/me/all", want: "/me/all"},
 		{name: "htmx keeps the query", requestURI: "/badbundle/projects/TRACK/all/panel", htmx: true, currentURL: "http://localhost:8080/badbundle/projects/TRACK/all?sort=priority", want: "/badbundle/projects/TRACK/all?sort=priority"},
 		{name: "htmx falls back when the header is missing", requestURI: "/me/panel", htmx: true, want: "/me/panel"},

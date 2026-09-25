@@ -41,7 +41,9 @@ type uiShellData struct {
 	ContextManager    *uiContextManagerData
 	TagManager        *uiTagManagerData
 	TokenPanel        *uiTokenPanelData
-	SettingsPanel     *uiSettingsPanelData
+	ProfilePanel      *uiProfilePanelData
+	LoginPanel        *uiLoginPanelData
+	NotificationPanel *uiNotificationPanelData
 	ErrorPanel        *uiErrorPanelData
 }
 
@@ -820,15 +822,40 @@ type uiOAuthErrorData struct {
 	Message string
 }
 
-type uiSettingsPanelData struct {
+// uiAccountPage is one of the signed-in user's own account pages. The sidebar's
+// account group and the account menu both render from uiAccountPages, so the
+// two cannot drift apart.
+type uiAccountPage struct {
+	View  string
+	Label string
+	Path  string
+	Icon  string
+}
+
+// uiProfilePanelData backs the Profile account page: profile image, display
+// name, and email.
+type uiProfilePanelData struct {
+	CSRFToken    string
+	User         model.User
+	ProfileError string
+	ProfileSaved bool
+}
+
+// uiLoginPanelData backs the Login account page: passkeys and password. They
+// must share a page: the password login toggle reauthenticates through the
+// passkeys panel, and changing a passkey can ask for the current password.
+type uiLoginPanelData struct {
 	CSRFToken       string
-	User            model.User
-	ProfileError    string
-	ProfileSaved    bool
 	PasswordError   string
 	PasswordChanged bool
 	PasswordLogin   model.PasswordLoginState
 	Passkeys        []model.PasskeyCredential
+}
+
+// uiNotificationPanelData backs the Notifications account page: browser push
+// subscription and notification categories.
+type uiNotificationPanelData struct {
+	CSRFToken       string
 	PushEnabled     bool
 	PushPublicKey   string
 	PushPreferences model.PushNotificationPreferences

@@ -66,7 +66,7 @@ func (s *Server) uiUpdateProfileImage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.renderUISettings(w, r, user, "", true, "", false)
+	s.renderUIProfile(w, r, user, "", true)
 }
 
 func (s *Server) uiDeleteProfileImage(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +74,7 @@ func (s *Server) uiDeleteProfileImage(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.renderUISettings(w, r, user, "", true, "", false)
+	s.renderUIProfile(w, r, user, "", true)
 }
 
 func (s *Server) uiGetUserProfileImageContent(w http.ResponseWriter, r *http.Request) {

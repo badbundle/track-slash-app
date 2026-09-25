@@ -13,13 +13,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// sidebarNavMarkup spans the whole sidebar, so a destination in the primary
+// navigation and one in the account group cannot both claim to be current.
 func sidebarNavMarkup(t *testing.T, body string) string {
 	t.Helper()
-	start := strings.Index(body, `<nav class="scrollbar-none`)
+	start := strings.Index(body, `<aside id="app-sidebar"`)
 	if start < 0 {
 		t.Fatalf("missing sidebar navigation: %s", body)
 	}
-	end := strings.Index(body[start:], `</nav>`)
+	end := strings.Index(body[start:], `</aside>`)
 	if end < 0 {
 		t.Fatalf("unterminated sidebar navigation: %s", body)
 	}
@@ -59,8 +61,16 @@ func TestUISidebarHighlightsOnlyActiveDestination(t *testing.T) {
 	user, token := e.mustProjectMemberToken(t, "ui-sidebar-active")
 
 	requireActiveSidebarDestination(t, e.uiGet(t, "/projects", token), `data-sidebar-view="projects"`)
-	for _, path := range []string{"/projects/new", "/issues/new", "/settings", "/tokens"} {
+	for _, path := range []string{"/projects/new", "/issues/new"} {
 		requireActiveSidebarDestination(t, e.uiGet(t, path, token), "")
+	}
+	for _, page := range []struct{ path, view string }{
+		{path: "/settings/profile", view: "profile"},
+		{path: "/settings/login", view: "login"},
+		{path: "/settings/notifications", view: "notifications"},
+		{path: "/tokens", view: "tokens"},
+	} {
+		requireActiveSidebarDestination(t, e.uiGet(t, page.path, token), `data-sidebar-view="`+page.view+`"`)
 	}
 	requireActiveSidebarDestination(t, e.uiGet(t, e.projectPath()+"/sprint", token), "")
 

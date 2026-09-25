@@ -17,7 +17,7 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	publicKey := base64.RawURLEncoding.EncodeToString(make([]byte, 65))
 	e := newHTTPEnvWithOptions(t, server.Options{WebPushPublicKey: publicKey})
 	user, token := e.mustUserToken(t, "ui-push-settings")
-	body := e.uiGet(t, "/settings", token)
+	body := e.uiGet(t, "/settings/notifications", token)
 	for _, want := range []string{
 		"Browser notifications", "Enable on this browser", "Notification categories", "Mentions",
 		"New assignments", "Relevant comments", "Status changes", "Due-date changes",
@@ -37,7 +37,7 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	form := url.Values{"comments": {"on"}, "status_changes": {"on"}, "due_date_changes": {"on"}}
 	res := e.uiDoNoRedirect(t, http.MethodPost, "/settings/push/preferences", token, strings.NewReader(form.Encode()))
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/settings#notifications" {
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/settings/notifications" {
 		t.Fatalf("preference update code=%d location=%q body=%s", res.StatusCode, res.Header.Get("Location"), readBody(t, res))
 	}
 	preferences, err := e.store.GetPushNotificationPreferences(e.ctx, user.ID)
@@ -66,8 +66,8 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	if !strings.Contains(stateBody, `"subscribed":true`) {
 		t.Fatalf("subscription state = %s", stateBody)
 	}
-	if body := e.uiGet(t, "/settings", token); !strings.Contains(body, "1 browser") {
-		t.Fatalf("settings missing browser count: %s", body)
+	if body := e.uiGet(t, "/settings/notifications", token); !strings.Contains(body, "1 browser") {
+		t.Fatalf("notifications page missing browser count: %s", body)
 	}
 
 	deleteBody, _ := json.Marshal(map[string]string{"endpoint": endpoint})
@@ -86,12 +86,18 @@ func TestUIPushNotificationValidationConfigurationAndServiceWorker(t *testing.T)
 	t.Parallel()
 	e := newHTTPEnv(t)
 	_, token := e.mustUserToken(t, "ui-push-validation")
-	body := e.uiGet(t, "/settings", token)
+	body := e.uiGet(t, "/settings/notifications", token)
 	if !strings.Contains(body, "Browser push is not configured on this deployment.") || !strings.Contains(body, `data-push-enabled="false"`) {
 		t.Fatalf("disabled push settings = %s", body)
 	}
 
-	res := e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/settings/push/subscription", token, strings.NewReader(`{}`), map[string]string{"Content-Type": "application/json"})
+	res := e.uiDoNoRedirect(t, http.MethodPost, "/settings/push/preferences", token, strings.NewReader("mentions=%zz"))
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("malformed preferences code=%d body=%s", res.StatusCode, readBody(t, res))
+	}
+
+	res = e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/settings/push/subscription", token, strings.NewReader(`{}`), map[string]string{"Content-Type": "application/json"})
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("disabled subscription code=%d body=%s", res.StatusCode, readBody(t, res))

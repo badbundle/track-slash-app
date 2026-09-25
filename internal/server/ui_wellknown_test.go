@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestChangePasswordWellKnownRedirectsToSettings(t *testing.T) {
+func TestChangePasswordWellKnownRedirectsToLoginSettings(t *testing.T) {
 	t.Parallel()
 	router := New(nil, nil, nil).Router()
 
@@ -18,8 +18,8 @@ func TestChangePasswordWellKnownRedirectsToSettings(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusSeeOther)
 	}
-	if got := rec.Header().Get("Location"); got != uiCredentialSettingsPath {
-		t.Fatalf("Location = %q, want %q", got, uiCredentialSettingsPath)
+	if got := rec.Header().Get("Location"); got != "/settings/login" {
+		t.Fatalf("Location = %q, want %q", got, "/settings/login")
 	}
 }
 
@@ -64,7 +64,7 @@ func TestPasskeyEndpointsWellKnown(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &endpoints); err != nil {
 		t.Fatalf("decode %q: %v", rec.Body.String(), err)
 	}
-	const want = "http://track.example.com/settings"
+	const want = "http://track.example.com/settings/login"
 	if endpoints.Enroll != want || endpoints.Manage != want {
 		t.Fatalf("endpoints = %+v, want both %q", endpoints, want)
 	}
@@ -78,7 +78,7 @@ func TestPasskeyEndpointsUseTheConfiguredOrigin(t *testing.T) {
 	rec := httptest.NewRecorder()
 	srv.Router().ServeHTTP(rec, req)
 
-	if !strings.Contains(rec.Body.String(), "https://track.example.com/settings") {
+	if !strings.Contains(rec.Body.String(), "https://track.example.com/settings/login") {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
 }

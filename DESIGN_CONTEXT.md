@@ -24,6 +24,15 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - In the project About `Details` card, the image row puts the project image on the leading edge and the Change action on the trailing edge, vertically centred on the image.
 - Identify the signed-in account as `@username` in the profile overlay instead of showing a generic role label such as `Member` or `Admin`.
 
+## Account Pages
+
+- A signed-in user's own settings live on four focused account pages, not one general Settings page: `Profile` (`/settings/profile`: profile image, display name, email), `Login` (`/settings/login`: password and passkeys), `Notifications` (`/settings/notifications`: browser push), and `Tokens` (`/tokens`: API tokens, connectors, web sessions). `/settings` redirects to Profile and keeps its query string.
+- The `Login` account page manages credentials for a signed-in user. It is a normal in-app page and is separate from the signed-out `/login` sign-in page described under "Login page" above, so it gets none of that page's branded treatment.
+- The sidebar shows the four pages as a labelled `Account` group directly above the account footer, with icon-only links and tooltips when collapsed. The account menu lists the same pages; both render from `uiAccountPages`, so add or reorder pages there.
+- Every account page uses the Tokens page frame and header so moving between them does not shift the column, and ends with the shared `account-footer` legal links.
+- Password and passkeys stay together on Login: the password login toggle reauthenticates through the passkeys panel, and changing a passkey can ask for the current password.
+- Web sessions stay on Tokens for now; moving them to Login is an open question.
+
 ## Controls
 
 - Every icon-only action needs a concise, action-oriented `aria-label` and the shared app tooltip on pointer hover and keyboard focus. Do not show redundant tooltips while equivalent text is visibly rendered, and do not rely on native `title` tooltips for interactive controls.

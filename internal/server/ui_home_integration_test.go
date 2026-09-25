@@ -22,11 +22,18 @@ func TestUIRendersWorkSidebar(t *testing.T) {
 		`href="/issues/new"`,
 		`hx-get="/issues/new/panel"`,
 		`data-sidebar-action`,
-		`href="/settings"`,
+		`<nav aria-label="Account" data-sidebar-account`,
+		`href="/settings/profile"`,
+		`href="/settings/login"`,
+		`href="/settings/notifications"`,
 		`href="/tokens"`,
 		`data-lucide="plus"`,
 		`data-lucide="user"`,
 		`data-lucide="folder"`,
+		`data-lucide="circle-user-round"`,
+		`data-lucide="key-round"`,
+		`data-lucide="bell"`,
+		`data-lucide="braces"`,
 		"data-nav-loader",
 		`data-mobile-app-bar`,
 		`data-mobile-sidebar-toggle`,
@@ -91,8 +98,8 @@ func TestUIRendersWorkSidebar(t *testing.T) {
 			t.Fatalf("app scripts missing %q: %s", want, scripts)
 		}
 	}
-	if strings.Contains(body, `data-lucide="key-round"`) {
-		t.Fatalf("body still has tokens sidebar icon: %s", body)
+	if strings.Contains(body, `href="/settings"`) {
+		t.Fatalf("body still links to the removed general Settings page: %s", body)
 	}
 	for _, notWant := range []string{`data-sidebar-legal`, `aria-label="Legal"`, `href="/terms"`, `href="/privacy"`, `href="/security"`} {
 		if strings.Contains(body, notWant) {
