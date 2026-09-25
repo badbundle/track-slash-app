@@ -159,7 +159,7 @@ func TestUIAddEditAndRemoveIssueLinks(t *testing.T) {
 		">Linked issues</h2>",
 		`aria-label="Linked issue progress: no linked issues"`,
 		`aria-label="Add link"`,
-		"w-full sm:w-1/3",
+		"w-full sm:w-auto sm:flex-1",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("delete link response missing empty link state %q: %s", want, body)

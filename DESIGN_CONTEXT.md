@@ -26,6 +26,9 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 ## Issue Detail
 
+- When Sub-issues and Linked issues are both empty they share one row in equal halves, so their headers never wrap and their edges line up with the Description card. A section with items takes the full width.
+- Values in the Details sidebar share the label's left edge. Clickable badges (priority) pull back their hit-area padding so the badge itself lines up.
+
 - Keep the issue-title edit action attached to the title's final character at every viewport width. Long titles may wrap before that final character-and-action unit, but the action must never become an orphaned line by itself.
 
 ## Project View

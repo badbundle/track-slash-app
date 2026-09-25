@@ -145,7 +145,7 @@ func TestUIIssuePanelRendersPriorityPicker(t *testing.T) {
 		`hx-post="/bradley/issues/TRACK-7/priority"`,
 		`hx-target="#main"`,
 		`hx-push-url="false"`,
-		`role="listbox" aria-label="Issue priority" data-priority-picker class="flex flex-wrap items-center gap-1"`,
+		`role="listbox" aria-label="Issue priority" data-priority-picker class="-ml-0.5 flex flex-wrap items-center gap-1"`,
 		`name="priority" value="P0"`,
 		`name="priority" value="P1"`,
 		`name="priority" value="P2"`,

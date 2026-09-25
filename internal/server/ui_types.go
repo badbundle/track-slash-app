@@ -297,6 +297,10 @@ type uiContextManagerItem struct {
 }
 
 type uiContextManagerData struct {
+	// permissions is the viewer's access to Project, kept so the project
+	// header rendered around the manager matches every other project view.
+	permissions store.ProjectPermissions
+
 	CSRFToken          string
 	Mode               string
 	Action             string

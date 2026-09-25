@@ -96,14 +96,14 @@ func TestUIIssuePanelCollapsesEmptyRelationshipSections(t *testing.T) {
 	if strings.Contains(emptyBody, `placeholder="Search context by title"`) {
 		t.Fatalf("empty issue page should keep attach form in the manager only: %s", emptyBody)
 	}
-	if got := strings.Count(emptyBody, `w-full sm:w-1/3`); got != 2 {
-		t.Fatalf("empty relationship sections should render third-width, got %d: %s", got, emptyBody)
+	if got := strings.Count(emptyBody, `w-full sm:w-auto sm:flex-1`); got != 2 {
+		t.Fatalf("empty relationship sections should share the row, got %d: %s", got, emptyBody)
 	}
 	emptySubClass := sectionClassForHeading(t, emptyBody, "Sub-issues")
 	emptyLinkClass := sectionClassForHeading(t, emptyBody, "Linked issues")
 	for _, cls := range []string{emptySubClass, emptyLinkClass} {
-		if !strings.Contains(cls, `w-full sm:w-1/3`) {
-			t.Fatalf("empty relationship section should be third-width, got class %q: %s", cls, emptyBody)
+		if !strings.Contains(cls, `w-full sm:w-auto sm:flex-1`) {
+			t.Fatalf("empty relationship section should share the row, got class %q: %s", cls, emptyBody)
 		}
 	}
 	requireHeadingOrder(t, emptyBody, "Sub-issues", "Linked issues")
@@ -144,7 +144,7 @@ func TestUIIssuePanelCollapsesEmptyRelationshipSections(t *testing.T) {
 	populatedLinksBody := render(t, populatedLinksPanel)
 	populatedSubClass := sectionClassForHeading(t, populatedLinksBody, "Sub-issues")
 	populatedLinkClass := sectionClassForHeading(t, populatedLinksBody, "Linked issues")
-	if !strings.Contains(populatedSubClass, `w-full sm:w-1/3`) {
+	if !strings.Contains(populatedSubClass, `w-full sm:w-auto sm:flex-1`) {
 		t.Fatalf("empty sub-issues section should sit below populated links at third width, got %q: %s", populatedSubClass, populatedLinksBody)
 	}
 	if !strings.Contains(populatedLinkClass, "w-full") || strings.Contains(populatedLinkClass, "sm:w-[calc") {
@@ -174,7 +174,7 @@ func TestUIIssuePanelCollapsesEmptyRelationshipSections(t *testing.T) {
 	if !strings.Contains(populatedSubIssuesClass, "w-full") || strings.Contains(populatedSubIssuesClass, "sm:w-[calc") {
 		t.Fatalf("populated sub-issues section should remain full width above the empty one, got %q: %s", populatedSubIssuesClass, populatedSubIssuesBody)
 	}
-	if !strings.Contains(populatedEmptyLinkClass, `w-full sm:w-1/3`) {
+	if !strings.Contains(populatedEmptyLinkClass, `w-full sm:w-auto sm:flex-1`) {
 		t.Fatalf("empty linked issues section should sit below populated sub-issues at third width, got %q: %s", populatedEmptyLinkClass, populatedSubIssuesBody)
 	}
 	requireHeadingOrder(t, populatedSubIssuesBody, "Sub-issues", "Linked issues")
