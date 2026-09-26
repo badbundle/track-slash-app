@@ -33,6 +33,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Every account page uses the Tokens page frame and header so moving between them does not shift the column, and ends with the shared `account-footer` legal links.
 - Password and passkeys stay together on Login: the password login toggle reauthenticates through the passkeys panel, and changing a passkey can ask for the current password.
 - Web sessions stay on Tokens for now; moving them to Login is an open question.
+- The Tokens page lists only live API tokens. A revoked token leaves the list as soon as it is revoked; its row stays in `auth_tokens`, and the API and MCP token listings still return it.
 
 ## Controls
 

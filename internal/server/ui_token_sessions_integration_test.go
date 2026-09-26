@@ -42,6 +42,67 @@ func TestTokensPageGroupsWebSessionsBehindOneAction(t *testing.T) {
 	}
 }
 
+// A revoked API token can never be used or restored, so the page drops it as
+// soon as it is revoked rather than keeping a "revoked" row around for good.
+func TestTokensPageDropsRevokedAPITokens(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	user, session := e.mustSessionToken(t, "revoked-api-tokens")
+	e.mustNamedToken(t, user.ID, model.AuthTokenKindAPI, "deploy bot")
+	stale := e.mustNamedToken(t, user.ID, model.AuthTokenKindAPI, "stale bot")
+
+	revoke := func(id uuid.UUID) {
+		t.Helper()
+		form := url.Values{"csrf_token": {uiCSRFTokenForTest("session", session)}}
+		res := e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/tokens/"+id.String()+"/revoke", session, strings.NewReader(form.Encode()), map[string]string{
+			"Origin":       e.ts.URL,
+			"X-CSRF-Token": "",
+		})
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != "/tokens" {
+			t.Fatalf("revoke code = %d location = %q body = %s", res.StatusCode, res.Header.Get("Location"), readBody(t, res))
+		}
+	}
+
+	revoke(stale.ID)
+	body := e.uiGet(t, "/tokens", session)
+	if !strings.Contains(body, "deploy bot") || !strings.Contains(body, `action="/tokens/`) {
+		t.Fatalf("tokens page lost the live API token: %s", body)
+	}
+	for _, notWant := range []string{"stale bot", `action="/tokens/` + stale.ID.String() + `/revoke"`, ">revoked<"} {
+		if strings.Contains(body, notWant) {
+			t.Fatalf("tokens page still shows the revoked API token (%q): %s", notWant, body)
+		}
+	}
+	if strings.Contains(body, "No active API tokens.") {
+		t.Fatalf("tokens page shows the empty state beside a live token: %s", body)
+	}
+
+	// The row is hidden, not deleted.
+	tokens, err := e.store.ListAuthTokens(e.ctx, user.ID)
+	if err != nil {
+		t.Fatalf("ListAuthTokens: %v", err)
+	}
+	var kept bool
+	for _, token := range tokens {
+		if token.ID == stale.ID {
+			kept = token.RevokedAt != nil
+		}
+	}
+	if !kept {
+		t.Fatalf("revoked API token should stay in auth_tokens, revoked: %+v", tokens)
+	}
+
+	for _, token := range tokens {
+		if token.Kind == model.AuthTokenKindAPI && token.RevokedAt == nil {
+			revoke(token.ID)
+		}
+	}
+	if body := e.uiGet(t, "/tokens", session); !strings.Contains(body, "No active API tokens.") || strings.Contains(body, "deploy bot") {
+		t.Fatalf("tokens page should show the empty state once every API token is revoked: %s", body)
+	}
+}
+
 func TestTokensPageCountsOnlyLiveSessions(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)

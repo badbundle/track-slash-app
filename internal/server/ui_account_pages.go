@@ -264,10 +264,12 @@ func (s *Server) renderUITokenPanel(w http.ResponseWriter, r *http.Request, pane
 	s.renderUIAccountPage(w, r, currentUser(r), "tokens", uiShellData{TokenPanel: &panel})
 }
 
-// uiPartitionAuthTokens keeps API tokens for the per-row list and reduces web
-// sessions and connector access tokens to live counts. Both are numerous and
-// their names carry no information, so a row each buried the tokens people
-// actually manage.
+// uiPartitionAuthTokens keeps unrevoked API tokens for the per-row list and
+// reduces web sessions and connector access tokens to live counts. Sessions and
+// connector tokens are numerous and their names carry no information, so a row
+// each buried the tokens people actually manage. A revoked API token can never
+// be used or restored, so it leaves the list as soon as it is revoked; its row
+// stays in auth_tokens.
 //
 // The sweep that revokes expired sessions is lazy: it runs at most hourly, and
 // only on the back of a token refresh. An unrevoked session is therefore not
@@ -291,7 +293,9 @@ func uiPartitionAuthTokens(all []model.AuthToken, now time.Time) ([]model.AuthTo
 				connectedApps++
 			}
 		default:
-			apiTokens = append(apiTokens, token)
+			if token.RevokedAt == nil {
+				apiTokens = append(apiTokens, token)
+			}
 		}
 	}
 	return apiTokens, activeSessions, connectedApps

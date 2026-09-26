@@ -28,20 +28,17 @@
           <div class="flex flex-wrap items-center gap-2">
             <span class="truncate font-medium text-slate-900 dark:text-slate-100">{{.Name}}</span>
             <span class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">{{.Kind}}</span>
-            {{if .RevokedAt}}<span class="rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">revoked</span>{{end}}
           </div>
           <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">Created {{template "local-time" (tokenTime .CreatedAt)}} · Last used {{template "local-time" (tokenTime .LastUsedAt)}}{{if .ExpiresAt}} · Expires {{template "local-time" (tokenTime .ExpiresAt)}}{{end}}</div>
         </div>
-        {{if not .RevokedAt}}
         <form method="post" action="/tokens/{{.ID}}/revoke">
           <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
           <button type="submit" class="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Revoke</button>
         </form>
-        {{end}}
       </article>
       {{end}}
       {{else}}
-      <div class="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">No API tokens yet.</div>
+      <div class="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">No active API tokens.</div>
       {{end}}
     </div>
 
