@@ -31,6 +31,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - The four pages live only in the account menu that opens from the avatar at the bottom of the sidebar; the sidebar itself does not list them. Each menu item pairs its Lucide icon with its label, loads into `#main` like other navigation, and is highlighted while it is the current page. The menu renders from `uiAccountPages`, so add or reorder pages there.
 - `Sign out` sits alone at the bottom of the account menu, below a divider, in bold red text with a `log-out` icon.
 - Every account page uses the Tokens page frame and header so moving between them does not shift the column, and ends with the shared `account-footer` legal links.
+- Account page cards stack in one column, each spanning the page, so their edges line up; do not put them in a side-by-side grid. Inside a card, short paired fields (display name and email, current and new password) share a row from `sm` up and stack below it, with the submit button beneath them.
 - Password and passkeys stay together on Login: the password login toggle reauthenticates through the passkeys panel, and changing a passkey can ask for the current password.
 - Web sessions stay on Tokens for now; moving them to Login is an open question.
 - The Tokens page lists only live API tokens. A revoked token leaves the list as soon as it is revoked; its row stays in `auth_tokens`, and the API and MCP token listings still return it.
