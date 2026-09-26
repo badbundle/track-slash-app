@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/bradleymackey/track-slash/internal/githubintegration"
+	"github.com/bradleymackey/track-slash/internal/model"
 	"github.com/bradleymackey/track-slash/internal/store"
 )
 
@@ -21,19 +22,56 @@ func (s *Server) uiConnectGitHubRepository(w http.ResponseWriter, r *http.Reques
 		writeUIStoreError(w, err)
 		return
 	}
-	repository := strings.TrimSpace(r.FormValue("repository"))
+	form := uiGitHubConnectForm{
+		Repository:   strings.TrimSpace(r.FormValue("repository")),
+		CredentialID: strings.TrimSpace(r.FormValue("credential_id")),
+		TokenName:    r.FormValue("token_name"),
+		NewToken:     strings.TrimSpace(r.FormValue("token")) != "",
+	}
 	if s.githubIntegration == nil {
-		s.renderUIGitHubProjectError(w, r, project.ID, repository, "GitHub integration is not configured on this server.")
+		s.renderUIGitHubProjectError(w, r, project.ID, form, "GitHub integration is not configured on this server.")
 		return
 	}
-	_, err := s.githubIntegration.ConnectRepository(r.Context(), githubintegration.ConnectRepositoryParams{
-		ProjectID: project.ID, Repository: repository, Token: strings.TrimSpace(r.FormValue("token")), CreatedByID: currentUser(r).ID,
+	if _, _, err := githubintegration.ParseRepository(form.Repository); err != nil {
+		s.renderUIGitHubProjectError(w, r, project.ID, form, uiGitHubActionMessage(err))
+		return
+	}
+	// A pasted token is saved to the user's account first, so the next project
+	// can pick it instead of asking for it again.
+	saved := ""
+	if form.NewToken {
+		credential, err := s.githubIntegration.CreateCredential(r.Context(), githubintegration.CreateCredentialParams{
+			UserID: currentUser(r).ID, Name: form.TokenName, Token: strings.TrimSpace(r.FormValue("token")),
+		})
+		if err != nil {
+			s.renderUIGitHubProjectError(w, r, project.ID, form, uiGitHubTokenMessage(err))
+			return
+		}
+		form = uiGitHubConnectForm{Repository: form.Repository, CredentialID: credential.ID.String()}
+		saved = "Saved “" + credential.Name + "” to your account. "
+	}
+	credentialID, err := uuid.Parse(form.CredentialID)
+	if err != nil {
+		s.renderUIGitHubProjectError(w, r, project.ID, form, "Choose a saved token or add a new one.")
+		return
+	}
+	_, err = s.githubIntegration.ConnectRepository(r.Context(), githubintegration.ConnectRepositoryParams{
+		ProjectID: project.ID, Repository: form.Repository, CredentialID: credentialID, CreatedByID: currentUser(r).ID,
 	})
 	if err != nil {
-		s.renderUIGitHubProjectError(w, r, project.ID, repository, uiGitHubActionMessage(err))
+		s.renderUIGitHubProjectError(w, r, project.ID, form, saved+uiGitHubConnectMessage(err))
 		return
 	}
 	s.renderUIProjectPanel(w, r, project.ID, "about", nil)
+}
+
+// uiGitHubConnectForm is what the connect modal re-renders with after an
+// error. The pasted token itself is never echoed back.
+type uiGitHubConnectForm struct {
+	Repository   string
+	CredentialID string
+	TokenName    string
+	NewToken     bool
 }
 
 func (s *Server) uiDisconnectGitHubRepository(w http.ResponseWriter, r *http.Request) {
@@ -124,9 +162,12 @@ func (s *Server) uiRefreshGitHubIssueLink(w http.ResponseWriter, r *http.Request
 	s.renderUIGitHubIssueError(w, r, issue.ID, "", "", "")
 }
 
-func (s *Server) renderUIGitHubProjectError(w http.ResponseWriter, r *http.Request, projectID uuid.UUID, repository, message string) {
+func (s *Server) renderUIGitHubProjectError(w http.ResponseWriter, r *http.Request, projectID uuid.UUID, form uiGitHubConnectForm, message string) {
 	s.renderUIProjectPanel(w, r, projectID, "about", func(panel *uiProjectPanelData) {
-		panel.GitHubRepositoryInput = repository
+		panel.GitHubRepositoryInput = form.Repository
+		panel.GitHubCredentialInput = form.CredentialID
+		panel.GitHubTokenNameInput = form.TokenName
+		panel.GitHubNewTokenOpen = form.NewToken
 		panel.GitHubConnectionError = message
 	})
 }
@@ -160,4 +201,49 @@ func uiGitHubActionMessage(err error) string {
 	default:
 		return "GitHub could not be reached. Try again later."
 	}
+}
+
+// uiGitHubTokenMessage words errors from saving a token, where a rejected
+// credential or a conflict means something different than for an issue link.
+func uiGitHubTokenMessage(err error) string {
+	switch {
+	case errors.Is(err, githubintegration.ErrUnauthorized):
+		return "GitHub did not accept that token. Check that it is correct and has not expired."
+	case errors.Is(err, store.ErrConflict):
+		return "You already have a saved token with that name."
+	case errors.Is(err, store.ErrNotFound):
+		return "That saved token no longer exists."
+	default:
+		return uiGitHubActionMessage(err)
+	}
+}
+
+// uiGitHubConnectMessage words errors from connecting a repository, where
+// the record that can go missing is the chosen saved token.
+func uiGitHubConnectMessage(err error) string {
+	if errors.Is(err, store.ErrNotFound) {
+		return "That saved token no longer exists."
+	}
+	return uiGitHubActionMessage(err)
+}
+
+// uiGitHubTokenLabels says which token each connection uses. A saved token
+// is named only to its owner; the name is their private label.
+func uiGitHubTokenLabels(connections []model.GitHubConnection, credentials []model.GitHubCredential) map[uuid.UUID]string {
+	names := make(map[uuid.UUID]string, len(credentials))
+	for _, credential := range credentials {
+		names[credential.ID] = credential.Name
+	}
+	labels := make(map[uuid.UUID]string, len(connections))
+	for _, connection := range connections {
+		switch {
+		case connection.CredentialID == nil:
+			labels[connection.ID] = "project token"
+		case names[*connection.CredentialID] != "":
+			labels[connection.ID] = "your token “" + names[*connection.CredentialID] + "”"
+		default:
+			labels[connection.ID] = "saved token"
+		}
+	}
+	return labels
 }

@@ -26,7 +26,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 ## Account Pages
 
-- A signed-in user's own settings live on four focused account pages, not one general Settings page: `Profile` (`/settings/profile`: profile image, display name, email), `Login` (`/settings/login`: password and passkeys), `Notifications` (`/settings/notifications`: browser push), and `Tokens` (`/tokens`: API tokens, connectors, web sessions). `/settings` redirects to Profile and keeps its query string.
+- A signed-in user's own settings live on four focused account pages, not one general Settings page: `Profile` (`/settings/profile`: profile image, display name, email), `Login` (`/settings/login`: password and passkeys), `Notifications` (`/settings/notifications`: browser push), and `Tokens` (`/tokens`: API tokens, connectors, GitHub tokens, web sessions). `/settings` redirects to Profile and keeps its query string.
 - The `Login` account page manages credentials for a signed-in user. It is a normal in-app page and is separate from the signed-out `/login` sign-in page described under "Login page" above, so it gets none of that page's branded treatment.
 - The sidebar shows the four pages as a labelled `Account` group directly above the account footer, with icon-only links and tooltips when collapsed. The account menu lists the same pages; both render from `uiAccountPages`, so add or reorder pages there.
 - Every account page uses the Tokens page frame and header so moving between them does not shift the column, and ends with the shared `account-footer` legal links.
@@ -67,6 +67,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Keep `All` page controls in one coherent section. Avoid loose chip clusters; group filters in aligned rows and separate sort controls visually while keeping them in the same control shell.
 - For filters, support multi-select where it helps scanning. Statuses, priorities, and assignees use OR semantics within each group, while different groups combine together.
 - Put project tag management in the project About details sidebar, parallel to issue tag management. Keep it out of the project overflow menu.
+- GitHub tokens belong to the user, not the project. They are saved, renamed, replaced, and removed in the `GitHub tokens` section of the Tokens account page. The About page's `Connect GitHub repository` dialog picks one of the user's saved tokens, and pasting a new token there saves it to the account rather than to the project. Each connected repository names only the viewer's own token (`your token “Personal”`); anyone else's is just `saved token`.
 - Show project access settings at a glance at the top of the About sidebar in an `Access` card: the `project-visibility-badge` with a one-line explanation, then `Issue creation` as `Members only` or `Any signed-in user`, then `Sprints` as `Enabled` or `Disabled` with a one-line explanation. The card is read-only for everyone; owners and admins get a compact settings action that opens the members page, where the settings are edited.
 - Keep visual changes layout-focused unless the user explicitly asks for new creation, editing, drag/drop, or planning workflow controls.
 

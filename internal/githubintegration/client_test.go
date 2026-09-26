@@ -159,3 +159,27 @@ func TestGitHubRetryAtHeaderVariants(t *testing.T) {
 		t.Fatalf("default retry = %v", got)
 	}
 }
+
+func TestClientReadsAuthenticatedUser(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("Authorization") {
+		case "Bearer good-token":
+			_, _ = w.Write([]byte(`{"login":"octocat","id":1}`))
+		case "Bearer incomplete-token":
+			_, _ = w.Write([]byte(`{"id":1}`))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer server.Close()
+	client := NewClient(server.Client(), server.URL)
+	if login, err := client.GetAuthenticatedUser(context.Background(), "good-token"); err != nil || login != "octocat" {
+		t.Fatalf("GetAuthenticatedUser = %q, %v", login, err)
+	}
+	if _, err := client.GetAuthenticatedUser(context.Background(), "incomplete-token"); err == nil {
+		t.Fatal("incomplete user returned nil error")
+	}
+	if _, err := client.GetAuthenticatedUser(context.Background(), "expired-token"); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("expired token error = %v", err)
+	}
+}

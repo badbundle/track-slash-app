@@ -45,7 +45,7 @@
         </header>
         {{if .GitHubConnections}}<div class="divide-y divide-slate-100 dark:divide-slate-800">
           {{range .GitHubConnections}}<div class="flex items-center gap-3 px-4 py-3">
-            <div class="min-w-0 flex-1"><a href="{{.RepositoryURL}}" target="_blank" rel="noreferrer" class="truncate text-sm font-medium text-indigo-700 hover:underline dark:text-indigo-300">{{.FullName}}</a><p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{if .Private}}Private{{else}}Public{{end}} · validated {{template "local-time" (tokenTime .LastValidatedAt)}}</p></div>
+            <div class="min-w-0 flex-1"><a href="{{.RepositoryURL}}" target="_blank" rel="noreferrer" class="truncate text-sm font-medium text-indigo-700 hover:underline dark:text-indigo-300">{{.FullName}}</a><p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{{if .Private}}Private{{else}}Public{{end}} · validated {{template "local-time" (tokenTime .LastValidatedAt)}}{{with index $.GitHubTokenLabels .ID}} · {{.}}{{end}}</p></div>
             {{if $.CanManageMembers}}<form method="post" action="{{projectGitHubDisconnect $.Project .}}" hx-post="{{projectGitHubDisconnect $.Project .}}" hx-target="#main" hx-push-url="false">{{template "csrf-field" $.CSRFToken}}<button type="submit" class="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-200 dark:hover:bg-slate-800"><i data-lucide="unlink" class="h-3.5 w-3.5" aria-hidden="true"></i>Disconnect</button></form>{{end}}
           </div>{{end}}
         </div>{{else}}<p class="px-4 py-4 text-sm text-slate-500 dark:text-slate-400">No GitHub repositories connected.</p>{{end}}
@@ -57,10 +57,21 @@
               <label for="project-github-repository" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Repository</label>
               <input id="project-github-repository" name="repository" value="{{.GitHubRepositoryInput}}" placeholder="owner/repository" autocomplete="off" autofocus class="mt-2 w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
             </div>
+            {{if .GitHubCredentials}}
             <div>
-              <label for="project-github-token" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Fine-grained token</label>
-              <input id="project-github-token" name="token" type="password" autocomplete="off" class="mt-2 w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+              <label for="project-github-credential" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Token</label>
+              <select id="project-github-credential" name="credential_id" class="mt-2 w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+                {{range .GitHubCredentials}}<option value="{{.ID}}"{{if eq (print .ID) $.GitHubCredentialInput}} selected{{end}}>{{.Name}} (@{{.GitHubLogin}})</option>{{end}}
+              </select>
+              <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Your saved tokens. Manage them on the <a href="/tokens#github-tokens" class="text-indigo-700 hover:underline dark:text-indigo-300">Tokens page</a>.</p>
             </div>
+            <details {{if .GitHubNewTokenOpen}}open {{end}}class="rounded-md border border-slate-200 px-3 py-2 dark:border-slate-800">
+              <summary class="cursor-pointer text-sm font-medium text-slate-700 dark:text-slate-300">Use a new token instead</summary>
+              <div class="mt-3 space-y-4">{{template "project-github-new-token-fields" .}}</div>
+            </details>
+            {{else}}
+            {{template "project-github-new-token-fields" .}}
+            {{end}}
             {{if .GitHubConnectionError}}<p class="text-sm text-rose-600 dark:text-rose-300">{{.GitHubConnectionError}}</p>{{end}}
             <div class="flex justify-end gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
               <button type="button" data-modal-close class="inline-flex h-9 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
@@ -250,4 +261,16 @@
       </section>
     </aside>
   </section>
+{{end}}
+
+{{define "project-github-new-token-fields"}}
+<div>
+  <label for="project-github-token-name" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Token name</label>
+  <input id="project-github-token-name" name="token_name" value="{{.GitHubTokenNameInput}}" placeholder="Personal" maxlength="100" autocomplete="off" class="mt-2 w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+</div>
+<div>
+  <label for="project-github-token" class="block text-sm font-medium text-slate-700 dark:text-slate-300">Fine-grained token</label>
+  <input id="project-github-token" name="token" type="password" autocomplete="off" class="mt-2 w-full rounded-md border border-slate-200 bg-white px-2.5 py-2 text-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+  <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Saved to your account so you can pick it in other projects.</p>
+</div>
 {{end}}

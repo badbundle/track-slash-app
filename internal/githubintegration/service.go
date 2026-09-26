@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -14,6 +16,7 @@ import (
 )
 
 type Provider interface {
+	GetAuthenticatedUser(context.Context, string) (string, error)
 	GetRepository(context.Context, string, string, string) (Repository, error)
 	GetBranch(context.Context, string, string, string, string) (Snapshot, error)
 	GetPullRequest(context.Context, string, string, string, int) (Snapshot, error)
@@ -47,15 +50,104 @@ func NewService(s *store.Store, provider Provider, cryptor *Cryptor, opts Servic
 	return &Service{store: s, provider: provider, cryptor: cryptor, refreshInterval: opts.RefreshInterval, errorRetry: opts.ErrorRetry, now: opts.Now}
 }
 
-func credentialAAD(projectID uuid.UUID, repositoryID int64) []byte {
+// connectionTokenAAD binds a token pasted for one connection to that project
+// and repository.
+func connectionTokenAAD(projectID uuid.UUID, repositoryID int64) []byte {
 	return []byte(projectID.String() + "\x00" + strconv.FormatInt(repositoryID, 10))
 }
 
+// savedCredentialAAD binds a saved token to its row and owner, so ciphertext
+// copied onto another user's credential cannot be decrypted there.
+func savedCredentialAAD(id, userID uuid.UUID) []byte {
+	return []byte("github-credential\x00" + id.String() + "\x00" + userID.String())
+}
+
+const credentialNameMaxLength = 100
+
+func credentialName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" || utf8.RuneCountInString(name) > credentialNameMaxLength {
+		return "", fmt.Errorf("token name is required, max 100 characters: %w", ErrInvalid)
+	}
+	return name, nil
+}
+
+type CreateCredentialParams struct {
+	UserID uuid.UUID
+	Name   string
+	Token  string
+}
+
+// CreateCredential saves a GitHub token on a user's account after GitHub
+// confirms it, so a mistyped or expired token is refused before anything
+// depends on it.
+func (s *Service) CreateCredential(ctx context.Context, p CreateCredentialParams) (model.GitHubCredential, error) {
+	name, err := credentialName(p.Name)
+	if err != nil {
+		return model.GitHubCredential{}, err
+	}
+	if p.Token == "" {
+		return model.GitHubCredential{}, fmt.Errorf("GitHub token is required: %w", ErrInvalid)
+	}
+	login, err := s.provider.GetAuthenticatedUser(ctx, p.Token)
+	if err != nil {
+		return model.GitHubCredential{}, err
+	}
+	id := uuid.New()
+	ciphertext, nonce, err := s.cryptor.Encrypt([]byte(p.Token), savedCredentialAAD(id, p.UserID))
+	if err != nil {
+		return model.GitHubCredential{}, err
+	}
+	return s.store.CreateGitHubCredential(ctx, store.CreateGitHubCredentialParams{
+		ID: id, UserID: p.UserID, Name: name, GitHubLogin: login, TokenCiphertext: ciphertext, TokenNonce: nonce,
+	})
+}
+
+// UpdateCredentialParams renames a saved token when Name is set and replaces
+// it when Token is non-empty.
+type UpdateCredentialParams struct {
+	ID     uuid.UUID
+	UserID uuid.UUID
+	Name   *string
+	Token  string
+}
+
+// UpdateCredential is how a saved token is rotated: every repository
+// connection that uses it picks up the new token on its next GitHub request.
+func (s *Service) UpdateCredential(ctx context.Context, p UpdateCredentialParams) (model.GitHubCredential, error) {
+	if p.Name == nil && p.Token == "" {
+		return model.GitHubCredential{}, fmt.Errorf("a new name or token is required: %w", ErrInvalid)
+	}
+	params := store.UpdateGitHubCredentialParams{ID: p.ID, UserID: p.UserID}
+	if p.Name != nil {
+		name, err := credentialName(*p.Name)
+		if err != nil {
+			return model.GitHubCredential{}, err
+		}
+		params.Name = &name
+	}
+	if p.Token != "" {
+		login, err := s.provider.GetAuthenticatedUser(ctx, p.Token)
+		if err != nil {
+			return model.GitHubCredential{}, err
+		}
+		ciphertext, nonce, err := s.cryptor.Encrypt([]byte(p.Token), savedCredentialAAD(p.ID, p.UserID))
+		if err != nil {
+			return model.GitHubCredential{}, err
+		}
+		params.GitHubLogin, params.TokenCiphertext, params.TokenNonce = login, ciphertext, nonce
+	}
+	return s.store.UpdateGitHubCredential(ctx, params)
+}
+
+// ConnectRepositoryParams takes exactly one token source: CredentialID, a
+// token CreatedByID has saved, or Token, pasted for this connection alone.
 type ConnectRepositoryParams struct {
-	ProjectID   uuid.UUID
-	Repository  string
-	Token       string
-	CreatedByID uuid.UUID
+	ProjectID    uuid.UUID
+	Repository   string
+	CredentialID uuid.UUID
+	Token        string
+	CreatedByID  uuid.UUID
 }
 
 func (s *Service) ConnectRepository(ctx context.Context, p ConnectRepositoryParams) (model.GitHubConnection, error) {
@@ -63,22 +155,40 @@ func (s *Service) ConnectRepository(ctx context.Context, p ConnectRepositoryPara
 	if err != nil {
 		return model.GitHubConnection{}, err
 	}
-	if p.Token == "" {
+	token := p.Token
+	var credentialID *uuid.UUID
+	switch {
+	case p.CredentialID != uuid.Nil && p.Token != "":
+		return model.GitHubConnection{}, fmt.Errorf("choose a saved GitHub token or a new token, not both: %w", ErrInvalid)
+	case p.CredentialID != uuid.Nil:
+		secret, err := s.store.GetGitHubCredentialSecret(ctx, p.CreatedByID, p.CredentialID)
+		if err != nil {
+			return model.GitHubConnection{}, err
+		}
+		plaintext, err := s.cryptor.Decrypt(secret.Ciphertext, secret.Nonce, savedCredentialAAD(secret.Credential.ID, secret.Credential.UserID))
+		if err != nil {
+			return model.GitHubConnection{}, ErrUnauthorized
+		}
+		token, credentialID = string(plaintext), &secret.Credential.ID
+	case p.Token == "":
 		return model.GitHubConnection{}, fmt.Errorf("GitHub token is required: %w", ErrInvalid)
 	}
-	repository, err := s.provider.GetRepository(ctx, p.Token, owner, name)
+	repository, err := s.provider.GetRepository(ctx, token, owner, name)
 	if err != nil {
 		return model.GitHubConnection{}, err
 	}
-	ciphertext, nonce, err := s.cryptor.Encrypt([]byte(p.Token), credentialAAD(p.ProjectID, repository.ID))
-	if err != nil {
-		return model.GitHubConnection{}, err
-	}
-	return s.store.UpsertGitHubConnection(ctx, store.UpsertGitHubConnectionParams{
+	params := store.UpsertGitHubConnectionParams{
 		ProjectID: p.ProjectID, RepositoryID: repository.ID, RepositoryOwner: repository.Owner,
 		RepositoryName: repository.Name, RepositoryURL: repository.HTMLURL, Private: repository.Private,
-		TokenCiphertext: ciphertext, TokenNonce: nonce, CreatedByID: p.CreatedByID,
-	})
+		CredentialID: credentialID, CreatedByID: p.CreatedByID,
+	}
+	if credentialID == nil {
+		params.TokenCiphertext, params.TokenNonce, err = s.cryptor.Encrypt([]byte(token), connectionTokenAAD(p.ProjectID, repository.ID))
+		if err != nil {
+			return model.GitHubConnection{}, err
+		}
+	}
+	return s.store.UpsertGitHubConnection(ctx, params)
 }
 
 type CreateLinkParams struct {
@@ -168,7 +278,11 @@ func (s *Service) RefreshLink(ctx context.Context, id uuid.UUID) (model.GitHubIs
 }
 
 func (s *Service) decrypt(secret store.GitHubConnectionSecret) ([]byte, error) {
-	return s.cryptor.Decrypt(secret.Ciphertext, secret.Nonce, credentialAAD(secret.Connection.ProjectID, secret.Connection.RepositoryID))
+	aad := connectionTokenAAD(secret.Connection.ProjectID, secret.Connection.RepositoryID)
+	if secret.Connection.CredentialID != nil {
+		aad = savedCredentialAAD(*secret.Connection.CredentialID, secret.CredentialUserID)
+	}
+	return s.cryptor.Decrypt(secret.Ciphertext, secret.Nonce, aad)
 }
 
 func (s *Service) fetch(ctx context.Context, token string, connection model.GitHubConnection, reference Reference) (Snapshot, error) {

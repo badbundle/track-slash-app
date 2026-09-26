@@ -114,11 +114,13 @@ openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
 TRACK_SLASH_GITHUB_ENCRYPTION_KEY=<generated-unpadded-url-safe-base64-key>
 ```
 
-Back up this key as a deployment secret. trackslash uses AES-256-GCM with repository-bound associated data to encrypt each repository token before storing it in Postgres. Tokens are never returned by the API or sent to browsers, and disconnecting a repository scrubs its stored ciphertext while retaining cached issue-link history. Changing or losing the key makes existing connections unreadable; reconnect each repository with a new token if that occurs. The migration job still needs only `DATABASE_URL`.
+Back up this key as a deployment secret. trackslash uses AES-256-GCM to encrypt every GitHub token before storing it in Postgres, with associated data that binds a saved token to its owner and a one-off token to its project and repository. Tokens are never returned by the API or sent to browsers, and disconnecting a repository scrubs any token it held while retaining cached issue-link history. Changing or losing the key makes existing tokens unreadable; save each token again and reconnect if that occurs. The migration job still needs only `DATABASE_URL`.
 
-For each repository connection, create a GitHub fine-grained personal access token with:
+Users save GitHub tokens once, under **GitHub tokens** on the Tokens page, and pick one when connecting a repository in any project they manage. A saved token is named by its owner, checked against GitHub before it is stored, and usable only by that owner. Replacing it there switches every repository that uses it to the new token at once, which is how an expiring token is rotated. Removing it disconnects those repositories. Pasting a new token into the connect dialog on a project's About page saves it to the user's account the same way.
 
-- access restricted to the selected repository (private repositories are supported); and
+Create a GitHub fine-grained personal access token with:
+
+- access restricted to the repositories you intend to link (private repositories are supported); and
 - repository **Contents: read-only** permission. GitHub grants **Metadata: read-only** automatically.
 
 Do not grant write permissions, organization administration, Actions, webhooks, or account-wide repository access. The integration reads repository identity, branch metadata, and pull request metadata only. GitHub.com must be reachable over outbound HTTPS.
@@ -129,13 +131,15 @@ The in-process refresh worker polls due links and refreshes each active connecti
 
 The bearer-authenticated JSON API exposes the same lifecycle:
 
+- `GET|POST /api/v1/me/github-tokens`
+- `PATCH|DELETE /api/v1/me/github-tokens/{tokenID}`
 - `GET|POST /api/v1/{owner}/projects/{key}/github/connections`
 - `DELETE /api/v1/{owner}/projects/{key}/github/connections/{connectionID}`
 - `GET|POST /api/v1/{owner}/issues/{issueRef}/github-links`
 - `DELETE /api/v1/{owner}/issues/{issueRef}/github-links/{linkID}`
 - `POST /api/v1/{owner}/issues/{issueRef}/github-links/{linkID}/refresh`
 
-Connection creation accepts `{"repository":"owner/name","token":"..."}`. Issue-link creation accepts `{"connection_id":"...","reference":"#123"}`; repository-relative `pull/123`, branch names, and matching `https://github.com/...` URLs are also accepted. Responses contain immutable GitHub repository and pull-request IDs separately from mutable names, titles, URLs, and states.
+Saving a token accepts `{"name":"Personal","token":"..."}`; updating accepts either or both fields. Neither response ever contains the token. Connection creation accepts `{"repository":"owner/name","credential_id":"..."}` to use a saved token, or `{"repository":"owner/name","token":"..."}` for a token held by that connection alone. Tokens issued to OAuth connectors cannot manage saved GitHub tokens or connect a repository with one. Issue-link creation accepts `{"connection_id":"...","reference":"#123"}`; repository-relative `pull/123`, branch names, and matching `https://github.com/...` URLs are also accepted. Responses contain immutable GitHub repository and pull-request IDs separately from mutable names, titles, URLs, and states.
 
 ### Development-preview terms
 

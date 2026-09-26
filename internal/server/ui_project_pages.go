@@ -579,6 +579,13 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 		if err != nil {
 			return nil, err
 		}
+		if user := currentUser(r); panel.GitHubConfigured && user.ID != uuid.Nil {
+			panel.GitHubCredentials, err = s.store.ListGitHubCredentials(ctx, user.ID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		panel.GitHubTokenLabels = uiGitHubTokenLabels(panel.GitHubConnections, panel.GitHubCredentials)
 		attachments, attachmentsHasMore, err := s.store.ListProjectAttachments(ctx, store.ListProjectAttachmentsParams{ProjectID: projectID, Limit: MaxLimit})
 		if err != nil {
 			return nil, err

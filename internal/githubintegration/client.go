@@ -56,6 +56,22 @@ type Snapshot struct {
 	State             model.GitHubLinkState
 }
 
+// GetAuthenticatedUser returns the login a token acts as. GitHub answers this
+// for any token, however narrowly scoped, so it is how a token is checked
+// before it is saved.
+func (c *Client) GetAuthenticatedUser(ctx context.Context, token string) (string, error) {
+	var payload struct {
+		Login string `json:"login"`
+	}
+	if err := c.get(ctx, token, "/user", &payload); err != nil {
+		return "", err
+	}
+	if payload.Login == "" {
+		return "", errors.New("GitHub returned incomplete user metadata")
+	}
+	return payload.Login, nil
+}
+
 func (c *Client) GetRepository(ctx context.Context, token, owner, name string) (Repository, error) {
 	var payload struct {
 		ID      int64  `json:"id"`

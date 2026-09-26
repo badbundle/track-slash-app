@@ -4,7 +4,7 @@
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div class="min-w-0">
         <h1 class="truncate text-2xl font-semibold tracking-normal">Tokens</h1>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create and revoke API tokens, and sign out of web sessions.</p>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create and revoke API tokens, save GitHub tokens, and sign out of web sessions.</p>
       </div>
     </div>
   </header>
@@ -79,6 +79,40 @@
     {{if .ConnectedApps}}
     <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">{{if eq .ConnectedApps 1}}1 active connector session{{else}}{{.ConnectedApps}} active connector sessions{{end}}. Connectors renew these on their own; revoking a connector ends them at once.</p>
     {{end}}
+
+    <div id="github-tokens" class="mt-6 flex flex-wrap items-end justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">GitHub tokens</h2>
+        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Save a fine-grained token once and use it to connect repositories in any project you manage.</p>
+      </div>
+      {{if .GitHubConfigured}}
+      <button type="button" data-modal-open="github-token-create" aria-haspopup="dialog" aria-controls="github-token-create" aria-expanded="false" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
+        <i data-lucide="github" class="h-4 w-4" aria-hidden="true"></i>
+        Add GitHub token
+      </button>
+      {{end}}
+    </div>
+    {{if .GitHubTokenSaved}}<div role="status" class="mt-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">{{.GitHubTokenSaved}}</div>{{end}}
+    <div class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      {{if not .GitHubConfigured}}
+      <div class="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">GitHub integration is not configured on this deployment. An operator must set the encryption key described in the deployment guide.</div>
+      {{else}}
+      {{range .GitHubTokens}}
+      <article class="grid gap-3 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 dark:border-slate-800 md:grid-cols-[1fr_auto] md:items-center">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="truncate font-medium text-slate-900 dark:text-slate-100">{{.Name}}</span>
+            <span class="rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">@{{.GitHubLogin}}</span>
+          </div>
+          <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{if eq .ConnectionCount 0}}Not used by any repositories{{else if eq .ConnectionCount 1}}Used by 1 repository{{else}}Used by {{.ConnectionCount}} repositories{{end}} · Checked {{template "local-time" (tokenTime .LastValidatedAt)}}</div>
+        </div>
+        <button type="button" data-modal-open="github-token-edit-{{.ID}}" aria-haspopup="dialog" aria-controls="github-token-edit-{{.ID}}" aria-expanded="false" class="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Edit</button>
+      </article>
+      {{else}}
+      <div class="px-4 py-6 text-sm text-slate-500 dark:text-slate-400">No GitHub tokens saved yet.</div>
+      {{end}}
+      {{end}}
+    </div>
 
     <h2 class="mt-6 text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Web sessions</h2>
     <div class="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
@@ -156,5 +190,47 @@
     </form>
     {{end}}
   {{template "modal-close" .}}
+
+  {{if .GitHubConfigured}}
+  {{template "modal-open" (githubTokenCreateModal .)}}
+    <form method="post" action="/settings/github-tokens" hx-post="/settings/github-tokens" hx-target="#main" hx-push-url="false" class="mt-4 grid gap-4">{{template "csrf-field" .CSRFToken}}
+      {{with githubTokenError . "new"}}<div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{{.}}</div>{{end}}
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="github-token-create-name">Name
+        <input id="github-token-create-name" name="name" type="text" value="{{githubTokenFormValue . "new" ""}}" autocomplete="off" placeholder="Personal" maxlength="100" autofocus required class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:border-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+      </label>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="github-token-create-token">Fine-grained token
+        <input id="github-token-create-token" name="token" type="password" autocomplete="off" required class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:border-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+        <span class="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noreferrer" class="text-indigo-700 hover:underline dark:text-indigo-300">Create one on GitHub</a> with read-only Contents access to the repositories you want to link.</span>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button type="button" data-modal-close class="inline-flex h-9 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
+        <button type="submit" class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-500"><i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>Save token</button>
+      </div>
+    </form>
+  {{template "modal-close" .}}
+
+  {{range .GitHubTokens}}
+  {{template "modal-open" (githubTokenEditModal $ .)}}
+    <form method="post" action="{{githubTokenPath .}}" hx-post="{{githubTokenPath .}}" hx-target="#main" hx-push-url="false" class="mt-4 grid gap-4">{{template "csrf-field" $.CSRFToken}}
+      {{with githubTokenError $ (print .ID)}}<div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-200">{{.}}</div>{{end}}
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="github-token-edit-{{.ID}}-name">Name
+        <input id="github-token-edit-{{.ID}}-name" name="name" type="text" value="{{githubTokenFormValue $ (print .ID) .Name}}" autocomplete="off" maxlength="100" autofocus required class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:border-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+      </label>
+      <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="github-token-edit-{{.ID}}-token">Replacement token
+        <input id="github-token-edit-{{.ID}}-token" name="token" type="password" autocomplete="off" class="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:border-indigo-500 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+        <span class="mt-1 block text-xs font-normal text-slate-500 dark:text-slate-400">Leave blank to keep the current token.</span>
+      </label>
+      <div class="flex justify-end gap-2">
+        <button type="button" data-modal-close class="inline-flex h-9 items-center rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
+        <button type="submit" class="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-semibold text-white hover:bg-indigo-500"><i data-lucide="check" class="h-4 w-4" aria-hidden="true"></i>Save</button>
+      </div>
+    </form>
+    <form method="post" action="{{githubTokenDelete .}}" hx-post="{{githubTokenDelete .}}" hx-target="#main" hx-push-url="false" hx-confirm="Remove this GitHub token?{{if .ConnectionCount}} Repositories that use it will be disconnected.{{end}}" class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">{{template "csrf-field" $.CSRFToken}}
+      <p class="min-w-0 flex-1 text-xs text-slate-500 dark:text-slate-400">{{if eq .ConnectionCount 0}}No repositories use this token.{{else if eq .ConnectionCount 1}}Removing it disconnects the 1 repository that uses it.{{else}}Removing it disconnects the {{.ConnectionCount}} repositories that use it.{{end}}</p>
+      <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md border border-rose-200 px-3 text-sm font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40"><i data-lucide="trash-2" class="h-4 w-4" aria-hidden="true"></i>Remove token</button>
+    </form>
+  {{template "modal-close" .}}
+  {{end}}
+  {{end}}
 </section>
 {{end}}

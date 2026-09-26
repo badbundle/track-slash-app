@@ -473,7 +473,12 @@ type uiProjectPanelData struct {
 	DeleteProjectError              string
 	GitHubConfigured                bool
 	GitHubConnections               []model.GitHubConnection
+	GitHubCredentials               []model.GitHubCredential
+	GitHubTokenLabels               map[uuid.UUID]string
 	GitHubRepositoryInput           string
+	GitHubCredentialInput           string
+	GitHubTokenNameInput            string
+	GitHubNewTokenOpen              bool
 	GitHubConnectionError           string
 	OwnerCrumb                      bool
 	MembersPage                     bool
@@ -777,6 +782,14 @@ type uiTokenPanelData struct {
 	OAuthError          string
 	CreatedClientID     string
 	CreatedClientSecret string
+	GitHubConfigured    bool
+	GitHubTokens        []model.GitHubCredential
+	// GitHubTokenFormFor names the form a GitHub token error belongs to: "new"
+	// for the add form, or a saved token's ID for its edit form.
+	GitHubTokenFormFor   string
+	GitHubTokenError     string
+	GitHubTokenNameInput string
+	GitHubTokenSaved     string
 }
 
 // uiOAuthConsentData backs the screen that asks a user to approve a connector.

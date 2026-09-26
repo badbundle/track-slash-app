@@ -249,11 +249,18 @@ func (s *Server) renderUITokenPanel(w http.ResponseWriter, r *http.Request, pane
 		writeUIInternalError(w, "ui tokens list oauth clients", err)
 		return
 	}
+	githubTokens, err := s.store.ListGitHubCredentials(r.Context(), currentUser(r).ID)
+	if err != nil {
+		writeUIInternalError(w, "ui tokens list github tokens", err)
+		return
+	}
 	panel.CSRFToken = uiSessionCSRFToken(r)
 	panel.Tokens = tokens
 	panel.ActiveSessions = activeSessions
 	panel.ConnectedApps = connectedApps
 	panel.OAuthClients = clients
+	panel.GitHubConfigured = s.githubIntegration != nil
+	panel.GitHubTokens = githubTokens
 	s.renderUIAccountPage(w, r, currentUser(r), "tokens", uiShellData{TokenPanel: &panel})
 }
 
