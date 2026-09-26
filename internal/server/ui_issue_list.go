@@ -99,9 +99,22 @@ func uiProjectTabs(project model.Project, view string, assigneeIDs []uuid.UUID) 
 		},
 	}
 	if !project.SprintsEnabled {
-		// Without sprint mode there is never an active sprint to show, so the
-		// Sprint board is not a destination and All becomes the landing view.
-		tabs.Items = tabs.Items[1:]
+		// Without sprint mode there is never an active sprint to show and no
+		// sprint to plan, so Sprint and Planned give way to In progress: what
+		// is being worked on now, and what was finished recently.
+		progress := uiTabItem{
+			Label:       "In progress",
+			Icon:        "activity",
+			Href:        uiProjectViewPath(project, "progress"),
+			HXGet:       uiProjectPanelPath(project, "progress"),
+			HXTarget:    projectPanelTarget,
+			HXPushURL:   uiProjectViewPath(project, "progress"),
+			HXSelect:    projectPanelTarget,
+			HXSelectOOB: projectPanelSelectOOB,
+			HXSwap:      "outerHTML",
+			Active:      view == "progress",
+		}
+		tabs.Items = append([]uiTabItem{progress}, tabs.Items[2:]...)
 	}
 	return tabs
 }
@@ -115,12 +128,19 @@ func uiProjectHomeView(project model.Project) string {
 	return "all"
 }
 
-// uiProjectViewFor swaps views that only exist in sprint mode for the
-// project's landing view, so stale links and bookmarks still land somewhere
-// useful after sprints are disabled.
+// uiProjectViewFor swaps a view that does not exist in the project's sprint
+// mode for its counterpart, so stale links and bookmarks still land somewhere
+// useful after sprints are turned on or off. Without sprints the Sprint board
+// falls back to the landing view and Planned to In progress; with sprints, In
+// progress falls back to the Sprint board, which shows the same work.
 func uiProjectViewFor(project model.Project, view string) string {
-	if view == "sprint" {
+	switch {
+	case view == "sprint":
 		return uiProjectHomeView(project)
+	case view == "planned" && !project.SprintsEnabled:
+		return "progress"
+	case view == "progress" && project.SprintsEnabled:
+		return "sprint"
 	}
 	return view
 }

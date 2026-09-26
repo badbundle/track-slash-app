@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"net/http"
 	"strings"
+	"time"
 )
 
 func (s *Server) uiProjectPage(w http.ResponseWriter, r *http.Request) {
@@ -84,8 +85,8 @@ func (s *Server) uiProjectWorkPanel(w http.ResponseWriter, r *http.Request, view
 		return
 	}
 	if panel.View != view {
-		// The Sprint board was requested for a project without sprint mode and
-		// the panel fell back to the landing view; keep the address bar honest.
+		// The view does not exist in the project's sprint mode and the panel
+		// fell back to its counterpart; keep the address bar honest.
 		w.Header().Set("HX-Push-Url", uiWithRequestQuery(r, uiProjectViewPath(project, panel.View)))
 	}
 	renderUITemplate(w, http.StatusOK, "project-panel", panel)
@@ -158,7 +159,7 @@ func (s *Server) uiProjectAllIssuePage(w http.ResponseWriter, r *http.Request) {
 // falling back to the default view when the caller names one that does not exist.
 func uiProjectPanelView(raw string) string {
 	switch raw {
-	case "about", "sprint", "planned", "all", "context", "whiteboard", "sprints", "changelog", "insights", "members":
+	case "about", "sprint", "planned", "progress", "all", "context", "whiteboard", "sprints", "changelog", "insights", "members":
 		return raw
 	default:
 		return "sprint"
@@ -722,6 +723,19 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 				AttachmentCount: len(attachments),
 				DescriptionHTML: renderSprintDescriptionMarkdown(project, sprint, attachments),
 			})
+		}
+	case "progress":
+		window, err := parseCompletionWindow(r.URL.Query().Get("completed_within"))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", errUIBadRequest, err)
+		}
+		progress, err := s.projectProgress(ctx, project, window, time.Now())
+		if err != nil {
+			return nil, err
+		}
+		panel.Progress, err = s.uiBuildProjectProgress(ctx, project, progress)
+		if err != nil {
+			return nil, err
 		}
 	case "all":
 		pageData, err := s.uiBuildProjectAllIssuePage(ctx, r, project)

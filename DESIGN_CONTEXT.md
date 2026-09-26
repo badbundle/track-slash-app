@@ -7,7 +7,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Below the `md` breakpoint, use an off-canvas navigation drawer opened from a persistent mobile app bar. Do not reserve space for a permanent icon rail on narrow screens.
 - Keep mobile page gutters compact and consistent while preserving the established desktop content width and spacing.
 - Dense issue rows should reflow into stacked, readable metadata on narrow screens and return to the compact column layout at `sm` and above.
-- Keep primary tabs on one line. On narrow project pages, keep `Sprint`, `Planned`, and `All` visible (`Planned` and `All` when sprints are disabled) and move `Context`, `Whiteboard`, and `About` into the project overflow menu instead of wrapping or scrolling the tab bar. `Changelog` always lives in project overflow.
+- Keep primary tabs on one line. On narrow project pages, keep `Sprint`, `Planned`, and `All` visible (`In progress` and `All` when sprints are disabled) and move `Context`, `Whiteboard`, and `About` into the project overflow menu instead of wrapping or scrolling the tab bar. `Changelog` always lives in project overflow.
 
 ## Login page
 
@@ -63,7 +63,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Keep `Sprint history` in the project actions menu immediately above `Changelog`. It is a read-only, newest-first list of completed sprints with compact schedule/completion metadata and explicit pagination. Each row shows frozen `Done` and `Cancelled` issue counts plus a compact Markdown description preview with its own `See more` expansion. Retain a separate sprint disclosure control that lazy-loads the complete, paginated issue membership captured atomically when that sprint completed.
 - Open project member management from the project actions menu as a full project page with its own URL, not as a modal.
 - Keep `Delete project` at the bottom of the project actions menu, below a divider and in destructive colour. It opens a confirmation dialog that names the consequences and requires the project key to be typed. Only the project owner and site admins see it. The same owner-or-admin rule governs `DELETE /projects/{key}` and `track_delete_project`, so no surface can delete a project the others would refuse.
-- Use the wide-layout project tabs `Sprint`, `Planned`, `All`, `Context`, `Whiteboard`, and `About`. `Sprint` is singular; use a human/running-style Lucide icon when available, and show it only when the project has sprints enabled. Below `lg`, show only the sprint-work tabs (`Sprint`, `Planned`, `All`) and expose `Context`, `Whiteboard`, and `About` from project actions. Keep `Changelog` in project overflow at every breakpoint.
+- Use the wide-layout project tabs `Sprint`, `Planned`, `All`, `Context`, `Whiteboard`, and `About`; with sprints disabled, `In progress` replaces `Sprint` and `Planned`. `Sprint` is singular; use a human/running-style Lucide icon when available, and show it only when the project has sprints enabled. Below `lg`, show only the work tabs (`Sprint`, `Planned`, `All`, or `In progress` and `All`) and expose `Context`, `Whiteboard`, and `About` from project actions. Keep `Changelog` in project overflow at every breakpoint.
 - Show assignee filters only where they apply. Do not preserve or display assignee filters on `About`.
 - The `All` tab is the triage and discovery surface. It should feel dense and scan-friendly, with all current, past, completed, planned, and unplanned issues available through one list.
 - Flat issue lists — project `All` and both `Me` views — default to open work (`To do` and `In progress`). A list of everything ever filed answers "what is on this project" worse than a list of what is left. Completed and cancelled work stays one click away behind the `Any` status filter, and `?status=any` is the URL that says so. The sprint board is the exception: its columns are the statuses, so it keeps all of them.
@@ -78,9 +78,16 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 - Sprints are a per-project choice, disabled for new projects. The `Sprints` toggle lives on the members page beside the access settings and follows their owner-or-admin rule. The same rule governs `PATCH /projects/{key}/sprint-mode` and `track_update_project_sprint_mode`.
 - In sprint mode the project opens on the `Sprint` board. With sprints disabled it opens on `All`, the `Sprint` tab is hidden, and a request for the sprint board redirects to `All` rather than showing an empty board.
-- Disabling sprints only changes what can happen next. `Planned` and `Sprint history` stay reachable in both modes, planned sprints can still be created, edited, reordered, and given issues, and completed history is never rewritten.
-- With sprints disabled, planned sprints show no start action; the `Planned` view explains why in one compact notice, with an `Enable sprints` link for people who can change it. Issues in planned sprints are picked up and completed one at a time and stay attached to their planned sprint.
+- With sprints disabled there is nothing to plan, so the `Planned` tab is hidden and `In progress` takes its place (see below). `/planned` redirects to `/progress`, and with sprints enabled `/progress` redirects to the `Sprint` board, which shows the same work. Disabling sprints never deletes anything: planned sprints keep their issues and reappear under `Planned` when sprints are turned back on, `Sprint history` stays in the project actions menu, and completed history is never rewritten.
+- A stale `Activate sprint` form submitted after sprints were disabled lands on `In progress`, which says why nothing started in one compact notice, with an `Enable sprints` link for people who can change it.
 - While a sprint is active the toggle is locked and says `Complete the active sprint to disable sprints.` The store enforces the same rule under the project row lock, and starting a sprint takes that lock too, so the two cannot race.
+
+## In Progress
+
+- `In progress` (`/{owner}/projects/{key}/progress`) is the project's "what is happening now" view when sprints are off. It has two sections: `In progress`, every top-level issue in progress with the highest priority first, and `Recently completed`, top-level issues that moved to Done within a chosen window, most recently completed first, each showing when it was completed.
+- The window is a `range-control` on the trailing edge of the `Recently completed` header: `24 hours`, `7 days` (default), `14 days`, and `30 days`, carried in `?completed_within=1d|7d|14d|30d`. Completion time is the issue's last move to Done in the changelog, so a reopened issue counts from when it was finished again. Cancelled (Closed) issues are not listed.
+- Each section keeps its own count badge and empty state (`No issues in progress.`, `Nothing completed in the last 7 days.`). There are no filters; `All` is the place to slice issues.
+- `GET /api/v1/{owner}/projects/{key}/progress?completed_within=7d` and `track_get_project_progress` return the same `ProjectProgress` payload in either sprint mode, under the project read check, so public projects work signed out.
 
 ## Sprint Descriptions
 

@@ -158,6 +158,11 @@ type mcpProjectInsightsInput struct {
 	Sprint string `json:"sprint,omitempty" jsonschema:"sprint ref for the sprint burn-up, for example sprint-3; defaults to the active sprint, then the latest completed sprint in range"`
 }
 
+type mcpProjectProgressInput struct {
+	mcpProjectInput
+	CompletedWithin string `json:"completed_within,omitempty" jsonschema:"how far back to list completed issues: one of 1d, 7d, 14d, 30d; defaults to 7d"`
+}
+
 type mcpCreateSprintInput struct {
 	mcpProjectInput
 	Name      string  `json:"name,omitempty"`
@@ -495,6 +500,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_list_project_assignees", "List assignable users for project.", readOnly, s.mcpListProjectAssignees)
 	addMCPTool(srv, "track_get_project_stats", "Get project issue status stats.", readOnly, s.mcpGetProjectStats)
 	addMCPTool(srv, "track_get_project_insights", "Get project insight series built from history: burn-up and cumulative flow, created vs resolved, cycle time, sprint burn-up, and sprint velocity.", readOnly, s.mcpGetProjectInsights)
+	addMCPTool(srv, "track_get_project_progress", "Get what a project is working on now: top-level issues in progress, highest priority first, and issues completed within a window, most recently completed first, each with completed_at.", readOnly, s.mcpGetProjectProgress)
 	addMCPTool(srv, "track_list_project_changelog", "List project changelog entries.", readOnly, s.mcpListProjectChangelog)
 
 	addMCPTool(srv, "track_create_issue", "Create issue in project.", write, s.mcpCreateIssue)
@@ -1357,6 +1363,26 @@ func (s *Server) mcpGetProjectInsights(ctx context.Context, req *mcp.CallToolReq
 		return nil, err
 	}
 	return mcpToolOutput{"insights": insights}, nil
+}
+
+func (s *Server) mcpGetProjectProgress(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectProgressInput) (mcpToolOutput, error) {
+	ctx, auth, err := s.mcpAuth(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.mcpProject(ctx, auth, input.mcpProjectInput)
+	if err != nil {
+		return nil, err
+	}
+	window, err := parseCompletionWindow(input.CompletedWithin)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	progress, err := s.projectProgress(ctx, project, window, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	return mcpToolOutput{"progress": progress}, nil
 }
 
 func (s *Server) mcpListProjectChangelog(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectPageInput) (mcpToolOutput, error) {

@@ -65,13 +65,6 @@ var (
 	}
 )
 
-type uiInsightRangeOption struct {
-	Label  string
-	Href   string
-	HXGet  string
-	Active bool
-}
-
 type uiInsightSprintOption struct {
 	Ref    string
 	Name   string
@@ -204,7 +197,7 @@ type uiInsightChart struct {
 type uiProjectInsightsData struct {
 	Project        model.Project
 	Range          model.InsightRange
-	RangeOptions   []uiInsightRangeOption
+	RangeOptions   []uiRangeOption
 	PeriodLabel    string
 	SprintsEnabled bool
 	Charts         []uiInsightChart
@@ -275,7 +268,7 @@ func uiBuildProjectInsights(project model.Project, insights model.ProjectInsight
 		SprintsEnabled: insights.Sprints.Enabled,
 	}
 	for _, rng := range model.InsightRanges() {
-		data.RangeOptions = append(data.RangeOptions, uiInsightRangeOption{
+		data.RangeOptions = append(data.RangeOptions, uiRangeOption{
 			Label:  rng.Label(),
 			Href:   uiProjectInsightsPath(project, rng, selectedSprint, false),
 			HXGet:  uiProjectInsightsPath(project, rng, selectedSprint, true),

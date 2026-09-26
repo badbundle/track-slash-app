@@ -239,6 +239,8 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Get("/{owner}/projects/{key}/sprint/panel", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPanel(w, r, "sprint") })
 		r.Get("/{owner}/projects/{key}/planned", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPage(w, r, "planned") })
 		r.Get("/{owner}/projects/{key}/planned/panel", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPanel(w, r, "planned") })
+		r.Get("/{owner}/projects/{key}/progress", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPage(w, r, "progress") })
+		r.Get("/{owner}/projects/{key}/progress/panel", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPanel(w, r, "progress") })
 		r.Get("/{owner}/projects/{key}/all", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPage(w, r, "all") })
 		r.Get("/{owner}/projects/{key}/all/panel", func(w http.ResponseWriter, r *http.Request) { s.uiProjectWorkPanel(w, r, "all") })
 		r.Get("/{owner}/projects/{key}/all/page", s.uiProjectAllIssuePage)
