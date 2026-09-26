@@ -408,11 +408,14 @@ func TestUIIssueBackLink(t *testing.T) {
 	projectID := uuid.MustParse("8cc21ed4-2d69-4d43-9f0c-402736e4aa16")
 	sprintID := uuid.MustParse("d7fc0dbf-845c-41b4-84ab-89f487cc4a08")
 	parentID := uuid.MustParse("2eeaf29c-ad20-4513-af41-edbb2c9abc2c")
-	project := model.Project{ID: projectID, OwnerUsername: "bradley", Key: "TRACK", Name: "Track Slash"}
+	project := model.Project{ID: projectID, OwnerUsername: "bradley", Key: "TRACK", Name: "Track Slash", SprintsEnabled: true}
+	withoutSprints := project
+	withoutSprints.SprintsEnabled = false
 	baseIssue := model.Issue{ProjectID: projectID, OwnerUsername: "bradley", ProjectKey: "TRACK", Identifier: "TRACK-7", SprintID: &sprintID}
 
 	tests := []struct {
 		name      string
+		project   *model.Project
 		issue     model.Issue
 		sprint    *model.Sprint
 		parent    *model.Issue
@@ -435,6 +438,16 @@ func TestUIIssueBackLink(t *testing.T) {
 			wantHref:  "/bradley/projects/TRACK/planned",
 			wantHXGet: "/bradley/projects/TRACK/planned/panel",
 			wantLabel: "Planned",
+		},
+		{
+			// Planned is hidden without sprint mode, so the issue goes back to All.
+			name:      "planned sprint without sprint mode",
+			project:   &withoutSprints,
+			issue:     baseIssue,
+			sprint:    &model.Sprint{ID: sprintID, ProjectID: projectID, Status: model.SprintStatusPlanned},
+			wantHref:  "/bradley/projects/TRACK/all",
+			wantHXGet: "/bradley/projects/TRACK/all/panel",
+			wantLabel: "All issues",
 		},
 		{
 			name:      "backlog issue",
@@ -469,7 +482,11 @@ func TestUIIssueBackLink(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		href, hxGet, label := uiIssueBackLink(project, tt.issue, tt.parent, tt.sprint)
+		issueProject := project
+		if tt.project != nil {
+			issueProject = *tt.project
+		}
+		href, hxGet, label := uiIssueBackLink(issueProject, tt.issue, tt.parent, tt.sprint)
 		if href != tt.wantHref || hxGet != tt.wantHXGet || label != tt.wantLabel {
 			t.Fatalf("%s: got (%q, %q, %q), want (%q, %q, %q)", tt.name, href, hxGet, label, tt.wantHref, tt.wantHXGet, tt.wantLabel)
 		}

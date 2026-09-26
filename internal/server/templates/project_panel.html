@@ -104,6 +104,8 @@
     {{template "project-panel-sprint" .}}
     {{else if eq .View "planned"}}
     {{template "project-panel-planned" .}}
+    {{else if eq .View "progress"}}
+    {{template "project-panel-progress" .}}
     {{else if eq .View "all"}}
     {{template "project-panel-all" .}}
     {{else if eq .View "sprints"}}

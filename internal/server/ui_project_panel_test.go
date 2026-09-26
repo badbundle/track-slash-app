@@ -1070,11 +1070,13 @@ func TestUIProjectPanelRendersAssigneeFilterAndSprintGoal(t *testing.T) {
 	projectID := uuid.MustParse("8cc21ed4-2d69-4d43-9f0c-402736e4aa16")
 	selectedID := uuid.MustParse("23f14acb-6a57-4035-a046-33e93ffbd5bb")
 	otherID := uuid.MustParse("ae77b9b8-9dcf-4a18-8b69-42b97bd4a4b5")
+	// Only a project in sprint mode has a Sprint board, and a Planned tab.
 	project := model.Project{
-		ID:            projectID,
-		OwnerUsername: "bradley",
-		Key:           "TRACK",
-		Name:          "Track Slash",
+		ID:             projectID,
+		OwnerUsername:  "bradley",
+		Key:            "TRACK",
+		Name:           "Track Slash",
+		SprintsEnabled: true,
 	}
 	selected := []uuid.UUID{selectedID}
 	assignees := []model.ProjectAssignee{

@@ -1,0 +1,44 @@
+{{define "project-panel-progress"}}
+{{with .Progress}}
+  <section class="py-6" data-project-progress>
+    {{if $.ProgressNotice}}
+    <p data-progress-notice class="mb-4 flex items-start gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-300">
+      <i data-lucide="info" class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true"></i>
+      <span>{{$.ProgressNotice}}{{if $.CanManageMembers}} <a href="{{projectMembers $.Project}}" hx-get="{{projectMembers $.Project}}" hx-target="#main" hx-push-url="{{projectMembers $.Project}}" class="font-medium text-indigo-700 hover:underline focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-indigo-300">Enable sprints</a>{{end}}</span>
+    </p>
+    {{end}}
+    <section data-progress-in-progress class="mb-8">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">In progress</h2>
+          {{template "count-badge" (len .InProgress)}}
+        </div>
+        {{if .InProgressHasMore}}<span class="text-xs text-slate-500 dark:text-slate-400">Showing first 200</span>{{end}}
+      </div>
+      {{if .InProgress}}
+      {{template "issue-list" .InProgress}}
+      {{else}}
+      <div class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">No issues in progress.</div>
+      {{end}}
+    </section>
+
+    <section data-progress-recently-completed>
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Recently completed</h2>
+          {{template "count-badge" (len .RecentlyCompleted)}}
+        </div>
+        <div class="flex max-w-full flex-wrap items-center gap-2 sm:justify-end">
+          {{if .RecentlyCompletedHasMore}}<span class="text-xs text-slate-500 dark:text-slate-400">Showing latest 200</span>{{end}}
+          {{template "range-control" (rangeControl "Completed within" .WindowOptions)}}
+        </div>
+      </div>
+      {{if .RecentlyCompleted}}
+      {{template "issue-list" .RecentlyCompleted}}
+      {{else}}
+      <div class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">Nothing completed in the last {{.Window.Label}}.</div>
+      {{end}}
+    </section>
+  </section>
+{{end}}
+{{end}}

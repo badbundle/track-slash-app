@@ -245,6 +245,7 @@ var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
 	"issueItem":                      uiIssueItemFromIssue,
 	"issueAttachmentIcon":            uiIssueAttachmentIcon,
 	"tokenTime":                      uiTokenTime,
+	"rangeControl":                   uiNewRangeControl,
 }).ParseFS(uiTemplateFS, "templates/*.html"))
 
 func renderUITemplate(w http.ResponseWriter, status int, name string, data any) {

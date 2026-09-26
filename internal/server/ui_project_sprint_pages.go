@@ -248,6 +248,14 @@ func (s *Server) uiActivateProjectSprint(w http.ResponseWriter, r *http.Request)
 	}
 	status := model.SprintStatusActive
 	updated, err := s.store.UpdateSprint(r.Context(), sprint.ID, store.UpdateSprintParams{Status: &status})
+	if errors.Is(err, store.ErrSprintsDisabled) {
+		// Planned is hidden without sprint mode, so a stale Activate form lands
+		// on In progress, which says why nothing started.
+		s.renderUIProjectPanel(w, r, project.ID, "progress", func(panel *uiProjectPanelData) {
+			panel.ProgressNotice = uiSprintStoreMessage(err)
+		})
+		return
+	}
 	if err != nil {
 		form := uiSprintFormFor(sprint)
 		form.Error = uiSprintStoreMessage(err)
@@ -492,7 +500,7 @@ func uiProjectActionView(r *http.Request, fallback string) string {
 		view = strings.TrimSpace(r.Form.Get("view"))
 	}
 	switch view {
-	case "about", "sprint", "planned", "all", "changelog":
+	case "about", "sprint", "planned", "progress", "all", "changelog":
 		return view
 	default:
 		return fallback

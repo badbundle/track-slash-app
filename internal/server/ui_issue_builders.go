@@ -660,8 +660,10 @@ func uiIssueBackDestinationFor(project model.Project, issue model.Issue, parent 
 			view = "sprint"
 			label = "Sprint"
 		case model.SprintStatusPlanned:
-			view = "planned"
-			label = "Planned"
+			if project.SprintsEnabled {
+				view = "planned"
+				label = "Planned"
+			}
 		}
 	}
 	base := uiProjectViewPath(project, view)

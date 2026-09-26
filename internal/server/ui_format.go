@@ -45,6 +45,7 @@ func uiIssueTitlePartsForDisplay(title string) uiIssueTitleParts {
 var uiProjectViewLabels = map[string]string{
 	"sprint":     "Sprint",
 	"planned":    "Planned",
+	"progress":   "In progress",
 	"all":        "All",
 	"context":    "Context",
 	"whiteboard": "Whiteboard",

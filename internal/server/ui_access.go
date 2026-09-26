@@ -651,7 +651,7 @@ func safeUIProjectPath(path string) bool {
 		}
 		return false
 	}
-	if parts[3] != "about" && parts[3] != "sprint" && parts[3] != "planned" && parts[3] != "all" && parts[3] != "changelog" && parts[3] != "backlog" && parts[3] != "deleted" {
+	if parts[3] != "about" && parts[3] != "sprint" && parts[3] != "planned" && parts[3] != "progress" && parts[3] != "all" && parts[3] != "changelog" && parts[3] != "backlog" && parts[3] != "deleted" {
 		return false
 	}
 	if len(parts) == 4 {

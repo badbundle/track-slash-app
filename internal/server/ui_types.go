@@ -113,6 +113,27 @@ type uiIssueItem struct {
 	Sprint           *model.Sprint
 	Assignee         *model.ProjectAssignee
 	SubIssueProgress store.SubIssueProgress
+	// CompletedAt is set where a list shows when the issue was last completed
+	// (moved to Done or Closed).
+	CompletedAt *time.Time
+}
+
+// uiRangeOption is one choice in a range-control: a segmented set of links
+// that reload the current project view over a different window of time.
+type uiRangeOption struct {
+	Label  string
+	Href   string
+	HXGet  string
+	Active bool
+}
+
+type uiRangeControl struct {
+	Label   string
+	Options []uiRangeOption
+}
+
+func uiNewRangeControl(label string, options []uiRangeOption) uiRangeControl {
+	return uiRangeControl{Label: label, Options: options}
 }
 
 type uiIssueColumn struct {
@@ -533,6 +554,8 @@ type uiProjectPanelData struct {
 	ChangelogPage                   uiProjectChangelogPageData
 	ProjectStats                    model.ProjectStats
 	Insights                        *uiProjectInsightsData
+	Progress                        *uiProjectProgressData
+	ProgressNotice                  string
 	Tags                            []model.IssueTag
 	ContextItems                    []uiProjectContextItem
 	ContextHasMore                  bool

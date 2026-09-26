@@ -245,10 +245,13 @@ func TestUIProjectWithoutSprintsLandsOnAll(t *testing.T) {
 	if strings.Contains(page, `href="`+e.projectPath()+`/sprint"`) || strings.Contains(page, "person-standing") {
 		t.Fatal("project without sprints still links to the Sprint tab")
 	}
-	for _, want := range []string{`href="` + e.projectPath() + `/planned"`, `href="` + allPath + `"`, `href="` + e.projectPath() + `/sprints"`} {
+	for _, want := range []string{`href="` + e.projectPath() + `/progress"`, `href="` + allPath + `"`, `href="` + e.projectPath() + `/sprints"`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("All page missing %q", want)
 		}
+	}
+	if strings.Contains(page, `href="`+e.projectPath()+`/planned"`) {
+		t.Fatal("project without sprints still links to the Planned tab")
 	}
 
 	if err := e.store.FavoriteProject(e.ctx, e.adminID, e.projectID); err != nil {
@@ -283,18 +286,50 @@ func TestUIProjectWithoutSprintsHidesTheSprintBoardFromOutsiders(t *testing.T) {
 	}
 }
 
-func TestUIPlannedSprintsWithoutSprintMode(t *testing.T) {
+// Without sprint mode there is nothing to plan, so In progress takes Planned's
+// place. Planned sprints are kept and come back when sprints are turned on.
+func TestUIProjectWithoutSprintsSwapsPlannedForInProgress(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)
 	planned := e.mustPlannedSprint(t, "Later")
 	activatePath := e.projectPath() + "/sprints/" + planned.Ref + "/activate"
+	plannedPath := e.projectPath() + "/planned"
+	progressPath := e.projectPath() + "/progress"
+	sprintPath := e.projectPath() + "/sprint"
 
-	withSprints := e.uiGet(t, e.projectPath()+"/planned", e.authToken)
-	if !strings.Contains(withSprints, activatePath) || strings.Contains(withSprints, "data-sprints-disabled-notice") {
-		t.Fatal("sprint mode Planned view should offer Activate sprint without the disabled notice")
+	withSprints := e.uiGet(t, plannedPath, e.authToken)
+	if !strings.Contains(withSprints, activatePath) || strings.Contains(withSprints, `href="`+progressPath+`"`) {
+		t.Fatal("sprint mode should show Planned with Activate sprint and no In progress tab")
 	}
+	// With sprints on, the Sprint board shows the work In progress would.
+	res := e.uiDoNoRedirect(t, http.MethodGet, progressPath+"?completed_within=14d", e.authToken, nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != sprintPath+"?completed_within=14d" {
+		t.Fatalf("GET In progress in sprint mode = %d Location %q, want 303 to the Sprint board", res.StatusCode, res.Header.Get("Location"))
+	}
+	// The window parameter rides along and the board ignores it.
+	e.uiGet(t, sprintPath+"?completed_within=14d", e.authToken)
 
 	e.mustSetFixtureSprintsEnabled(t, false)
+	res = e.uiDoNoRedirect(t, http.MethodGet, plannedPath+"?completed_within=30d", e.authToken, nil)
+	res.Body.Close()
+	if res.StatusCode != http.StatusSeeOther || res.Header.Get("Location") != progressPath+"?completed_within=30d" {
+		t.Fatalf("GET Planned without sprints = %d Location %q, want 303 to In progress", res.StatusCode, res.Header.Get("Location"))
+	}
+	res = e.uiDoNoRedirectWithHeaders(t, http.MethodGet, plannedPath+"/panel", e.authToken, nil, map[string]string{"HX-Request": "true"})
+	body := readBody(t, res)
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK || res.Header.Get("HX-Push-Url") != progressPath || !strings.Contains(body, "data-project-progress") {
+		t.Fatalf("Planned panel without sprints = %d HX-Push-Url %q, want In progress: %s", res.StatusCode, res.Header.Get("HX-Push-Url"), body)
+	}
+	if strings.Contains(body, planned.Name) || strings.Contains(body, activatePath) {
+		t.Fatal("In progress shows planned sprints")
+	}
+	if status := e.mustSprintStatus(t, planned.ID); status != model.SprintStatusPlanned {
+		t.Fatalf("turning sprints off left the planned sprint %s", status)
+	}
+
+	// A stale Activate form lands on In progress and says why nothing started.
 	_, memberToken := e.mustProjectMemberToken(t, "sprint-mode-planner")
 	for _, tc := range []struct {
 		token      string
@@ -303,30 +338,26 @@ func TestUIPlannedSprintsWithoutSprintMode(t *testing.T) {
 		{token: e.authToken, wantEnable: true},
 		{token: memberToken, wantEnable: false},
 	} {
-		page := e.uiGet(t, e.projectPath()+"/planned", tc.token)
-		if strings.Contains(page, activatePath) {
-			t.Fatal("Planned view offers Activate sprint while sprints are disabled")
+		res := e.uiDoNoRedirect(t, http.MethodPost, activatePath, tc.token, strings.NewReader(""))
+		body := readBody(t, res)
+		res.Body.Close()
+		if res.StatusCode != http.StatusOK || !strings.Contains(body, "data-progress-notice") || !strings.Contains(body, "Sprints are disabled for this project. Enable sprints to start one.") {
+			t.Fatalf("activate while disabled code = %d body = %s", res.StatusCode, body)
 		}
-		if !strings.Contains(page, "data-sprints-disabled-notice") || !strings.Contains(page, "planned sprints cannot be started") {
-			t.Fatal("Planned view does not explain why sprints cannot start")
-		}
-		if got := strings.Contains(page, ">Enable sprints</a>"); got != tc.wantEnable {
+		if got := strings.Contains(body, ">Enable sprints</a>"); got != tc.wantEnable {
 			t.Fatalf("Enable sprints link shown = %t, want %t", got, tc.wantEnable)
 		}
-		if !strings.Contains(page, e.projectPath()+"/sprints/"+planned.Ref+"/edit") {
-			t.Fatal("planned sprint lost its edit action while sprints are disabled")
-		}
-	}
-
-	// A stale Activate form reports the rule instead of a generic conflict.
-	res := e.uiDoNoRedirect(t, http.MethodPost, activatePath, e.authToken, strings.NewReader(""))
-	body := readBody(t, res)
-	res.Body.Close()
-	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Sprints are disabled for this project. Enable sprints to start one.") {
-		t.Fatalf("activate while disabled code = %d body = %s", res.StatusCode, body)
 	}
 	if status := e.mustSprintStatus(t, planned.ID); status != model.SprintStatusPlanned {
 		t.Fatalf("activate while disabled left sprint %s", status)
+	}
+	if page := e.uiGet(t, progressPath, e.authToken); strings.Contains(page, "data-progress-notice") {
+		t.Fatal("In progress shows the activate notice without a failed activation")
+	}
+
+	e.mustSetFixtureSprintsEnabled(t, true)
+	if page := e.uiGet(t, plannedPath, e.authToken); !strings.Contains(page, planned.Name) || !strings.Contains(page, activatePath) {
+		t.Fatal("planned sprint did not come back when sprints were turned on again")
 	}
 }
 
