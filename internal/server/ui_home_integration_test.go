@@ -22,7 +22,7 @@ func TestUIRendersWorkSidebar(t *testing.T) {
 		`href="/issues/new"`,
 		`hx-get="/issues/new/panel"`,
 		`data-sidebar-action`,
-		`<nav aria-label="Account" data-sidebar-account`,
+		`data-account-menu-link`,
 		`href="/settings/profile"`,
 		`href="/settings/login"`,
 		`href="/settings/notifications"`,
@@ -100,6 +100,9 @@ func TestUIRendersWorkSidebar(t *testing.T) {
 	}
 	if strings.Contains(body, `href="/settings"`) {
 		t.Fatalf("body still links to the removed general Settings page: %s", body)
+	}
+	if strings.Contains(body, `data-sidebar-account`) {
+		t.Fatalf("sidebar still repeats the account pages outside the account menu: %s", body)
 	}
 	for _, notWant := range []string{`data-sidebar-legal`, `aria-label="Legal"`, `href="/terms"`, `href="/privacy"`, `href="/security"`} {
 		if strings.Contains(body, notWant) {

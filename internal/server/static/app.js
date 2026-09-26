@@ -1038,9 +1038,27 @@
       && link.dataset.sidebarProjectId === state.dataset.sidebarProjectId
     )) || null;
   };
+  // The account pages are listed only in the account menu, which htmx never
+  // swaps, so its current page follows whatever view lands in #main.
+  const accountMenuActive = ["bg-indigo-50", "text-indigo-700", "dark:bg-indigo-950/50", "dark:text-indigo-200"];
+  const accountMenuInactive = ["text-slate-700", "hover:bg-slate-100", "dark:text-slate-200", "dark:hover:bg-slate-800"];
+  const syncAccountMenuActive = (state) => {
+    const view = state ? state.dataset.sidebarView : "";
+    document.querySelectorAll("[data-account-menu-link]").forEach((link) => {
+      const current = !!view && link.dataset.accountView === view;
+      link.classList.remove(...(current ? accountMenuInactive : accountMenuActive));
+      link.classList.add(...(current ? accountMenuActive : accountMenuInactive));
+      if (current) {
+        link.setAttribute("aria-current", "page");
+      } else {
+        link.removeAttribute("aria-current");
+      }
+    });
+  };
   const syncSidebarActive = () => {
     const state = mainContent ? mainContent.querySelector("[data-sidebar-view]") : null;
     setActiveNav(sidebarLinkForState(state));
+    syncAccountMenuActive(state);
   };
   document.body.addEventListener("htmx:configRequest", (event) => {
     if (csrfToken) event.detail.headers["X-CSRF-Token"] = csrfToken;
@@ -1054,6 +1072,11 @@
       links().forEach((item) => setNavLoading(item, false));
       setActiveNav(link);
       setNavLoading(link, true);
+    }
+    const accountMenuLink = event.target.closest("[data-account-menu-link]");
+    if (accountMenuLink) {
+      const menu = accountMenuLink.closest("details");
+      if (menu) menu.removeAttribute("open");
     }
   });
   document.body.addEventListener("htmx:afterRequest", (event) => {

@@ -465,35 +465,56 @@ func TestUIShellRendersResponsiveAccessibleSidebar(t *testing.T) {
 	if strings.Contains(body, `data-sidebar-legal`) || strings.Contains(body, `aria-label="Legal"`) {
 		t.Fatalf("shell sidebar must not render legal links: %s", body)
 	}
-	accountStart := strings.Index(body, `<nav aria-label="Account" data-sidebar-account`)
-	footerStart := strings.Index(body, `<details data-close-on-outside`)
-	if accountStart < 0 || footerStart < accountStart {
-		t.Fatalf("account group must sit directly above the account footer: %s", body)
+	// The account pages live only in the account menu. The sidebar used to
+	// repeat them as an Account group, which crowded out project navigation.
+	if strings.Contains(body, `data-sidebar-account`) {
+		t.Fatalf("sidebar still renders the account group: %s", body)
 	}
-	account := body[accountStart:footerStart]
-	if !strings.Contains(account, `<div class="wide-only`) || !strings.Contains(account, `>Account</div>`) {
-		t.Fatalf("account group heading must leave the layout when collapsed: %s", account)
-	}
+	menuHTML := markupFromForTest(t, body, `<div data-member-menu`, `</details>`)
 	for _, page := range []struct{ view, path, label, icon string }{
 		{view: "profile", path: "/settings/profile", label: "Profile", icon: "circle-user-round"},
 		{view: "login", path: "/settings/login", label: "Login", icon: "key-round"},
 		{view: "notifications", path: "/settings/notifications", label: "Notifications", icon: "bell"},
 		{view: "tokens", path: "/tokens", label: "Tokens", icon: "braces"},
 	} {
-		link := `<a data-nav-link data-sidebar-link data-sidebar-view="` + page.view + `" href="` + page.path + `" hx-get="` + page.path + `" hx-target="#main" hx-push-url="` + page.path + `" aria-label="` + page.label + `"`
+		link := markupFromForTest(t, menuHTML, `<a data-account-menu-link data-account-view="`+page.view+`"`, `</a>`)
 		for _, want := range []string{
-			link,
-			`data-nav-icon data-lucide="` + page.icon + `"`,
-			`<span class="wide-only min-w-0">
-            <span class="block truncate font-medium">` + page.label + `</span>`,
+			`href="` + page.path + `" hx-get="` + page.path + `" hx-target="#main" hx-push-url="` + page.path + `"`,
+			`class="flex items-center gap-2 rounded-md px-2 py-2 text-sm`,
+			`<i data-lucide="` + page.icon + `" class="h-4 w-4" aria-hidden="true"></i>`,
+			`<span>` + page.label + `</span>`,
 		} {
-			if !strings.Contains(account, want) {
-				t.Fatalf("account group missing %q: %s", want, account)
+			if !strings.Contains(link, want) {
+				t.Fatalf("account menu link for %s missing %q: %s", page.label, want, link)
 			}
 		}
-		menuLink := `<a href="` + page.path + `" class="block rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800">` + page.label + `</a>`
-		if !strings.Contains(body[menuStart:], menuLink) {
-			t.Fatalf("account menu missing %q: %s", menuLink, body[menuStart:])
+	}
+	pagesEnd := strings.LastIndex(menuHTML, `data-account-menu-link`)
+	signOutStart := strings.Index(menuHTML, `<form method="post" action="/logout" data-sign-out class="mt-1 border-t border-slate-100 pt-1 dark:border-slate-800">`)
+	if signOutStart < 0 || signOutStart < pagesEnd {
+		t.Fatalf("sign out must sit below a divider after the account pages: %s", menuHTML)
+	}
+	signOut := menuHTML[signOutStart:]
+	for _, want := range []string{
+		`font-semibold text-red-600`,
+		`dark:text-red-400`,
+		`<i data-lucide="log-out" class="h-4 w-4" aria-hidden="true"></i>`,
+		`<span>Sign out</span>`,
+	} {
+		if !strings.Contains(signOut, want) {
+			t.Fatalf("sign out missing %q: %s", want, signOut)
+		}
+	}
+	for _, want := range []string{
+		`const syncAccountMenuActive = (state) =>`,
+		`document.querySelectorAll("[data-account-menu-link]")`,
+		`link.dataset.accountView === view`,
+		`syncAccountMenuActive(state);`,
+		`event.target.closest("[data-account-menu-link]")`,
+		`menu.removeAttribute("open")`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("shell missing account menu behavior %q: %s", want, body)
 		}
 	}
 	if strings.Contains(body, `href="/settings"`) {
@@ -689,11 +710,12 @@ func TestUIShellRendersOneActiveSidebarDestination(t *testing.T) {
 	projectID := uuid.MustParse("8cc21ed4-2d69-4d43-9f0c-402736e4aa16")
 	project := model.Project{ID: projectID, OwnerUsername: "bradley", Key: "TRACK", Name: "Track Slash"}
 	tests := []struct {
-		name       string
-		active     uiSidebarState
-		favorites  uiSidebarFavoritesData
-		wantMarker string
-		wantCount  int
+		name        string
+		active      uiSidebarState
+		favorites   uiSidebarFavoritesData
+		wantMarker  string
+		wantCount   int
+		accountMenu bool
 	}{
 		{name: "me", active: uiSidebarState{View: "me"}, wantMarker: `data-sidebar-view="me"`, wantCount: 1},
 		{name: "projects", active: uiSidebarState{View: "projects"}, wantMarker: `data-sidebar-view="projects"`, wantCount: 1},
@@ -704,10 +726,11 @@ func TestUIShellRendersOneActiveSidebarDestination(t *testing.T) {
 			wantMarker: `data-sidebar-project-id="` + projectID.String() + `"`,
 			wantCount:  1,
 		},
-		{name: "profile", active: uiSidebarState{View: "profile"}, wantMarker: `data-sidebar-view="profile"`, wantCount: 1},
-		{name: "login", active: uiSidebarState{View: "login"}, wantMarker: `data-sidebar-view="login"`, wantCount: 1},
-		{name: "notifications", active: uiSidebarState{View: "notifications"}, wantMarker: `data-sidebar-view="notifications"`, wantCount: 1},
-		{name: "tokens", active: uiSidebarState{View: "tokens"}, wantMarker: `data-sidebar-view="tokens"`, wantCount: 1},
+		// Account pages are marked in the account menu, not the sidebar.
+		{name: "profile", active: uiSidebarState{View: "profile"}, wantMarker: `data-account-view="profile"`, wantCount: 1, accountMenu: true},
+		{name: "login", active: uiSidebarState{View: "login"}, wantMarker: `data-account-view="login"`, wantCount: 1, accountMenu: true},
+		{name: "notifications", active: uiSidebarState{View: "notifications"}, wantMarker: `data-account-view="notifications"`, wantCount: 1, accountMenu: true},
+		{name: "tokens", active: uiSidebarState{View: "tokens"}, wantMarker: `data-account-view="tokens"`, wantCount: 1, accountMenu: true},
 		{name: "project without favorite", active: uiSidebarState{View: "project", ProjectID: projectID}},
 		{name: "no active destination"},
 	}
@@ -728,8 +751,15 @@ func TestUIShellRendersOneActiveSidebarDestination(t *testing.T) {
 			if got := strings.Count(body, `aria-current="page"`); got != tt.wantCount {
 				t.Fatalf("aria-current count = %d, want %d: %s", got, tt.wantCount, body)
 			}
-			if got := strings.Count(body, "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100"); got != tt.wantCount {
-				t.Fatalf("active class count = %d, want %d: %s", got, tt.wantCount, body)
+			wantSidebar, wantMenu := tt.wantCount, 0
+			if tt.accountMenu {
+				wantSidebar, wantMenu = 0, tt.wantCount
+			}
+			if got := strings.Count(body, "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100"); got != wantSidebar {
+				t.Fatalf("sidebar active class count = %d, want %d: %s", got, wantSidebar, body)
+			}
+			if got := strings.Count(body, "bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200"); got != wantMenu {
+				t.Fatalf("account menu active class count = %d, want %d: %s", got, wantMenu, body)
 			}
 			if tt.wantMarker == "" {
 				return

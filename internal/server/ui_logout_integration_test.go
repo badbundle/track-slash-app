@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-var uiLogoutFormPattern = regexp.MustCompile(`(?s)<form method="post" action="/logout">(.*?)</form>`)
+var uiLogoutFormPattern = regexp.MustCompile(`(?s)<form method="post" action="/logout"[^>]*>(.*?)</form>`)
 
 // Signing out must work from whatever state the browser is actually in, which
 // includes states the page was not rendered in: a tab that outlived its cookie,

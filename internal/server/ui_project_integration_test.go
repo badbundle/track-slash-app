@@ -14,7 +14,7 @@ import (
 )
 
 // sidebarNavMarkup spans the whole sidebar, so a destination in the primary
-// navigation and one in the account group cannot both claim to be current.
+// navigation and one in the account menu cannot both claim to be current.
 func sidebarNavMarkup(t *testing.T, body string) string {
 	t.Helper()
 	start := strings.Index(body, `<aside id="app-sidebar"`)
@@ -70,7 +70,7 @@ func TestUISidebarHighlightsOnlyActiveDestination(t *testing.T) {
 		{path: "/settings/notifications", view: "notifications"},
 		{path: "/tokens", view: "tokens"},
 	} {
-		requireActiveSidebarDestination(t, e.uiGet(t, page.path, token), `data-sidebar-view="`+page.view+`"`)
+		requireActiveSidebarDestination(t, e.uiGet(t, page.path, token), `data-account-view="`+page.view+`"`)
 	}
 	requireActiveSidebarDestination(t, e.uiGet(t, e.projectPath()+"/sprint", token), "")
 
