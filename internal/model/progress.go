@@ -60,14 +60,16 @@ func (w CompletionWindow) Duration() time.Duration {
 	}
 }
 
-// CompletedIssue is a Done issue with the time it last moved to Done.
+// CompletedIssue is an issue that counts as done (Done or Closed) with the time
+// it last moved to one of those statuses.
 type CompletedIssue struct {
 	Issue
 	CompletedAt time.Time `json:"completed_at"`
 }
 
 // ProjectProgress is what a project is working on now: its top-level issues in
-// progress, and those completed within the window, most recent first.
+// progress, and those completed (Done or Closed) within the window, most
+// recent first.
 type ProjectProgress struct {
 	CompletedWithin          CompletionWindow `json:"completed_within"`
 	CompletedSince           time.Time        `json:"completed_since"`

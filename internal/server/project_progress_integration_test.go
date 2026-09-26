@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"html"
 	"net/http"
 	"strings"
 	"testing"
@@ -66,6 +67,7 @@ func newProgressFixture(t *testing.T, e *httpEnv) progressFixture {
 		todo:          progressIssue(t, e, "Progress not started", model.PriorityP0),
 		closed:        progressIssue(t, e, "Progress won't do", model.PriorityP0, model.StatusClosed),
 	}
+	backdateCompletion(t, e, f.closed.ID, 2*time.Hour)
 	backdateCompletion(t, e, f.doneYesterday.ID, 30*time.Hour)
 	backdateCompletion(t, e, f.doneLastWeek.ID, 10*24*time.Hour)
 	return f
@@ -112,11 +114,15 @@ func TestProjectProgressAPI(t *testing.T) {
 		t.Fatalf("completed_since = %s, want about 7 days ago", progress.CompletedSince)
 	}
 	inProgress, completed := progressOf(progress)
-	// Highest priority first; most recently completed first.
+	// Highest priority first; most recently completed first, closed issues
+	// included.
 	requireProgressOrder(t, "in_progress", inProgress, f.urgent, f.later)
-	requireProgressOrder(t, "recently_completed", completed, f.justDone, f.doneYesterday)
-	if age := time.Since(progress.RecentlyCompleted[1].CompletedAt); age < 29*time.Hour || age > 31*time.Hour {
-		t.Fatalf("done yesterday completed_at = %s, want about 30 hours ago", progress.RecentlyCompleted[1].CompletedAt)
+	requireProgressOrder(t, "recently_completed", completed, f.justDone, f.closed, f.doneYesterday)
+	if got := progress.RecentlyCompleted[1]; got.Status != model.StatusClosed || got.CloseReason == nil || *got.CloseReason != model.CloseReasonWontDo {
+		t.Fatalf("closed issue = status %s reason %v", got.Status, got.CloseReason)
+	}
+	if age := time.Since(progress.RecentlyCompleted[2].CompletedAt); age < 29*time.Hour || age > 31*time.Hour {
+		t.Fatalf("done yesterday completed_at = %s, want about 30 hours ago", progress.RecentlyCompleted[2].CompletedAt)
 	}
 	if !strings.Contains(string(body), `"completed_at":`) || !strings.Contains(string(body), `"identifier":"`+f.justDone.Identifier+`"`) {
 		t.Fatalf("progress JSON does not flatten completed issues: %s", body)
@@ -127,8 +133,8 @@ func TestProjectProgressAPI(t *testing.T) {
 		want   model.CompletionWindow
 		done   []model.Issue
 	}{
-		{window: "1d", want: model.CompletionWindowDay, done: []model.Issue{f.justDone}},
-		{window: "14D", want: model.CompletionWindowTwoWeeks, done: []model.Issue{f.justDone, f.doneYesterday, f.doneLastWeek}},
+		{window: "1d", want: model.CompletionWindowDay, done: []model.Issue{f.justDone, f.closed}},
+		{window: "14D", want: model.CompletionWindowTwoWeeks, done: []model.Issue{f.justDone, f.closed, f.doneYesterday, f.doneLastWeek}},
 	} {
 		code, body := e.do(t, http.MethodGet, path+"?completed_within="+tt.window, nil)
 		if code != http.StatusOK {
@@ -189,7 +195,7 @@ func TestMCPGetProjectProgress(t *testing.T) {
 		t.Fatalf("MCP progress window = %q", progress.CompletedWithin)
 	}
 	requireProgressOrder(t, "MCP in_progress", inProgress, f.urgent, f.later)
-	requireProgressOrder(t, "MCP recently_completed", completed, f.justDone, f.doneYesterday, f.doneLastWeek)
+	requireProgressOrder(t, "MCP recently_completed", completed, f.justDone, f.closed, f.doneYesterday, f.doneLastWeek)
 
 	out = mcpCall(t, e, session, "track_get_project_progress", args(nil))
 	if progress := decodeMCPField[model.ProjectProgress](t, out, "progress"); progress.CompletedWithin != model.DefaultCompletionWindow {
@@ -217,19 +223,23 @@ func TestUIProjectInProgressView(t *testing.T) {
 	inProgress := progressSection(t, body, "data-progress-in-progress")
 	completed := progressSection(t, body, "data-progress-recently-completed")
 	requireMarkupOrderForTest(t, inProgress, f.urgent.Title, f.later.Title)
-	requireMarkupOrderForTest(t, completed, f.justDone.Title, f.doneYesterday.Title)
-	for _, notWant := range []string{f.doneLastWeek.Title, f.todo.Title, f.closed.Title, f.justDone.Title} {
+	requireMarkupOrderForTest(t, completed, f.justDone.Title, html.EscapeString(f.closed.Title))
+	requireMarkupOrderForTest(t, completed, html.EscapeString(f.closed.Title), f.doneYesterday.Title)
+	if !strings.Contains(completed, ">Closed<") || !strings.Contains(completed, html.EscapeString("Won't Do")) {
+		t.Fatalf("closed issue should show its status and close reason: %s", completed)
+	}
+	for _, notWant := range []string{f.doneLastWeek.Title, f.todo.Title, html.EscapeString(f.closed.Title), f.justDone.Title} {
 		if strings.Contains(inProgress, notWant) {
 			t.Fatalf("In progress lists %q: %s", notWant, inProgress)
 		}
 	}
-	for _, notWant := range []string{f.doneLastWeek.Title, f.todo.Title, f.closed.Title, f.urgent.Title} {
+	for _, notWant := range []string{f.doneLastWeek.Title, f.todo.Title, f.urgent.Title} {
 		if strings.Contains(completed, notWant) {
 			t.Fatalf("Recently completed lists %q: %s", notWant, completed)
 		}
 	}
-	if got := strings.Count(completed, "data-completed-at"); got != 2 {
-		t.Fatalf("recently completed rows showing completion time = %d, want 2: %s", got, completed)
+	if got := strings.Count(completed, "data-completed-at"); got != 3 {
+		t.Fatalf("recently completed rows showing completion time = %d, want 3: %s", got, completed)
 	}
 	if strings.Contains(inProgress, "data-completed-at") {
 		t.Fatalf("in progress rows should not show a completion time: %s", inProgress)

@@ -500,7 +500,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_list_project_assignees", "List assignable users for project.", readOnly, s.mcpListProjectAssignees)
 	addMCPTool(srv, "track_get_project_stats", "Get project issue status stats.", readOnly, s.mcpGetProjectStats)
 	addMCPTool(srv, "track_get_project_insights", "Get project insight series built from history: burn-up and cumulative flow, created vs resolved, cycle time, sprint burn-up, and sprint velocity.", readOnly, s.mcpGetProjectInsights)
-	addMCPTool(srv, "track_get_project_progress", "Get what a project is working on now: top-level issues in progress, highest priority first, and issues completed within a window, most recently completed first, each with completed_at.", readOnly, s.mcpGetProjectProgress)
+	addMCPTool(srv, "track_get_project_progress", "Get what a project is working on now: top-level issues in progress, highest priority first, and issues completed within a window (Done or Closed, including won't-do and duplicates), most recently completed first, each with completed_at.", readOnly, s.mcpGetProjectProgress)
 	addMCPTool(srv, "track_list_project_changelog", "List project changelog entries.", readOnly, s.mcpListProjectChangelog)
 
 	addMCPTool(srv, "track_create_issue", "Create issue in project.", write, s.mcpCreateIssue)

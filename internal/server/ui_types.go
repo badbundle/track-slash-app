@@ -113,7 +113,8 @@ type uiIssueItem struct {
 	Sprint           *model.Sprint
 	Assignee         *model.ProjectAssignee
 	SubIssueProgress store.SubIssueProgress
-	// CompletedAt is set where a list shows when the issue last moved to Done.
+	// CompletedAt is set where a list shows when the issue was last completed
+	// (moved to Done or Closed).
 	CompletedAt *time.Time
 }
 

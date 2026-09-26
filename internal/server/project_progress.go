@@ -29,7 +29,7 @@ func parseCompletionWindow(raw string) (model.CompletionWindow, error) {
 
 // projectProgress loads what a project the caller may read is working on now:
 // its top-level issues in progress, highest priority first, and those
-// completed within the window, most recently completed first.
+// completed (Done or Closed) within the window, most recently completed first.
 func (s *Server) projectProgress(ctx context.Context, project model.Project, window model.CompletionWindow, now time.Time) (model.ProjectProgress, error) {
 	since := now.Add(-window.Duration()).UTC()
 	inProgress, inProgressHasMore, err := s.store.ListIssues(ctx, store.ListIssuesParams{

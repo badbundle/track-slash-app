@@ -16,14 +16,16 @@ type ListRecentlyCompletedIssuesParams struct {
 	Limit int
 }
 
-// ListRecentlyCompletedIssues returns a project's top-level Done issues whose
-// last move to Done happened at or after Since, most recently completed first.
+// ListRecentlyCompletedIssues returns a project's top-level issues that count
+// as done (Done or Closed) and were completed at or after Since, most recently
+// completed first.
 //
 // Issues carry no completion column, so the time comes from the project
-// changelog: the newest update that set the status to Done. Moving an issue to
-// Done always bumps updated_at, so updated_at >= Since narrows the candidates
+// changelog: the newest update that set the status to Done or Closed, which
+// includes issues closed automatically as duplicates. Completing an issue
+// always bumps updated_at, so updated_at >= Since narrows the candidates
 // before each one looks up its changelog through the issue index. An issue
-// with no recorded move to Done (only possible for rows written outside the
+// with no recorded completion (only possible for rows written outside the
 // store) falls back to its creation time.
 func (s *Store) ListRecentlyCompletedIssues(ctx context.Context, p ListRecentlyCompletedIssuesParams) ([]model.CompletedIssue, bool, error) {
 	const q = `
@@ -41,14 +43,15 @@ func (s *Store) ListRecentlyCompletedIssues(ctx context.Context, p ListRecentlyC
 				  AND e.entity = 'issue'
 				  AND e.entity_id = i.id
 				  AND e.op = 'update'
-				  AND e.details->'changes' @> '[{"field": "status", "to": "Done"}]'::jsonb
+				  AND (e.details->'changes' @> '[{"field": "status", "to": "Done"}]'::jsonb
+				    OR e.details->'changes' @> '[{"field": "status", "to": "Closed"}]'::jsonb)
 				ORDER BY e.created_at DESC, e.id DESC
 				LIMIT 1
 			), i.created_at) AS completed_at
 		) done
 		WHERE i.project_id = $1 AND i.deleted_at IS NULL AND pr.deleted_at IS NULL AND u.deleted_at IS NULL
 		  AND i.parent_issue_id IS NULL
-		  AND i.status = 'done'
+		  AND i.status IN ('done', 'closed')
 		  AND i.updated_at >= $2
 		  AND done.completed_at >= $2
 		ORDER BY done.completed_at DESC, i.number DESC

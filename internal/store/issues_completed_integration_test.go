@@ -37,6 +37,19 @@ func TestListRecentlyCompletedIssues(t *testing.T) {
 		t.Fatalf("retitle: %v", err)
 	}
 
+	// Closing counts as completing, whether by hand or automatically when the
+	// issue is marked a duplicate.
+	wontDo := mustCreateIssue(t, env, "Won't do")
+	setInsightIssueStatus(t, env, wontDo.ID, model.StatusClosed, now.Add(-5*time.Hour))
+	duplicate := mustCreateIssue(t, env, "Duplicate report")
+	original := mustCreateIssue(t, env, "Original report")
+	if _, err := env.store.CreateIssueLink(env.ctx, store.CreateIssueLinkParams{SourceID: duplicate.ID, TargetID: original.ID, LinkType: model.LinkTypeDuplicates}); err != nil {
+		t.Fatalf("CreateIssueLink: %v", err)
+	}
+	setLatestInsightEventAt(t, env, duplicate.ID, "update", now.Add(-6*time.Hour))
+	closedLongAgo := mustCreateIssue(t, env, "Closed weeks ago")
+	setInsightIssueStatus(t, env, closedLongAgo.ID, model.StatusClosed, now.Add(-20*24*time.Hour))
+
 	// Rows written without a changelog entry fall back to their creation time.
 	unrecordedRecent := mustCreateIssue(t, env, "Imported recently")
 	unrecordedOld := mustCreateIssue(t, env, "Imported long ago")
@@ -55,8 +68,6 @@ func TestListRecentlyCompletedIssues(t *testing.T) {
 	// None of these are recently completed top-level issues.
 	inProgress := mustCreateIssue(t, env, "Still going")
 	setIssueStatus(t, env, inProgress.ID, model.StatusInProgress)
-	closed := mustCreateIssue(t, env, "Won't do")
-	setIssueStatus(t, env, closed.ID, model.StatusClosed)
 	deleted := mustCreateIssue(t, env, "Done then deleted")
 	setIssueStatus(t, env, deleted.ID, model.StatusDone)
 	if err := env.store.DeleteIssue(env.ctx, deleted.ID); err != nil {
@@ -84,6 +95,8 @@ func TestListRecentlyCompletedIssues(t *testing.T) {
 		completedAt time.Time
 	}{
 		{id: newest.ID, completedAt: now.Add(-time.Hour)},
+		{id: wontDo.ID, completedAt: now.Add(-5 * time.Hour)},
+		{id: duplicate.ID, completedAt: now.Add(-6 * time.Hour)},
 		{id: recent.ID, completedAt: now.Add(-24 * time.Hour)},
 		{id: unrecordedRecent.ID, completedAt: now.Add(-2 * 24 * time.Hour)},
 		{id: reopened.ID, completedAt: now.Add(-3 * 24 * time.Hour)},
@@ -95,7 +108,7 @@ func TestListRecentlyCompletedIssues(t *testing.T) {
 		if got[i].ID != w.id || !got[i].CompletedAt.Equal(w.completedAt) {
 			t.Fatalf("issue %d = %s completed %s, want %s completed %s", i, got[i].Identifier, got[i].CompletedAt, w.id, w.completedAt)
 		}
-		if got[i].Status != model.StatusDone || got[i].Identifier == "" || got[i].Tags == nil {
+		if !got[i].Status.CountsAsDone() || got[i].Identifier == "" || got[i].Tags == nil {
 			t.Fatalf("issue %d not fully loaded: %+v", i, got[i])
 		}
 	}
@@ -108,7 +121,7 @@ func TestListRecentlyCompletedIssues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRecentlyCompletedIssues limited: %v", err)
 	}
-	if !hasMore || len(page) != 2 || page[0].ID != newest.ID || page[1].ID != recent.ID {
+	if !hasMore || len(page) != 2 || page[0].ID != newest.ID || page[1].ID != wontDo.ID {
 		t.Fatalf("limited page = %+v hasMore %t, want the two newest and more", page, hasMore)
 	}
 

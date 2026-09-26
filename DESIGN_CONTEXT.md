@@ -84,8 +84,8 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 ## In Progress
 
-- `In progress` (`/{owner}/projects/{key}/progress`) is the project's "what is happening now" view when sprints are off. It has two sections: `In progress`, every top-level issue in progress with the highest priority first, and `Recently completed`, top-level issues that moved to Done within a chosen window, most recently completed first, each showing when it was completed.
-- The window is a `range-control` on the trailing edge of the `Recently completed` header: `24 hours`, `7 days` (default), `14 days`, and `30 days`, carried in `?completed_within=1d|7d|14d|30d`. Completion time is the issue's last move to Done in the changelog, so a reopened issue counts from when it was finished again. Cancelled (Closed) issues are not listed.
+- `In progress` (`/{owner}/projects/{key}/progress`) is the project's "what is happening now" view when sprints are off. It has two sections: `In progress`, every top-level issue in progress with the highest priority first, and `Recently completed`, top-level issues completed within a chosen window, most recently completed first, each showing when it was completed. Completed means Done or Closed: won't-do, invalid, and duplicate issues are listed too, with their close reason.
+- The window is a `range-control` on the trailing edge of the `Recently completed` header: `24 hours`, `7 days` (default), `14 days`, and `30 days`, carried in `?completed_within=1d|7d|14d|30d`. Completion time is the issue's last move to Done or Closed in the changelog, including automatic duplicate closes, so a reopened issue counts from when it was finished again.
 - Each section keeps its own count badge and empty state (`No issues in progress.`, `Nothing completed in the last 7 days.`). There are no filters; `All` is the place to slice issues.
 - `GET /api/v1/{owner}/projects/{key}/progress?completed_within=7d` and `track_get_project_progress` return the same `ProjectProgress` payload in either sprint mode, under the project read check, so public projects work signed out.
 
