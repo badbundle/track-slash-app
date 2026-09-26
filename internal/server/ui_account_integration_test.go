@@ -241,7 +241,7 @@ func newUIPasswordAccount(t *testing.T, e *httpEnv, prefix, password string) (st
 
 // Each account page carries exactly the sections that moved to it from the old
 // general Settings page, plus the shared legal footer, and marks itself as the
-// current page in the sidebar's account group.
+// current page in the account menu.
 func TestUIAccountPagesRenderTheirOwnSections(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)
@@ -299,13 +299,16 @@ func TestUIAccountPagesRenderTheirOwnSections(t *testing.T) {
 			if strings.Contains(sidebar, `aria-label="Legal"`) {
 				t.Fatalf("%s sidebar contains legal links: %s", tt.path, sidebar)
 			}
-			account := uiElementForTest(t, sidebar, `<nav aria-label="Account" data-sidebar-account`, `</nav>`)
-			if got := strings.Count(account, `aria-current="page"`); got != 1 {
-				t.Fatalf("%s account group has %d current pages, want 1: %s", tt.path, got, account)
+			if strings.Contains(sidebar, `data-sidebar-account`) {
+				t.Fatalf("%s sidebar still renders the account group: %s", tt.path, sidebar)
 			}
-			current := uiElementForTest(t, account, `data-sidebar-view="`+tt.view+`"`, `>`)
+			if got := strings.Count(sidebar, `aria-current="page"`); got != 1 {
+				t.Fatalf("%s sidebar has %d current pages, want 1: %s", tt.path, got, sidebar)
+			}
+			menu := uiElementForTest(t, sidebar, `<div data-member-menu`, `</details>`)
+			current := uiElementForTest(t, menu, `data-account-view="`+tt.view+`"`, `>`)
 			if !strings.Contains(current, `aria-current="page"`) {
-				t.Fatalf("%s is not the current page in the account group: %s", tt.path, account)
+				t.Fatalf("%s is not the current page in the account menu: %s", tt.path, menu)
 			}
 		})
 	}

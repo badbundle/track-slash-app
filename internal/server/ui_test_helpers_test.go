@@ -102,3 +102,18 @@ func requireMarkupOrder(t *testing.T, body, first, second string) {
 		t.Fatalf("%q should render before %q: %s", first, second, body)
 	}
 }
+
+// markupFromForTest returns body from the first occurrence of start through the
+// next occurrence of end.
+func markupFromForTest(t *testing.T, body, start, end string) string {
+	t.Helper()
+	from := strings.Index(body, start)
+	if from < 0 {
+		t.Fatalf("missing %q: %s", start, body)
+	}
+	to := strings.Index(body[from:], end)
+	if to < 0 {
+		t.Fatalf("unterminated %q: %s", start, body)
+	}
+	return body[from : from+to]
+}
