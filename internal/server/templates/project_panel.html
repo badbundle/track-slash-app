@@ -108,6 +108,8 @@
     {{template "project-panel-changelog" .}}
     {{else if eq .View "context"}}
     {{template "project-panel-context" .ContextManager}}
+    {{else if eq .View "whiteboard"}}
+    {{template "project-panel-whiteboard" .Whiteboard}}
     {{end}}
   </div>
 

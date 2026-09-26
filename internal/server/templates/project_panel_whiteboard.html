@@ -1,0 +1,79 @@
+{{define "project-panel-whiteboard"}}
+<section class="grid gap-4 py-6 lg:grid-cols-[17rem_minmax(0,1fr)]">
+  <aside class="min-w-0 self-start overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    <header class="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-3 dark:border-slate-800">
+      <div class="flex min-w-0 items-center gap-2">
+        <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Pages</h2>
+        {{template "count-badge" (len .Items)}}
+      </div>
+      {{if .CanWrite}}<a href="{{whiteboardNew .Project}}" aria-label="New whiteboard page" hx-get="{{whiteboardNew .Project}}" hx-target="#main" hx-push-url="{{whiteboardNew .Project}}" class="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200 dark:hover:bg-indigo-900/50 dark:focus:ring-offset-slate-900">
+        <i data-lucide="plus" class="h-3.5 w-3.5" aria-hidden="true"></i>
+      </a>{{end}}
+    </header>
+    {{if .Items}}
+    <nav aria-label="Whiteboard pages" class="divide-y divide-slate-100 dark:divide-slate-800">
+      {{range .Items}}
+      {{$current := and (ne $.Action "create") (eq $.Active.ID .ID)}}
+      <a href="{{whiteboardPage $.Project .Ref}}" hx-get="{{whiteboardPagePanel $.Project .Ref}}" hx-target="#main" hx-push-url="{{whiteboardPage $.Project .Ref}}" {{if $current}}aria-current="page"{{end}} class="flex min-w-0 items-center gap-2 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500 {{if $current}}bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200{{else}}text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/70{{end}}">
+        <i data-lucide="sticky-note" class="h-4 w-4 shrink-0" aria-hidden="true"></i>
+        <span class="min-w-0 flex-1 truncate">{{.Title}}</span>
+      </a>
+      {{end}}
+    </nav>
+    {{else}}
+    <div class="px-3 py-5 text-sm text-slate-500 dark:text-slate-400">No pages yet.</div>
+    {{end}}
+    {{if .HasMore}}<div class="border-t border-slate-100 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">Showing the 200 most recent</div>{{end}}
+  </aside>
+
+  <section class="min-w-0 rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+    {{if eq .Action "create"}}
+    <form method="post" action="{{whiteboardPages .Project}}" hx-post="{{whiteboardPages .Project}}" hx-target="#main" class="p-4">{{template "csrf-field" $.CSRFToken}}
+      <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">New page</h2>
+      <input name="title" value="{{.TitleInput}}" placeholder="Page title" aria-label="Page title" autofocus class="mt-3 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+      {{template "description-editor" (whiteboardEditor .)}}
+      {{if .Error}}<p class="mt-2 text-sm text-rose-700 dark:text-rose-300">{{.Error}}</p>{{end}}
+      <div class="mt-4 flex items-center gap-2">
+        <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"><i data-lucide="check" class="h-4 w-4" aria-hidden="true"></i>Create page</button>
+        <a href="{{whiteboardPages .Project}}" hx-get="{{projectPanel .Project "whiteboard"}}" hx-target="#main" hx-push-url="{{whiteboardPages .Project}}" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900"><i data-lucide="x" class="h-4 w-4" aria-hidden="true"></i>Cancel</a>
+      </div>
+    </form>
+    {{else if .HasActive}}
+    <header class="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+      <div class="min-w-0">
+        <h2 class="truncate text-lg font-semibold text-slate-950 dark:text-slate-100">{{.Active.Title}}</h2>
+        <p class="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Updated {{template "local-time" (tokenTime .Active.UpdatedAt)}}</p>
+      </div>
+      {{if and .CanWrite (eq .Action "view")}}
+      <div class="flex shrink-0 items-center gap-2">
+        <a href="{{whiteboardPageEdit .Project .Active.Ref}}" aria-label="Edit whiteboard page" hx-get="{{whiteboardPageEdit .Project .Active.Ref}}" hx-target="#main" hx-push-url="{{whiteboardPageEdit .Project .Active.Ref}}" class="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900"><i data-lucide="pencil" class="h-4 w-4" aria-hidden="true"></i></a>
+        <form method="post" action="{{whiteboardPageDelete .Project .Active.Ref}}" hx-post="{{whiteboardPageDelete .Project .Active.Ref}}" hx-target="#main" hx-confirm="Delete this whiteboard page?">{{template "csrf-field" $.CSRFToken}}<button type="submit" aria-label="Delete whiteboard page" class="grid h-8 w-8 place-items-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950/40 dark:focus:ring-offset-slate-900"><i data-lucide="trash-2" class="h-4 w-4" aria-hidden="true"></i></button></form>
+      </div>
+      {{end}}
+    </header>
+    {{if eq .Action "edit"}}
+    <form method="post" action="{{whiteboardPage .Project .Active.Ref}}" hx-post="{{whiteboardPage .Project .Active.Ref}}" hx-target="#main" class="p-4">{{template "csrf-field" $.CSRFToken}}
+      <input name="title" value="{{.TitleInput}}" aria-label="Page title" autofocus class="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-950 outline-none ring-indigo-500 focus:ring-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100">
+      {{template "description-editor" (whiteboardEditor .)}}
+      {{if .Error}}<p class="mt-2 text-sm text-rose-700 dark:text-rose-300">{{.Error}}</p>{{end}}
+      <div class="mt-4 flex items-center gap-2">
+        <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"><i data-lucide="check" class="h-4 w-4" aria-hidden="true"></i>Save</button>
+        <a href="{{whiteboardPage .Project .Active.Ref}}" hx-get="{{whiteboardPagePanel .Project .Active.Ref}}" hx-target="#main" hx-push-url="{{whiteboardPage .Project .Active.Ref}}" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900"><i data-lucide="x" class="h-4 w-4" aria-hidden="true"></i>Cancel</a>
+      </div>
+    </form>
+    {{else}}
+    <div class="px-4 pb-4 pt-1">
+      {{template "description-body" (whiteboardBody .)}}
+    </div>
+    {{end}}
+    {{else}}
+    <div class="p-8 text-center">
+      <i data-lucide="presentation" class="mx-auto h-8 w-8 text-slate-400" aria-hidden="true"></i>
+      <h2 class="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">No whiteboard pages yet</h2>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Jot down notes and ideas about the project as Markdown pages.</p>
+      {{if .CanWrite}}<a href="{{whiteboardNew .Project}}" hx-get="{{whiteboardNew .Project}}" hx-target="#main" hx-push-url="{{whiteboardNew .Project}}" class="mt-4 inline-flex h-9 items-center gap-2 rounded-md bg-indigo-600 px-3 text-sm font-medium text-white hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"><i data-lucide="plus" class="h-4 w-4" aria-hidden="true"></i>New page</a>{{end}}
+    </div>
+    {{end}}
+  </section>
+</section>
+{{end}}

@@ -462,7 +462,7 @@ func (s *Server) verifyMCPBearerToken(ctx context.Context, raw string, _ *http.R
 
 func (s *Server) newMCPServer() *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "track-slash", Version: "v1"}, &mcp.ServerOptions{
-		Instructions: "Use trackslash tools to read and update issue-tracking data. Prefer refs like KEY-123, sprint-1, tag-1, link-1, context-1, object-1.",
+		Instructions: "Use trackslash tools to read and update issue-tracking data. Prefer refs like KEY-123, sprint-1, tag-1, link-1, context-1, whiteboard-1, object-1.",
 	})
 
 	readOnly := true
@@ -544,6 +544,12 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_bulk_link_issue_contexts", "Link up to 200 issue and project-context pairs atomically.", write, s.mcpBulkLinkIssueContexts)
 	addMCPTool(srv, "track_list_issue_context", "List context items linked to issue.", readOnly, s.mcpListIssueContext)
 	addMCPTool(srv, "track_delete_issue_context", "Delete issue-context link.", write, s.mcpDeleteIssueContext)
+
+	addMCPTool(srv, "track_list_whiteboard_pages", "List project whiteboard pages, most recently updated first. Bodies are omitted; read one page with track_get_whiteboard_page.", readOnly, s.mcpListWhiteboardPages)
+	addMCPTool(srv, "track_get_whiteboard_page", "Get a project whiteboard page with its Markdown body.", readOnly, s.mcpGetWhiteboardPage)
+	addMCPTool(srv, "track_create_whiteboard_page", "Create a free-form project whiteboard page. Whiteboard pages are never linked to issues.", write, s.mcpCreateWhiteboardPage)
+	addMCPTool(srv, "track_update_whiteboard_page", "Update a project whiteboard page title or Markdown body.", write, s.mcpUpdateWhiteboardPage)
+	addMCPTool(srv, "track_delete_whiteboard_page", "Delete a project whiteboard page.", write, s.mcpDeleteWhiteboardPage)
 
 	addMCPTool(srv, "track_create_object", "Upload project storage object from base64 content.", write, s.mcpCreateObject)
 	addMCPTool(srv, "track_list_objects", "List project storage objects.", readOnly, s.mcpListObjects)
@@ -3851,6 +3857,13 @@ func (s *Server) addMCPResources(srv *mcp.Server) {
 		URITemplate: "track://context/{owner}/{key}/{context}",
 	}, handler)
 	srv.AddResourceTemplate(&mcp.ResourceTemplate{
+		Name:        "track_whiteboard_page",
+		Title:       "track whiteboard page",
+		Description: "Project whiteboard page by owner, key, and page ref.",
+		MIMEType:    "application/json",
+		URITemplate: "track://whiteboard/{owner}/{key}/{page}",
+	}, handler)
+	srv.AddResourceTemplate(&mcp.ResourceTemplate{
 		Name:        "track_object",
 		Title:       "track object metadata",
 		Description: "Storage object metadata by owner, key, and object ref.",
@@ -3919,6 +3932,15 @@ func (s *Server) readMCPResource(ctx context.Context, req *mcp.ReadResourceReque
 			return nil, mcpResourceError(uri, err)
 		}
 		return mcpJSONResource(uri, contextItem)
+	case "whiteboard":
+		if len(parts) != 3 {
+			return nil, mcp.ResourceNotFoundError(uri)
+		}
+		page, err := s.mcpWhiteboardPage(ctx, auth, mcpWhiteboardPageInput{mcpProjectInput: mcpProjectInput{Owner: parts[0], Key: parts[1]}, Page: parts[2]})
+		if err != nil {
+			return nil, mcpResourceError(uri, err)
+		}
+		return mcpJSONResource(uri, page)
 	case "object":
 		if len(parts) != 3 {
 			return nil, mcp.ResourceNotFoundError(uri)

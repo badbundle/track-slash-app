@@ -7,7 +7,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Below the `md` breakpoint, use an off-canvas navigation drawer opened from a persistent mobile app bar. Do not reserve space for a permanent icon rail on narrow screens.
 - Keep mobile page gutters compact and consistent while preserving the established desktop content width and spacing.
 - Dense issue rows should reflow into stacked, readable metadata on narrow screens and return to the compact column layout at `sm` and above.
-- Keep primary tabs on one line. On narrow project pages, keep `Sprint`, `Planned`, and `All` visible (`Planned` and `All` when sprints are disabled) and move `Context` and `About` into the project overflow menu instead of wrapping or scrolling the tab bar. `Changelog` always lives in project overflow.
+- Keep primary tabs on one line. On narrow project pages, keep `Sprint`, `Planned`, and `All` visible (`Planned` and `All` when sprints are disabled) and move `Context`, `Whiteboard`, and `About` into the project overflow menu instead of wrapping or scrolling the tab bar. `Changelog` always lives in project overflow.
 
 ## Login page
 
@@ -58,7 +58,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Keep `Sprint history` in the project actions menu immediately above `Changelog`. It is a read-only, newest-first list of completed sprints with compact schedule/completion metadata and explicit pagination. Each row shows frozen `Done` and `Cancelled` issue counts plus a compact Markdown description preview with its own `See more` expansion. Retain a separate sprint disclosure control that lazy-loads the complete, paginated issue membership captured atomically when that sprint completed.
 - Open project member management from the project actions menu as a full project page with its own URL, not as a modal.
 - Keep `Delete project` at the bottom of the project actions menu, below a divider and in destructive colour. It opens a confirmation dialog that names the consequences and requires the project key to be typed. Only the project owner and site admins see it. The same owner-or-admin rule governs `DELETE /projects/{key}` and `track_delete_project`, so no surface can delete a project the others would refuse.
-- Use the wide-layout project tabs `Sprint`, `Planned`, `All`, `Context`, and `About`. `Sprint` is singular; use a human/running-style Lucide icon when available, and show it only when the project has sprints enabled. Below `lg`, show only the sprint-work tabs (`Sprint`, `Planned`, `All`) and expose `Context` and `About` from project actions. Keep `Changelog` in project overflow at every breakpoint.
+- Use the wide-layout project tabs `Sprint`, `Planned`, `All`, `Context`, `Whiteboard`, and `About`. `Sprint` is singular; use a human/running-style Lucide icon when available, and show it only when the project has sprints enabled. Below `lg`, show only the sprint-work tabs (`Sprint`, `Planned`, `All`) and expose `Context`, `Whiteboard`, and `About` from project actions. Keep `Changelog` in project overflow at every breakpoint.
 - Show assignee filters only where they apply. Do not preserve or display assignee filters on `About`.
 - The `All` tab is the triage and discovery surface. It should feel dense and scan-friendly, with all current, past, completed, planned, and unplanned issues available through one list.
 - Flat issue lists — project `All` and both `Me` views — default to open work (`To do` and `In progress`). A list of everything ever filed answers "what is on this project" worse than a list of what is left. Completed and cancelled work stays one click away behind the `Any` status filter, and `?status=any` is the URL that says so. The sprint board is the exception: its columns are the statuses, so it keeps all of them.
@@ -95,6 +95,14 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Linked project pages are read-only in the issue Context manager; edit them from the project Context tab so their project-wide scope stays explicit.
 - Use user-facing titles for finding and attaching context. Do not expose refs such as `context-1` as visible row labels or search/link inputs; refs may remain in URLs/API mechanics.
 - Keep issue Context actions explicit: one action creates issue-scoped context and one attaches existing project context. Project page creation, ordering, deletion, attachments, and linked-issue management stay in the project Context tab.
+
+## Whiteboard
+
+- The Whiteboard is a project's scratch space: free-form Markdown notes and ideas that come and go. It is deliberately lighter than Context and never links to issues — no linked-issue section, no attach action, no issue counts. Promote anything that becomes real work into an issue.
+- Use `/{owner}/projects/{key}/whiteboard` as an integrated project tab with the standard project header, the same list/document layout as Context, and `/whiteboard/{whiteboard-N}` for the selected page. The tab opens on the most recently updated page.
+- List pages most recently updated first, titles only; only the selected page renders its body. There is no manual ordering and no attachment or import support.
+- Creating a page is one click from the list header (or the empty state) and takes a title plus optional Markdown. Editing uses the same explicit edit/save/cancel Markdown behavior as Context pages. Deleting is one action with a lightweight `hx-confirm`; pages are soft-deleted and their refs are never reused.
+- Writers see the create, edit, and delete controls. Read-only members and public readers see the same pages with none of them. The empty state reads `No whiteboard pages yet` and offers `New page` to writers only.
 
 ## Tag IA
 

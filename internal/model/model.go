@@ -674,6 +674,39 @@ func StorageObjectRef(number int) string {
 	return fmt.Sprintf("object-%d", number)
 }
 
+// WhiteboardPage is a free-form Markdown note on a project's Whiteboard. Pages
+// are never linked to issues and are soft-deleted, so a ref is never reused.
+type WhiteboardPage struct {
+	ID          uuid.UUID `json:"id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	Number      int       `json:"number"`
+	Ref         string    `json:"ref"`
+	Title       string    `json:"title"`
+	Body        string    `json:"body"`
+	CreatedByID uuid.UUID `json:"created_by_id"`
+	UpdatedByID uuid.UUID `json:"updated_by_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// WhiteboardPageSummary is a list row: everything but the Markdown body, which
+// is only loaded for the page being read.
+type WhiteboardPageSummary struct {
+	ID          uuid.UUID `json:"id"`
+	ProjectID   uuid.UUID `json:"project_id"`
+	Number      int       `json:"number"`
+	Ref         string    `json:"ref"`
+	Title       string    `json:"title"`
+	CreatedByID uuid.UUID `json:"created_by_id"`
+	UpdatedByID uuid.UUID `json:"updated_by_id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+func WhiteboardPageRef(number int) string {
+	return fmt.Sprintf("whiteboard-%d", number)
+}
+
 func CommentRef(number int) string {
 	return fmt.Sprintf("comment-%d", number)
 }

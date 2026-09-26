@@ -43,14 +43,15 @@ func uiIssueTitlePartsForDisplay(title string) uiIssueTitleParts {
 }
 
 var uiProjectViewLabels = map[string]string{
-	"sprint":    "Sprint",
-	"planned":   "Planned",
-	"all":       "All",
-	"context":   "Context",
-	"about":     "About",
-	"members":   "Members",
-	"sprints":   "Sprint history",
-	"changelog": "Changelog",
+	"sprint":     "Sprint",
+	"planned":    "Planned",
+	"all":        "All",
+	"context":    "Context",
+	"whiteboard": "Whiteboard",
+	"about":      "About",
+	"members":    "Members",
+	"sprints":    "Sprint history",
+	"changelog":  "Changelog",
 }
 
 func uiProjectBreadcrumb(project model.Project, view string, showOwner ...bool) uiBreadcrumbData {
@@ -492,6 +493,8 @@ func uiChangelogIcon(entry model.ProjectChangelogEntry) string {
 		return "tag"
 	case "project_context", "issue_context_link":
 		return "book-open"
+	case "whiteboard_page":
+		return "presentation"
 	case "sprint":
 		return "calendar-range"
 	case "project_member":
