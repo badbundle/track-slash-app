@@ -374,19 +374,172 @@ type ProjectStats struct {
 	TopAssignees []ProjectAssigneeIssueStats `json:"top_assignees"`
 }
 
-type ProjectCompletionHistoryPoint struct {
-	PeriodStart time.Time `json:"period_start"`
-	AsOf        time.Time `json:"as_of"`
-	Total       int       `json:"total"`
-	Completed   int       `json:"completed"`
-	Rate        float64   `json:"rate"`
+// InsightRange names the window every project insight series covers.
+type InsightRange string
+
+const (
+	InsightRangeTwoWeeks   InsightRange = "2w"
+	InsightRangeThirtyDays InsightRange = "30d"
+	InsightRangeNinetyDays InsightRange = "90d"
+	InsightRangeAll        InsightRange = "all"
+
+	// DefaultInsightRange is used when a caller does not name a range.
+	DefaultInsightRange = InsightRangeThirtyDays
+)
+
+// InsightRanges lists the ranges in the order controls should offer them.
+func InsightRanges() []InsightRange {
+	return []InsightRange{InsightRangeTwoWeeks, InsightRangeThirtyDays, InsightRangeNinetyDays, InsightRangeAll}
 }
 
-type ProjectCompletionHistory struct {
-	ProjectID uuid.UUID                       `json:"project_id"`
-	Start     time.Time                       `json:"start"`
-	End       time.Time                       `json:"end"`
-	Points    []ProjectCompletionHistoryPoint `json:"points"`
+func (r InsightRange) Valid() bool {
+	switch r {
+	case InsightRangeTwoWeeks, InsightRangeThirtyDays, InsightRangeNinetyDays, InsightRangeAll:
+		return true
+	}
+	return false
+}
+
+func (r InsightRange) Label() string {
+	switch r {
+	case InsightRangeTwoWeeks:
+		return "2 weeks"
+	case InsightRangeThirtyDays:
+		return "30 days"
+	case InsightRangeNinetyDays:
+		return "90 days"
+	case InsightRangeAll:
+		return "All time"
+	default:
+		return string(r)
+	}
+}
+
+// InsightBucket is the period each point or bar in an insight series covers.
+type InsightBucket string
+
+const (
+	InsightBucketDay   InsightBucket = "day"
+	InsightBucketWeek  InsightBucket = "week"
+	InsightBucketMonth InsightBucket = "month"
+)
+
+// ProjectInsightFlowPoint is issue status as of the end of one period. Scope,
+// Started, and Completed are the burn-up lines: cancelled issues leave scope,
+// and a reopened issue leaves Completed on the day it reopens.
+type ProjectInsightFlowPoint struct {
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+	Todo        int       `json:"todo"`
+	InProgress  int       `json:"in_progress"`
+	Done        int       `json:"done"`
+	Cancelled   int       `json:"cancelled"`
+	Scope       int       `json:"scope"`
+	Started     int       `json:"started"`
+	Completed   int       `json:"completed"`
+}
+
+// ProjectInsightThroughputPoint counts status transitions inside one period.
+// Resolved counts every move into Done or Closed from an open status, and
+// Reopened every move back out, so an issue resolved twice counts twice.
+type ProjectInsightThroughputPoint struct {
+	PeriodStart time.Time `json:"period_start"`
+	PeriodEnd   time.Time `json:"period_end"`
+	Created     int       `json:"created"`
+	Resolved    int       `json:"resolved"`
+	Reopened    int       `json:"reopened"`
+}
+
+// ProjectInsightCycleTimeIssue is one Done issue: first move to In progress
+// through its last move to Done.
+type ProjectInsightCycleTimeIssue struct {
+	IssueID       uuid.UUID `json:"issue_id"`
+	Identifier    string    `json:"identifier"`
+	Number        int       `json:"number"`
+	Title         string    `json:"title"`
+	StartedAt     time.Time `json:"started_at"`
+	CompletedAt   time.Time `json:"completed_at"`
+	DurationHours float64   `json:"duration_hours"`
+}
+
+type ProjectInsightCycleTime struct {
+	Issues []ProjectInsightCycleTimeIssue `json:"issues"`
+	// MedianHours and P85Hours are continuous percentiles over Issues; zero
+	// when Issues is empty.
+	MedianHours float64 `json:"median_hours"`
+	P85Hours    float64 `json:"p85_hours"`
+	// NotStarted counts issues completed in the range that never moved to In
+	// progress, so they have no cycle time.
+	NotStarted int `json:"not_started"`
+	// Truncated reports that only the most recent completions are included.
+	Truncated bool `json:"truncated"`
+}
+
+// ProjectInsightSprintVelocity summarises one completed sprint. Committed is
+// the issue count when the sprint started; it is nil when that moment was not
+// recorded. Done, Cancelled, and CarriedOver come from the membership captured
+// when the sprint completed.
+type ProjectInsightSprintVelocity struct {
+	SprintID    uuid.UUID  `json:"sprint_id"`
+	Ref         string     `json:"ref"`
+	Number      int        `json:"number"`
+	Name        string     `json:"name"`
+	StartedAt   *time.Time `json:"started_at,omitempty"`
+	CompletedAt time.Time  `json:"completed_at"`
+	Committed   *int       `json:"committed"`
+	Total       int        `json:"total"`
+	Done        int        `json:"done"`
+	Cancelled   int        `json:"cancelled"`
+	CarriedOver int        `json:"carried_over"`
+}
+
+// ProjectInsightSprintBurnup is daily scope/started/completed for one sprint.
+// Points stop at the present for an active sprint; End is the planned end
+// when that is later, so the remaining days are visible.
+type ProjectInsightSprintBurnup struct {
+	SprintID  uuid.UUID                 `json:"sprint_id"`
+	Ref       string                    `json:"ref"`
+	Name      string                    `json:"name"`
+	Status    SprintStatus              `json:"status"`
+	Start     time.Time                 `json:"start"`
+	End       time.Time                 `json:"end"`
+	Days      int                       `json:"days"`
+	Points    []ProjectInsightFlowPoint `json:"points"`
+	Estimated bool                      `json:"estimated"`
+}
+
+// ProjectInsightSprintOption is a sprint whose burn-up can be requested.
+type ProjectInsightSprintOption struct {
+	SprintID uuid.UUID    `json:"sprint_id"`
+	Ref      string       `json:"ref"`
+	Name     string       `json:"name"`
+	Status   SprintStatus `json:"status"`
+}
+
+type ProjectInsightSprints struct {
+	// Enabled reports whether sprint charts apply: the project's sprint mode.
+	// The store leaves it false and the server fills it in. The sprint series
+	// are returned either way, since completed sprints stay history.
+	Enabled bool `json:"enabled"`
+	// Count is every sprint the project has ever had, in any status.
+	Count    int                            `json:"count"`
+	Velocity []ProjectInsightSprintVelocity `json:"velocity"`
+	Options  []ProjectInsightSprintOption   `json:"options"`
+	Burnup   *ProjectInsightSprintBurnup    `json:"burnup,omitempty"`
+}
+
+// ProjectInsights is every insight series for one range, all derived from
+// persisted history. Deleted issues are excluded throughout.
+type ProjectInsights struct {
+	ProjectID  uuid.UUID                       `json:"project_id"`
+	Range      InsightRange                    `json:"range"`
+	Bucket     InsightBucket                   `json:"bucket"`
+	Start      time.Time                       `json:"start"`
+	End        time.Time                       `json:"end"`
+	Flow       []ProjectInsightFlowPoint       `json:"flow"`
+	Throughput []ProjectInsightThroughputPoint `json:"throughput"`
+	CycleTime  ProjectInsightCycleTime         `json:"cycle_time"`
+	Sprints    ProjectInsightSprints           `json:"sprints"`
 }
 
 type ProjectChangelogChange struct {

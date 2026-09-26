@@ -1329,6 +1329,290 @@
     textarea.classList.remove("border-indigo-300", "bg-indigo-50", "dark:border-indigo-900", "dark:bg-indigo-950/30");
     uploadAttachments(textarea, Array.from(event.dataTransfer ? event.dataTransfer.files : []));
   });
+  // Project insight charts: the server renders every mark; this layer adds the
+  // crosshair, tooltips, keyboard stepping, touch taps, and legend toggles.
+  const insightChartStates = new WeakMap();
+  const insightNumber = (value) => {
+    const rounded = Math.round(Number(value) * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  };
+  const insightCoord = (value) => String(Math.round(value * 10) / 10);
+  const insightState = (chart) => {
+    let state = insightChartStates.get(chart);
+    if (state) return state;
+    let data = {};
+    try {
+      data = JSON.parse(chart.getAttribute("data-insight-chart") || "{}");
+    } catch {
+      data = {};
+    }
+    const labels = Array.isArray(data.labels) ? data.labels : [];
+    const series = Array.isArray(data.series) ? data.series : [];
+    let last = -1;
+    series.forEach((item) => (item.values || []).forEach((value, index) => {
+      if (value !== null && value !== undefined && index > last) last = index;
+    }));
+    state = { data: { ...data, labels, series }, hidden: new Set(), index: null, last, armedPoint: null };
+    insightChartStates.set(chart, state);
+    return state;
+  };
+  const insightTemplate = (name) => {
+    const template = document.querySelector(`template[data-insight-tooltip-${name}]`);
+    const node = template?.content.firstElementChild?.cloneNode(true);
+    return node instanceof HTMLElement ? node : document.createElement("p");
+  };
+  const insightTooltipRow = (swatch, value, label) => {
+    const row = insightTemplate("row");
+    const key = row.querySelector("[data-key]");
+    if (key) key.classList.add(...String(swatch || "").split(/\s+/).filter(Boolean));
+    const valueNode = row.querySelector("[data-value]");
+    if (valueNode) valueNode.textContent = value;
+    const labelNode = row.querySelector("[data-label]");
+    if (labelNode) labelNode.textContent = label;
+    return row;
+  };
+  const insightVisibleSeries = (state) => state.data.series.filter((item) => !state.hidden.has(item.key));
+  const insightFraction = (state, index) => {
+    const count = state.data.labels.length;
+    if (state.data.kind === "bars") return count > 0 ? (index + 0.5) / count : 0.5;
+    return count > 1 ? index / (count - 1) : 0.5;
+  };
+  // The tooltip sits in an SVG foreignObject and moves by its x and y
+  // attributes, so nothing writes inline styles (the CSP forbids them).
+  const placeInsightTooltip = (plot, tooltip, x, y) => {
+    const box = tooltip.closest("[data-insight-tooltip-box]");
+    if (!box) return;
+    box.classList.remove("hidden");
+    const width = plot.clientWidth;
+    const height = plot.clientHeight;
+    const tipWidth = tooltip.offsetWidth;
+    const tipHeight = tooltip.offsetHeight;
+    let left = x + 12;
+    if (left + tipWidth > width) left = x - 12 - tipWidth;
+    left = Math.max(Math.min(left, width - tipWidth), Math.min(0, width - tipWidth));
+    let top = y === null ? 4 : y - tipHeight - 10;
+    if (top < 0) top = y === null ? 4 : Math.min(y + 12, Math.max(0, height - tipHeight));
+    box.setAttribute("x", String(Math.round(left)));
+    box.setAttribute("y", String(Math.round(top)));
+  };
+  const hideInsight = (chart) => {
+    const state = insightState(chart);
+    state.index = null;
+    state.armedPoint = null;
+    chart.querySelector("[data-insight-tooltip-box]")?.classList.add("hidden");
+    chart.querySelector("[data-insight-crosshair]")?.classList.add("hidden");
+    chart.querySelectorAll("[data-insight-marker]").forEach((marker) => marker.classList.add("hidden"));
+    chart.querySelectorAll("[data-insight-column][data-active]").forEach((column) => column.removeAttribute("data-active"));
+  };
+  const showInsightIndex = (chart, index, announce = false) => {
+    const state = insightState(chart);
+    const plot = chart.querySelector("[data-insight-plot]");
+    const tooltip = chart.querySelector("[data-insight-tooltip]");
+    if (!plot || !tooltip || state.last < 0) return;
+    index = Math.max(0, Math.min(state.last, index));
+    state.index = index;
+    const { data } = state;
+    const title = insightTemplate("title");
+    title.textContent = data.labels[index] || "";
+    const nodes = [title];
+    const spoken = [title.textContent];
+    const visible = insightVisibleSeries(state);
+    visible.forEach((item) => {
+      const raw = item.values?.[index];
+      const text = item.text?.[index] || (raw === null || raw === undefined ? "–" : insightNumber(raw));
+      nodes.push(insightTooltipRow(item.swatch, text, item.label));
+      spoken.push(`${item.label} ${text}`);
+    });
+    (data.details || []).forEach((detail) => {
+      const node = insightTemplate("detail");
+      node.textContent = `${detail.label}: ${detail.values?.[index] ?? "–"}`;
+      nodes.push(node);
+      spoken.push(node.textContent);
+    });
+    tooltip.replaceChildren(...nodes);
+    const fraction = insightFraction(state, index);
+    const percent = `${insightCoord(fraction * 100)}%`;
+    const crosshair = chart.querySelector("[data-insight-crosshair]");
+    if (crosshair) {
+      crosshair.setAttribute("x1", percent);
+      crosshair.setAttribute("x2", percent);
+      crosshair.classList.remove("hidden");
+    }
+    let stack = 0;
+    state.data.series.forEach((item) => {
+      const marker = chart.querySelector(`[data-insight-marker="${CSS.escape(item.key)}"]`);
+      if (!marker) return;
+      const raw = item.values?.[index];
+      if (state.hidden.has(item.key) || raw === null || raw === undefined || !data.top) {
+        marker.classList.add("hidden");
+        return;
+      }
+      const value = data.kind === "area" ? (stack += Number(raw)) : Number(raw);
+      marker.setAttribute("cx", percent);
+      marker.setAttribute("cy", `${insightCoord((1 - value / data.top) * 100)}%`);
+      marker.classList.remove("hidden");
+    });
+    chart.querySelectorAll("[data-insight-column]").forEach((column) => {
+      if (Number(column.getAttribute("data-insight-column")) === index) {
+        column.setAttribute("data-active", "");
+      } else {
+        column.removeAttribute("data-active");
+      }
+    });
+    placeInsightTooltip(plot, tooltip, fraction * plot.clientWidth, null);
+    if (announce) {
+      const live = chart.querySelector("[data-insight-live]");
+      if (live) live.textContent = spoken.join(", ");
+    }
+  };
+  const showInsightPoint = (chart, point, announce = false) => {
+    const plot = chart.querySelector("[data-insight-plot]");
+    const tooltip = chart.querySelector("[data-insight-tooltip]");
+    const dot = point.querySelector("circle:last-of-type");
+    if (!plot || !tooltip || !dot) return;
+    const title = insightTemplate("title");
+    title.textContent = point.getAttribute("data-point-title") || "";
+    const nodes = [title, insightTooltipRow(insightState(chart).data.series?.[0]?.swatch || "bg-indigo-500", point.getAttribute("data-point-value") || "", "cycle time")];
+    String(point.getAttribute("data-point-detail") || "").split("\n").filter(Boolean).forEach((line) => {
+      const node = insightTemplate("detail");
+      node.textContent = line;
+      nodes.push(node);
+    });
+    tooltip.replaceChildren(...nodes);
+    const plotBox = plot.getBoundingClientRect();
+    const dotBox = dot.getBoundingClientRect();
+    placeInsightTooltip(plot, tooltip, dotBox.left + dotBox.width / 2 - plotBox.left, dotBox.top + dotBox.height / 2 - plotBox.top);
+    if (announce) {
+      const live = chart.querySelector("[data-insight-live]");
+      if (live) live.textContent = point.getAttribute("aria-label") || "";
+    }
+  };
+  const insightIndexAt = (chart, clientX) => {
+    const state = insightState(chart);
+    const plot = chart.querySelector("[data-insight-plot]");
+    const count = state.data.labels.length;
+    if (!plot || count === 0) return 0;
+    const box = plot.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (clientX - box.left) / Math.max(1, box.width)));
+    if (state.data.kind === "bars") return Math.min(count - 1, Math.floor(fraction * count));
+    return Math.round(fraction * (count - 1));
+  };
+  const insightLinePath = (values, top, count) => {
+    let path = "";
+    let pen = false;
+    values.forEach((value, index) => {
+      if (value === null || value === undefined) {
+        pen = false;
+        return;
+      }
+      const x = count > 1 ? (index / (count - 1)) * 1000 : 500;
+      path += `${pen ? "L" : "M"}${insightCoord(x)},${insightCoord(1000 - (value / top) * 1000)}`;
+      pen = true;
+    });
+    return path;
+  };
+  const restackInsightAreas = (chart) => {
+    const state = insightState(chart);
+    const { data } = state;
+    if (data.kind !== "area" || !data.top) return;
+    const count = data.labels.length;
+    let base = new Array(count).fill(0);
+    data.series.forEach((item) => {
+      if (state.hidden.has(item.key)) return;
+      const upper = base.map((value, index) => value + Number(item.values?.[index] ?? 0));
+      const x = (index) => insightCoord(count > 1 ? (index / (count - 1)) * 1000 : 500);
+      const y = (value) => insightCoord(1000 - (value / data.top) * 1000);
+      let area = upper.map((value, index) => `${index === 0 ? "M" : "L"}${x(index)},${y(value)}`).join("");
+      for (let index = count - 1; index >= 0; index -= 1) area += `L${x(index)},${y(base[index])}`;
+      const key = CSS.escape(item.key);
+      chart.querySelector(`[data-insight-area][data-series="${key}"]`)?.setAttribute("d", `${area}Z`);
+      chart.querySelector(`[data-insight-line][data-series="${key}"]`)?.setAttribute("d", insightLinePath(upper, data.top, count));
+      base = upper;
+    });
+  };
+  const toggleInsightSeries = (chart, button) => {
+    const state = insightState(chart);
+    const key = button.getAttribute("data-insight-toggle") || "";
+    const show = state.hidden.has(key);
+    if (show) {
+      state.hidden.delete(key);
+    } else {
+      state.hidden.add(key);
+    }
+    button.setAttribute("aria-pressed", show ? "true" : "false");
+    chart.querySelectorAll(`[data-series="${CSS.escape(key)}"]`).forEach((element) => element.classList.toggle("hidden", !show));
+    restackInsightAreas(chart);
+    if (state.index !== null) showInsightIndex(chart, state.index);
+  };
+  const initInsightChart = (chart) => {
+    if (chart.hasAttribute("data-insight-ready")) return;
+    chart.setAttribute("data-insight-ready", "");
+    const plot = chart.querySelector("[data-insight-plot]");
+    chart.querySelectorAll("[data-insight-toggle]").forEach((button) => {
+      button.addEventListener("click", () => toggleInsightSeries(chart, button));
+    });
+    if (!plot) return;
+    if (chart.getAttribute("data-insight-kind") === "scatter") {
+      let pointerType = "mouse";
+      chart.querySelectorAll("[data-insight-point]").forEach((point) => {
+        point.addEventListener("pointerdown", (event) => { pointerType = event.pointerType; });
+        point.addEventListener("pointerenter", (event) => {
+          if (event.pointerType === "mouse") showInsightPoint(chart, point);
+        });
+        point.addEventListener("pointerleave", (event) => {
+          if (event.pointerType === "mouse") hideInsight(chart);
+        });
+        point.addEventListener("focus", () => showInsightPoint(chart, point, true));
+        point.addEventListener("blur", () => hideInsight(chart));
+        point.addEventListener("click", (event) => {
+          // A first tap shows the details; tapping the same point again opens it.
+          const state = insightState(chart);
+          if (pointerType === "mouse" || pointerType === "pen" || state.armedPoint === point) return;
+          event.preventDefault();
+          showInsightPoint(chart, point);
+          state.armedPoint = point;
+        });
+      });
+      return;
+    }
+    const track = (event) => showInsightIndex(chart, insightIndexAt(chart, event.clientX));
+    plot.addEventListener("pointermove", track);
+    plot.addEventListener("pointerdown", track);
+    plot.addEventListener("pointerleave", (event) => {
+      if (event.pointerType === "mouse" && document.activeElement !== plot) hideInsight(chart);
+    });
+    plot.addEventListener("focus", () => {
+      const state = insightState(chart);
+      showInsightIndex(chart, state.index ?? state.last, true);
+    });
+    plot.addEventListener("blur", () => hideInsight(chart));
+    plot.addEventListener("keydown", (event) => {
+      const state = insightState(chart);
+      const current = state.index ?? state.last;
+      let next = null;
+      if (event.key === "ArrowLeft") next = current - 1;
+      if (event.key === "ArrowRight") next = current + 1;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = state.last;
+      if (event.key === "Escape") {
+        hideInsight(chart);
+        return;
+      }
+      if (next === null) return;
+      event.preventDefault();
+      showInsightIndex(chart, next, true);
+    });
+  };
+  const initInsightCharts = (root = document) => {
+    if (root instanceof Element && root.matches("[data-insight-chart]")) initInsightChart(root);
+    root.querySelectorAll("[data-insight-chart]").forEach(initInsightChart);
+  };
+  document.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" || !(event.target instanceof Element)) return;
+    document.querySelectorAll("[data-insight-chart][data-insight-ready]").forEach((chart) => {
+      if (!chart.contains(event.target)) hideInsight(chart);
+    });
+  });
   document.body.addEventListener("htmx:afterSwap", (event) => {
     createIcons();
     localizeTimes(event.target);
@@ -1338,6 +1622,7 @@
     syncSidebarActive();
     syncChangelogRealtime();
     syncPushNotifications(event.target);
+    initInsightCharts(event.target);
     window.setTimeout(() => focusClientModal(document.querySelector("[data-client-modal]:not(.hidden)")), 0);
   });
   document.body.addEventListener("htmx:historyRestore", syncSidebarActive);
@@ -1350,6 +1635,7 @@
       syncSidebarActive();
       syncChangelogRealtime();
       syncPushNotifications();
+      initInsightCharts();
       focusClientModal(document.querySelector("[data-client-modal]:not(.hidden)"));
     });
   } else {
@@ -1360,6 +1646,7 @@
     syncSidebarActive();
     syncChangelogRealtime();
     syncPushNotifications();
+    initInsightCharts();
     focusClientModal(document.querySelector("[data-client-modal]:not(.hidden)"));
   }
 })();

@@ -241,6 +241,7 @@ func (s *Server) Router() http.Handler {
 					r.Delete("/favorite", s.unfavoriteProject)
 					r.Get("/changelog", s.listProjectChangelog)
 					r.Get("/stats", s.getProjectStats)
+					r.Get("/insights", s.getProjectInsights)
 					r.Get("/github/connections", s.listGitHubConnections)
 					r.Post("/github/connections", s.connectGitHubRepository)
 					r.Delete("/github/connections/{connectionID}", s.disconnectGitHubRepository)

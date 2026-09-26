@@ -527,7 +527,7 @@ type uiProjectPanelData struct {
 	SprintHistoryPage               uiProjectSprintHistoryPageData
 	ChangelogPage                   uiProjectChangelogPageData
 	ProjectStats                    model.ProjectStats
-	CompletionChart                 uiProjectCompletionChartData
+	Insights                        *uiProjectInsightsData
 	Tags                            []model.IssueTag
 	ContextItems                    []uiProjectContextItem
 	ContextHasMore                  bool
@@ -536,31 +536,6 @@ type uiProjectPanelData struct {
 	DeleteNotice                    *uiIssueDeleteNotice
 	SprintIssuesHasMore             bool
 	PlannedHasMore                  bool
-}
-
-type uiProjectCompletionChartPoint struct {
-	X          int
-	Y          int
-	WeekLabel  string
-	AsOfLabel  string
-	RateLabel  string
-	Total      int
-	Completed  int
-	HasTickets bool
-}
-
-type uiProjectCompletionChartSegment struct {
-	Points string
-}
-
-type uiProjectCompletionChartData struct {
-	Points     []uiProjectCompletionChartPoint
-	Segments   []uiProjectCompletionChartSegment
-	HasData    bool
-	HasTrend   bool
-	RangeLabel string
-	FirstLabel string
-	LastLabel  string
 }
 
 const uiIssueListDefaultSort = store.ListIssuesSortUpdated
