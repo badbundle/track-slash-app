@@ -35,14 +35,9 @@ func TestUIPartitionAuthTokens(t *testing.T) {
 	if connectedApps != 1 {
 		t.Fatalf("connectedApps = %d, want 1", connectedApps)
 	}
-	if len(tokens) != 2 {
-		t.Fatalf("tokens = %d, want 2: %+v", len(tokens), tokens)
-	}
-	// Revoked API tokens keep their row so the page can label them revoked.
-	for i, want := range []string{"deploy bot", "revoked bot"} {
-		if tokens[i].Name != want {
-			t.Fatalf("tokens[%d].Name = %q, want %q", i, tokens[i].Name, want)
-		}
+	// Revoked API tokens can never be used again, so they drop out of the list.
+	if len(tokens) != 1 || tokens[0].Name != "deploy bot" {
+		t.Fatalf("tokens = %+v, want only deploy bot", tokens)
 	}
 }
 
