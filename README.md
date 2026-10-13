@@ -4,8 +4,8 @@
 
 trackslash is a fast, self-hostable issue tracker built as a single Go application backed by PostgreSQL. Its HTTP API, built-in MCP server, and project context give developers and coding agents access to the same project work.
 
-> [!WARNING]
-> trackslash is under active development and is not ready for production or commercial use. Interfaces, migrations, and deployment requirements may change. If you run it yourself, you are responsible for backups, upgrades, and recovery.
+> [!NOTE]
+> You run trackslash at your own risk, but I have been using it successfully in production for months.
 
 ## What it does
 
