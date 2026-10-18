@@ -205,6 +205,22 @@ func lockIssueProject(ctx context.Context, tx pgx.Tx, issueID uuid.UUID) error {
 	return err
 }
 
+// lockIssueCompletion takes the locks that completing the issue needs before
+// the issue's own: its project, then a sub-issue's parent, whose visibility
+// the next repetition follows. Making the parent private or deleting it locks
+// the parent and then its sub-issues, so the parent goes first here too.
+func lockIssueCompletion(ctx context.Context, tx pgx.Tx, issueID uuid.UUID) error {
+	if err := lockIssueProject(ctx, tx, issueID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+		SELECT 1 FROM issues
+		WHERE id = (SELECT parent_issue_id FROM issues WHERE id = $1)
+		FOR SHARE
+	`, issueID)
+	return err
+}
+
 // advanceIssueRepeat runs when an issue becomes done or closed. If it was
 // its series' live repetition, it creates the next repetition: the very next
 // schedule date, or, when that date has already passed, the first one that
@@ -218,7 +234,7 @@ func advanceIssueRepeat(ctx context.Context, tx pgx.Tx, completed model.Issue, n
 		createdBy            *uuid.UUID
 	)
 	// Locking the series makes concurrent completions create one repetition;
-	// the caller has already locked the project and then the issue.
+	// the caller has already taken lockIssueCompletion's locks and the issue's.
 	err := tx.QueryRow(ctx, `
 		SELECT r.id, i.repeat_occurrence, r.rule, r.time_zone, r.starts_on, r.created_by
 		FROM issues i
@@ -234,6 +250,21 @@ func advanceIssueRepeat(ctx context.Context, tx pgx.Tx, completed model.Issue, n
 	}
 	if _, err := tx.Exec(ctx, `UPDATE issues SET repeat_current = false WHERE id = $1`, completed.ID); err != nil {
 		return nil, err
+	}
+	// A sub-issue's next repetition is never more visible than its parent,
+	// and a deleted parent ends the series.
+	private := completed.Private
+	if completed.ParentIssueID != nil {
+		var parentPrivate, parentDeleted bool
+		if err := tx.QueryRow(ctx, `
+			SELECT private, deleted_at IS NOT NULL FROM issues WHERE id = $1
+		`, *completed.ParentIssueID).Scan(&parentPrivate, &parentDeleted); err != nil {
+			return nil, err // defensive: the parent is a foreign key of the issue
+		}
+		if parentDeleted {
+			return nil, nil
+		}
+		private = private || parentPrivate
 	}
 	// Completing an issue must never fail over its stored series. A rule
 	// that no longer parses ends the series; a zone that no longer loads
@@ -292,7 +323,7 @@ func advanceIssueRepeat(ctx context.Context, tx pgx.Tx, completed model.Issue, n
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true, $11, $13, $14)
 		RETURNING id
 	`, completed.ProjectID, number, completed.Title, completed.Description, string(completed.Priority),
-		issueWorkerValue(completed.Worker), completed.Private, assigneeID, reporterID,
+		issueWorkerValue(completed.Worker), private, assigneeID, reporterID,
 		completed.ParentIssueID, plan.Next.Time(), repeatID, plan.SkippedCount, skipped).Scan(&nextID); err != nil {
 		return nil, err
 	}

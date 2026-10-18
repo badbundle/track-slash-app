@@ -513,13 +513,20 @@ func TestIssueRepeatConcurrentCompletion(t *testing.T) {
 // until it waits too or finishes. Then the series is let go.
 func raceCompletion(t *testing.T, env *sprintsTestEnv, issue model.Issue, other func() error) (completeErr, otherErr error) {
 	t.Helper()
+	return raceCompletionHolding(t, env, issue, `SELECT 1 FROM issue_repeats WHERE id = $1 FOR UPDATE`, issue.Repeat.ID, other)
+}
+
+// raceCompletionHolding is raceCompletion with the test transaction holding
+// the row hold locks instead of the series.
+func raceCompletionHolding(t *testing.T, env *sprintsTestEnv, issue model.Issue, hold string, holdID uuid.UUID, other func() error) (completeErr, otherErr error) {
+	t.Helper()
 	blocker, err := env.pool.Begin(env.ctx)
 	if err != nil {
 		t.Fatalf("begin blocker: %v", err)
 	}
 	defer func() { _ = blocker.Rollback(env.ctx) }()
-	if _, err := blocker.Exec(env.ctx, `SELECT 1 FROM issue_repeats WHERE id = $1 FOR UPDATE`, issue.Repeat.ID); err != nil {
-		t.Fatalf("lock series: %v", err)
+	if _, err := blocker.Exec(env.ctx, hold, holdID); err != nil {
+		t.Fatalf("hold lock: %v", err)
 	}
 	completed := make(chan error, 1)
 	go func() {
@@ -532,7 +539,7 @@ func raceCompletion(t *testing.T, env *sprintsTestEnv, issue model.Issue, other 
 	go func() { finished <- other() }()
 	waitForLockWaits(t, env, 2, finished)
 	if err := blocker.Rollback(env.ctx); err != nil {
-		t.Fatalf("release series: %v", err)
+		t.Fatalf("release lock: %v", err)
 	}
 	return <-completed, <-finished
 }
@@ -607,6 +614,90 @@ func TestIssueRepeatCompletionLockOrder(t *testing.T) {
 		if got := repetitionCount(t, env, issue.Repeat.ID); got != 2 {
 			t.Fatalf("repetitions after completing while %s = %d, want 2", name, got)
 		}
+	}
+}
+
+// A repeating sub-issue's next repetition follows its parent: completing it
+// locks the parent first, so making the parent private or deleting it
+// meanwhile neither deadlocks nor leaves the repetition public or live.
+func TestIssueRepeatSubIssueFollowsItsParent(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	setRepeatClock(env, "2026-10-05T12:00:00Z")
+	repeatingSubIssue := func(title string) (model.Issue, model.Issue) {
+		t.Helper()
+		parent := mustCreateIssue(t, env, title)
+		sub, err := env.store.CreateSubIssue(env.ctx, store.CreateSubIssueParams{
+			ParentIssueID: parent.ID, Title: "Repeating step", Repeat: &store.IssueRepeatSetting{Rule: mustRepeatRule(t, "daily")},
+		})
+		if err != nil {
+			t.Fatalf("CreateSubIssue: %v", err)
+		}
+		return parent, sub
+	}
+	repetition := func(sub model.Issue) (private, live bool) {
+		t.Helper()
+		if err := env.pool.QueryRow(env.ctx, `
+			SELECT private, deleted_at IS NULL FROM issues WHERE repeat_id = $1 AND id <> $2
+		`, sub.Repeat.ID, sub.ID).Scan(&private, &live); err != nil {
+			t.Fatalf("read next repetition: %v", err)
+		}
+		return private, live
+	}
+
+	parent, sub := repeatingSubIssue("Made private meanwhile")
+	completeErr, otherErr := raceCompletion(t, env, sub, func() error {
+		private := true
+		_, err := env.store.UpdateIssue(env.ctx, parent.ID, store.UpdateIssueParams{Private: &private})
+		return err
+	})
+	if completeErr != nil || otherErr != nil {
+		t.Fatalf("complete while the parent goes private: %v, %v", completeErr, otherErr)
+	}
+	if private, live := repetition(sub); !private || !live {
+		t.Fatalf("next repetition under a private parent: private %v live %v", private, live)
+	}
+
+	parent, sub = repeatingSubIssue("Deleted meanwhile")
+	completeErr, otherErr = raceCompletion(t, env, sub, func() error { return env.store.DeleteIssue(env.ctx, parent.ID) })
+	if completeErr != nil || otherErr != nil {
+		t.Fatalf("complete while the parent is deleted: %v, %v", completeErr, otherErr)
+	}
+	if _, live := repetition(sub); live {
+		t.Fatal("next repetition outlived its deleted parent")
+	}
+
+	// Linking from the sub-issue waits behind a completion held up at the
+	// parent, which already holds the project.
+	other := mustCreateIssue(t, env, "Linked from a repeating step")
+	parent, sub = repeatingSubIssue("Held")
+	completeErr, otherErr = raceCompletionHolding(t, env, sub, `SELECT 1 FROM issues WHERE id = $1 FOR UPDATE`, parent.ID, func() error {
+		_, err := env.store.CreateIssueLink(env.ctx, store.CreateIssueLinkParams{SourceID: sub.ID, TargetID: other.ID, LinkType: model.LinkTypeBlocks})
+		return err
+	})
+	if completeErr != nil || otherErr != nil {
+		t.Fatalf("complete while linking from it: %v, %v", completeErr, otherErr)
+	}
+
+	// Should a public sub-issue sit under a private parent, or a live one
+	// under a deleted parent, the parent still wins.
+	parent, sub = repeatingSubIssue("Private parent")
+	if _, err := env.pool.Exec(env.ctx, `UPDATE issues SET private = true WHERE id = $1`, parent.ID); err != nil {
+		t.Fatalf("make parent private: %v", err)
+	}
+	completeIssue(t, env, sub.ID)
+	if private, _ := repetition(sub); !private {
+		t.Fatal("next repetition under a private parent is public")
+	}
+	parent, sub = repeatingSubIssue("Deleted parent")
+	if _, err := env.pool.Exec(env.ctx, `UPDATE issues SET deleted_at = now() WHERE id = $1`, parent.ID); err != nil {
+		t.Fatalf("delete parent: %v", err)
+	}
+	if got := completeIssue(t, env, sub.ID); got.Repeat == nil || got.Repeat.Current || got.Repeat.Next != nil {
+		t.Fatalf("completed under a deleted parent: %+v", got.Repeat)
+	}
+	if got := repetitionCount(t, env, sub.Repeat.ID); got != 1 {
+		t.Fatalf("repetitions under a deleted parent = %d, want 1", got)
 	}
 }
 

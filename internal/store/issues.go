@@ -1083,7 +1083,7 @@ func (s *Store) UpdateIssue(ctx context.Context, id uuid.UUID, p UpdateIssuePara
 	var out model.Issue
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		if p.Status != nil && p.Status.CountsAsDone() {
-			if err := lockIssueProject(ctx, tx, id); err != nil {
+			if err := lockIssueCompletion(ctx, tx, id); err != nil {
 				return err
 			}
 		}

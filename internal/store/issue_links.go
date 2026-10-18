@@ -52,7 +52,11 @@ func (s *Store) CreateIssueLink(ctx context.Context, p CreateIssueLinkParams) (m
 		)
 		// The project goes before either issue, as it does when completing
 		// one, which closing the source as a duplicate does.
-		if err := lockIssueProject(ctx, tx, p.SourceID); err != nil {
+		lock := lockIssueProject
+		if p.LinkType == model.LinkTypeDuplicates {
+			lock = lockIssueCompletion
+		}
+		if err := lock(ctx, tx, p.SourceID); err != nil {
 			return err
 		}
 		err := tx.QueryRow(ctx, `
@@ -204,9 +208,9 @@ func (s *Store) UpdateIssueLink(ctx context.Context, id uuid.UUID, p UpdateIssue
 			sourceStatus  model.Status
 		)
 		// Closing the source as a duplicate completes it, which takes the
-		// project before the issue.
+		// project and its parent before the issue.
 		if p.LinkType == model.LinkTypeDuplicates {
-			if err := lockIssueProject(ctx, tx, p.SourceID); err != nil {
+			if err := lockIssueCompletion(ctx, tx, p.SourceID); err != nil {
 				return err
 			}
 		}
