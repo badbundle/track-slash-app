@@ -6,8 +6,10 @@ import "net/http"
 //
 //   - "/" answers an unconditional 200 for uptime monitors, which probe the root
 //     with HEAD and would otherwise follow the signed-out redirect to /login.
-//   - "/mcp" and "/api/v1/ws" are long-lived streams. Rewriting a HEAD probe
-//     into a GET would open a connection nobody is going to read.
+//   - "/mcp" answers POST only, as a stateless JSON endpoint, so a HEAD probe
+//     has no GET to mirror.
+//   - "/api/v1/ws" is a long-lived stream. Rewriting a HEAD probe into a GET
+//     would open a connection nobody is going to read.
 //   - devReloadPath is the development server-sent-event stream, same reason.
 var headExemptPaths = map[string]bool{
 	"/":           true,
