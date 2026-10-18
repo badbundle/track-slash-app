@@ -336,12 +336,14 @@ var repeatObjectDestinations = []*regexp.Regexp{
 	regexp.MustCompile(`(?m)(^ {0,3}\[[^\]]+\]:[ \t]*)object-([1-9][0-9]*)([ \t]|$)`),
 }
 
+// repeatDescriptionRefs lists the object numbers the description's refs
+// name. A number past the INT range names no object, so it is left out.
 func repeatDescriptionRefs(description string) []int {
 	numbers := []int{}
 	for _, pattern := range repeatObjectDestinations {
 		for _, match := range pattern.FindAllStringSubmatch(description, -1) {
-			if n, err := strconv.Atoi(match[2]); err == nil && !slices.Contains(numbers, n) {
-				numbers = append(numbers, n)
+			if n, err := strconv.ParseInt(match[2], 10, 32); err == nil && !slices.Contains(numbers, int(n)) {
+				numbers = append(numbers, int(n))
 			}
 		}
 	}

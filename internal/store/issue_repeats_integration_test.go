@@ -635,6 +635,24 @@ func TestIssueRepeatPrivateNeighbours(t *testing.T) {
 	}
 }
 
+// A ref past the INT range can't name an object, so completing an issue
+// whose description holds one still creates the next repetition, with the ref
+// left as it was.
+func TestIssueRepeatIgnoresOutOfRangeDescriptionRefs(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	setRepeatClock(env, "2026-10-05T12:00:00Z")
+	description := "Huge ![h](object-3000000000) and [h]: object-99999999999"
+	issue, err := env.store.CreateIssue(env.ctx, store.CreateIssueParams{ProjectID: env.projectID, Title: "Daily check", Description: description, Repeat: &store.IssueRepeatSetting{Rule: mustRepeatRule(t, "daily")}})
+	if err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	second := nextRepetition(t, env, completeIssue(t, env, issue.ID))
+	if second.Description != description {
+		t.Fatalf("next description = %q, want %q", second.Description, description)
+	}
+}
+
 func TestIssueRepeatCopiesDescriptionAttachments(t *testing.T) {
 	t.Parallel()
 	env := newSprintsEnv(t)
