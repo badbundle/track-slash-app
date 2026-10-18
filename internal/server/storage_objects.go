@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -26,6 +25,10 @@ const (
 	maxStorageObjectContentTypeLength = 255
 	storageMultipartOverheadBytes     = 1024 * 1024
 	storageCleanupTimeout             = 5 * time.Second
+
+	// storageMultipartMemoryBytes is how much of an upload's file part is
+	// held in memory; the rest is spooled to a temp file.
+	storageMultipartMemoryBytes = 1024 * 1024
 )
 
 func (s *Server) createStorageObject(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +57,7 @@ func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.R
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, s.objectStorage.MaxUploadBytes()+storageMultipartOverheadBytes)
-	if err := r.ParseMultipartForm(s.objectStorage.MaxUploadBytes() + storageMultipartOverheadBytes); err != nil {
+	if err := r.ParseMultipartForm(storageMultipartMemoryBytes); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "file too large")
@@ -63,6 +66,9 @@ func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, "unable to read upload")
 		return model.StorageObject{}, false
 	}
+	// net/http removes only the temp files of the request it was handed, and
+	// middleware has replaced that one by now.
+	defer func() { _ = r.MultipartForm.RemoveAll() }()
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "file required")
@@ -75,14 +81,14 @@ func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.R
 		writeError(w, http.StatusBadRequest, err.Error())
 		return model.StorageObject{}, false
 	}
-	contentType, body, err := storageUploadContentTypeAndBody(file, header.Header.Get("Content-Type"))
+	contentType, err = storageUploadContentType(file, header.Header.Get("Content-Type"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return model.StorageObject{}, false
 	}
 
 	objectID := uuid.New()
-	stored, err := s.objectStorage.Put(r.Context(), projectID, objectID, body)
+	stored, err := s.objectStorage.Put(r.Context(), projectID, objectID, file)
 	if err != nil {
 		writeStorageError(w, err)
 		return model.StorageObject{}, false
@@ -374,14 +380,19 @@ func normalizeStorageObjectContentType(raw string, sample []byte) string {
 	return mediaType
 }
 
-func storageUploadContentTypeAndBody(file io.Reader, rawContentType string) (string, io.Reader, error) {
+// storageUploadContentType sniffs an upload's first bytes and rewinds it, so
+// the backend is handed the file itself: one that needs the length up front
+// can then stream it from its temp file instead of buffering it.
+func storageUploadContentType(file io.ReadSeeker, rawContentType string) (string, error) {
 	head := make([]byte, 512)
 	n, err := io.ReadFull(file, head)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
-		return "", nil, errors.New("unable to read upload")
+		return "", errors.New("unable to read upload")
 	}
-	head = head[:n]
-	return normalizeStorageObjectContentType(rawContentType, head), io.MultiReader(bytes.NewReader(head), file), nil
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return "", errors.New("unable to read upload")
+	}
+	return normalizeStorageObjectContentType(rawContentType, head[:n]), nil
 }
 
 func storageObjectSafeInlineImage(object model.StorageObject) bool {

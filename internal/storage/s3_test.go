@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -102,6 +103,121 @@ func TestS3BackendReadErrorDoesNotStore(t *testing.T) {
 	if fake.has("bucket", key) {
 		t.Fatal("read-error object was stored")
 	}
+}
+
+// A seekable source, such as an upload spooled to a temp file, is streamed
+// to S3 with a known length rather than copied into memory first.
+func TestS3BackendPutStreamsSeekableSource(t *testing.T) {
+	fake := newCountingFakeS3(t)
+	backend := newTestS3Backend(t, fake.URL)
+	const size = 16 << 20
+	key := "projects/p1/objects/large"
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	info, err := backend.Put(context.Background(), key, &zeroSource{size: size}, size)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if allocated := after.TotalAlloc - before.TotalAlloc; allocated > size/4 {
+		t.Fatalf("Put allocated %d bytes for a %d-byte source, want it streamed", allocated, size)
+	}
+	wantHash := sha256.Sum256(make([]byte, size))
+	if info.Size != size || info.SHA256 != hex.EncodeToString(wantHash[:]) {
+		t.Fatalf("info = %+v", info)
+	}
+	if got := fake.length("bucket", key); got != size {
+		t.Fatalf("fake S3 received %d bytes, want %d", got, size)
+	}
+}
+
+func TestS3BackendPutBuffersUnseekableSource(t *testing.T) {
+	fake := newFakeS3(t)
+	backend := newTestS3Backend(t, fake.URL)
+	key := "projects/p1/objects/unseekable"
+	info, err := backend.Put(context.Background(), key, io.MultiReader(strings.NewReader("hel"), strings.NewReader("lo")), 10)
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	wantHash := sha256.Sum256([]byte("hello"))
+	if info.Size != 5 || info.SHA256 != hex.EncodeToString(wantHash[:]) {
+		t.Fatalf("info = %+v", info)
+	}
+	if got := fake.get("bucket", key); string(got) != "hello" {
+		t.Fatalf("stored body = %q, want hello", got)
+	}
+	if _, err := backend.Put(context.Background(), "projects/p1/objects/unseekable-large", io.MultiReader(strings.NewReader("toolong")), 3); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("Put too large err = %v, want ErrTooLarge", err)
+	}
+}
+
+func TestS3BackendPutSeekableSourceFailuresDoNotStore(t *testing.T) {
+	fake := newFakeS3(t)
+	backend := newTestS3Backend(t, fake.URL)
+	key := "projects/p1/objects/seek-error"
+	for _, tc := range []struct {
+		name   string
+		source io.Reader
+		want   string
+	}{
+		{name: "position", source: &failingSeeker{Reader: strings.NewReader("hello"), failOn: 1}, want: "seek failed"},
+		{name: "rewind", source: &failingSeeker{Reader: strings.NewReader("hello"), failOn: 2}, want: "seek failed"},
+		{name: "read", source: &failingSeeker{Reader: errReader{}}, want: "read storage source"},
+	} {
+		if _, err := backend.Put(context.Background(), key, tc.source, 10); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: Put err = %v, want %q", tc.name, err, tc.want)
+		}
+		if fake.has("bucket", key) {
+			t.Fatalf("%s: object was stored", tc.name)
+		}
+	}
+}
+
+// zeroSource is a seekable source of size zero bytes that holds none of them.
+type zeroSource struct {
+	size int64
+	pos  int64
+}
+
+func (z *zeroSource) Read(p []byte) (int, error) {
+	if z.pos >= z.size {
+		return 0, io.EOF
+	}
+	if remaining := z.size - z.pos; int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+	clear(p)
+	z.pos += int64(len(p))
+	return len(p), nil
+}
+
+func (z *zeroSource) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		z.pos = offset
+	case io.SeekCurrent:
+		z.pos += offset
+	case io.SeekEnd:
+		z.pos = z.size + offset
+	}
+	return z.pos, nil
+}
+
+// failingSeeker fails its failOn'th Seek; earlier ones report position 0.
+type failingSeeker struct {
+	io.Reader
+	failOn int
+	calls  int
+}
+
+func (s *failingSeeker) Seek(int64, int) (int64, error) {
+	s.calls++
+	if s.calls == s.failOn {
+		return 0, errors.New("seek failed")
+	}
+	return 0, nil
 }
 
 func TestS3BackendPreventsOverwrite(t *testing.T) {
@@ -270,11 +386,25 @@ type fakeS3 struct {
 	*httptest.Server
 	mu      sync.Mutex
 	objects map[string][]byte
+	// lengths, when set, records each stored body's length and the body
+	// itself is discarded.
+	lengths map[string]int64
 }
 
 func newFakeS3(t *testing.T) *fakeS3 {
 	t.Helper()
-	f := &fakeS3{objects: make(map[string][]byte)}
+	return startFakeS3(t, &fakeS3{objects: make(map[string][]byte)})
+}
+
+// newCountingFakeS3 keeps only the length of each body, so a large upload
+// allocates nothing for it in the test process.
+func newCountingFakeS3(t *testing.T) *fakeS3 {
+	t.Helper()
+	return startFakeS3(t, &fakeS3{objects: make(map[string][]byte), lengths: make(map[string]int64)})
+}
+
+func startFakeS3(t *testing.T, f *fakeS3) *fakeS3 {
+	t.Helper()
 	f.Server = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.Close)
 	return f
@@ -294,6 +424,17 @@ func (f *fakeS3) handle(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		if _, exists := f.objects[storeKey]; exists && r.Header.Get("If-None-Match") == "*" {
 			writeFakeS3Error(w, http.StatusPreconditionFailed, "PreconditionFailed")
+			return
+		}
+		if f.lengths != nil {
+			n, err := io.Copy(io.Discard, r.Body)
+			if err != nil {
+				writeFakeS3Error(w, http.StatusInternalServerError, "InternalError")
+				return
+			}
+			f.objects[storeKey] = nil
+			f.lengths[storeKey] = n
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		body, err := io.ReadAll(r.Body)
@@ -337,6 +478,12 @@ func (f *fakeS3) has(bucket, key string) bool {
 	defer f.mu.Unlock()
 	_, ok := f.objects[bucket+"/"+key]
 	return ok
+}
+
+func (f *fakeS3) length(bucket, key string) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lengths[bucket+"/"+key]
 }
 
 func (f *fakeS3) get(bucket, key string) []byte {

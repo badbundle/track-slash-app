@@ -148,7 +148,7 @@ func parseSquareImageUpload(w http.ResponseWriter, r *http.Request, maxUploadByt
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+storageMultipartOverheadBytes)
-	if err := r.ParseMultipartForm(maxUploadBytes + storageMultipartOverheadBytes); err != nil {
+	if err := r.ParseMultipartForm(storageMultipartMemoryBytes); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "file too large")
@@ -157,6 +157,8 @@ func parseSquareImageUpload(w http.ResponseWriter, r *http.Request, maxUploadByt
 		writeError(w, http.StatusBadRequest, "unable to read upload")
 		return profileImageUpload{}, false
 	}
+	// See createStorageObjectFromRequest.
+	defer func() { _ = r.MultipartForm.RemoveAll() }()
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "file required")

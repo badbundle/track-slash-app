@@ -112,7 +112,9 @@ Any authenticated user may read any live user's profile image content. Profile i
 
 ## Write And Delete Flow
 
-Uploads write bytes to the backend first, then insert metadata in Postgres. If the metadata insert fails, the server deletes the just-written backend object. When metadata exists but a later attachment-link transaction fails, cleanup soft-deletes the object, transactionally queues backend deletion, and also attempts immediate removal.
+Uploads write bytes to the backend first, then insert metadata in Postgres. If the metadata insert fails, the server deletes the just-written backend object.
+
+A multipart upload keeps at most 1 MiB of its file in memory. The rest is spooled to a temp file in the system temp directory (`TMPDIR`, or `/tmp`), so that directory needs room for concurrent uploads of up to `TRACK_SLASH_STORAGE_MAX_UPLOAD_BYTES` each. The temp file is removed when the request ends. The S3 backend streams the file to the bucket with a known length rather than reading it into memory. When metadata exists but a later attachment-link transaction fails, cleanup soft-deletes the object, transactionally queues backend deletion, and also attempts immediate removal.
 
 Deletes soft-delete the Postgres row and enqueue storage_object_deletions work in the same transaction. This avoids live metadata pointing at missing bytes and preserves a retry path across request failures, process crashes, and restarts. HTTP and MCP delete responses describe the committed logical deletion; they do not fail merely because the immediate best-effort backend removal failed.
 

@@ -124,29 +124,46 @@ func (b *S3Backend) Put(ctx context.Context, key string, r io.Reader, maxBytes i
 		return WrittenObject{}, err
 	}
 
-	data, err := io.ReadAll(io.LimitReader(&contextReader{ctx: ctx, r: r}, maxBytes+1))
+	// PutObject needs the length up front and a body it can rewind to sign
+	// and retry. A seekable source, such as an upload spooled to a temp
+	// file, is measured and then streamed from where it stands; anything
+	// else is buffered in memory first.
+	body, ok := r.(io.ReadSeeker)
+	if !ok {
+		data, err := io.ReadAll(io.LimitReader(&contextReader{ctx: ctx, r: r}, maxBytes+1))
+		if err != nil {
+			return WrittenObject{}, err
+		}
+		body = bytes.NewReader(data)
+	}
+	start, err := body.Seek(0, io.SeekCurrent)
 	if err != nil {
 		return WrittenObject{}, err
 	}
-	if int64(len(data)) > maxBytes {
-		return WrittenObject{}, ErrTooLarge
-	}
-
 	hasher := sha256.New()
-	if _, err := hasher.Write(data); err != nil {
+	size, err := io.Copy(hasher, io.LimitReader(&contextReader{ctx: ctx, r: body}, maxBytes+1))
+	if err != nil {
 		return WrittenObject{}, err
 	}
+	if size > maxBytes {
+		return WrittenObject{}, ErrTooLarge
+	}
+	if _, err := body.Seek(start, io.SeekStart); err != nil {
+		return WrittenObject{}, err
+	}
+
 	_, err = b.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(b.bucket),
-		Key:         aws.String(key),
-		Body:        bytes.NewReader(data),
-		IfNoneMatch: aws.String("*"),
+		Bucket:        aws.String(b.bucket),
+		Key:           aws.String(key),
+		Body:          body,
+		ContentLength: aws.Int64(size),
+		IfNoneMatch:   aws.String("*"),
 	})
 	if err != nil {
 		return WrittenObject{}, mapS3Error(err)
 	}
 	return WrittenObject{
-		Size:   int64(len(data)),
+		Size:   size,
 		SHA256: hexHash(hasher),
 	}, nil
 }
