@@ -150,6 +150,8 @@ func (s *Server) uiOptionalAuth(next http.HandlerFunc) http.HandlerFunc {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// The signed-in shell names the user, as in uiAuthMiddleware.
+		w.Header().Set("Cache-Control", "private, no-store")
 		ctx := context.WithValue(r.Context(), authContextKey{}, authContext{User: auth.User, Token: auth.Token})
 		ctx = store.WithActor(ctx, auth.User.ID)
 		next.ServeHTTP(w, r.WithContext(ctx))

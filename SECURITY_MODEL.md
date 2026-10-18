@@ -100,6 +100,10 @@ source of a user's rights in a project.
 - **Uploads are inert.** Only safe raster images are served inline and with
   their own type. Everything else is sent as an octet-stream download with a
   sandbox CSP.
+- **Personal responses are not cached.** Pages rendered for a signed-in user
+  and every stored file, on a public project too, are sent
+  `Cache-Control: private, no-store`. Assets under `/static` are shared and
+  keep their own caching.
 
 ## Accepted trade-offs
 

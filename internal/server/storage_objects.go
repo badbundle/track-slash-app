@@ -198,6 +198,9 @@ func (s *Server) streamStorageObjectContent(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(object.ByteSize, 10))
 	w.Header().Set("ETag", `"`+object.SHA256+`"`)
+	// Every file is served through an access check, even on a public project,
+	// where a block still applies, so none is kept by a cache.
+	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Added beside the site-wide policy, not in place of it: a browser
 	// enforces every policy it is given, so this only narrows it.

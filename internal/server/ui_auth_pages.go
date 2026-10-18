@@ -247,6 +247,9 @@ func (s *Server) uiAuthMiddleware(next http.Handler) http.Handler {
 			redirectUILogin(w, r)
 			return
 		}
+		// Everything past here is rendered for this one user, so no cache,
+		// shared or the browser's own, may keep a copy.
+		w.Header().Set("Cache-Control", "private, no-store")
 		ctx := context.WithValue(r.Context(), authContextKey{}, authContext{User: auth.User, Token: auth.Token})
 		ctx = store.WithActor(ctx, auth.User.ID)
 		next.ServeHTTP(w, r.WithContext(ctx))

@@ -114,7 +114,7 @@ Issue equivalents:
 
 Sprint UI equivalents use `/{owner}/projects/{key}/sprints/{sprintRef}/attachments/...` with the same content, delete, and JSON-delete suffixes.
 
-Content responses stream bytes from the backend with stored content type, content length, SHA-256 ETag, content disposition, and `X-Content-Type-Options: nosniff`.
+Content responses stream bytes from the backend with stored content type, content length, SHA-256 ETag, content disposition, `X-Content-Type-Options: nosniff`, and `Cache-Control: private, no-store`.
 
 ## Security Constraints
 
