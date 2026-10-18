@@ -324,6 +324,7 @@ func (s *Server) uiRevokeSessionTokens(w http.ResponseWriter, r *http.Request) {
 	}
 	// The action does what it says, so it ends the session that invoked it too.
 	s.clearUISessionCookie(w, r)
+	clearUISiteData(w)
 	if isHTMXRequest(r) {
 		w.Header().Set("HX-Redirect", "/login")
 		w.WriteHeader(http.StatusNoContent)

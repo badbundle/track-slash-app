@@ -279,6 +279,26 @@ func (s *Store) DisablePushSubscription(ctx context.Context, userID uuid.UUID, e
 	})
 }
 
+// disableUserPushSubscriptions disables every browser push subscription of a
+// user and suppresses whatever was still queued for them.
+func disableUserPushSubscriptions(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE push_subscriptions
+		SET disabled_at = now(), updated_at = now()
+		WHERE user_id = $1 AND disabled_at IS NULL
+	`, userID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `
+		UPDATE push_notification_deliveries d
+		SET suppressed_at = now(), locked_at = NULL, last_error = 'browser subscription disabled'
+		FROM push_subscriptions s
+		WHERE s.id = d.subscription_id AND s.user_id = $1
+		  AND d.delivered_at IS NULL AND d.suppressed_at IS NULL AND d.failed_at IS NULL
+	`, userID)
+	return err
+}
+
 func (s *Store) ClaimPushNotificationEvents(ctx context.Context, limit int, leaseTimeout time.Duration) ([]PushNotificationEvent, error) {
 	if limit <= 0 || leaseTimeout <= 0 {
 		return nil, ErrConflict

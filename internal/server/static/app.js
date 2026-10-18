@@ -662,6 +662,29 @@
     setPushStatus(panel, "Browser notifications disabled.");
     await syncPushNotifications(panel);
   };
+  // Signing out names this browser's push subscription so the server disables
+  // it, and unsubscribes it here as well. Neither may hold the sign-out up: past
+  // the timeout the form goes as it is, and the response's Clear-Site-Data
+  // removes the service worker and its subscription anyway.
+  const signOutWithPushEndpoint = (form) => {
+    const forgetSubscription = async () => {
+      if (browserPushSupportError()) return;
+      const registration = await navigator.serviceWorker.getRegistration("/");
+      const subscription = registration && await registration.pushManager.getSubscription();
+      if (!subscription) return;
+      let input = form.querySelector('input[name="push_endpoint"]');
+      if (!input) {
+        input = document.createElement("input");
+        input.type = "hidden";
+        input.name = "push_endpoint";
+        form.appendChild(input);
+      }
+      input.value = subscription.endpoint;
+      await subscription.unsubscribe();
+    };
+    const timeout = new Promise((resolve) => window.setTimeout(resolve, 2000));
+    Promise.race([forgetSubscription(), timeout]).catch(() => {}).finally(() => form.submit());
+  };
   const createPasskeyReauthToken = async (panel) => {
     assertPasskeysSupported();
     const options = await postJSON("/settings/passkeys/reauth/passkey/options", {});
@@ -1088,6 +1111,11 @@
     if (csrfToken) event.detail.headers["X-CSRF-Token"] = csrfToken;
   });
   document.body.addEventListener("submit", (event) => ensureCSRFFormToken(event.target), true);
+  document.body.addEventListener("submit", (event) => {
+    if (!(event.target instanceof HTMLFormElement) || !event.target.matches("[data-sign-out]")) return;
+    event.preventDefault();
+    signOutWithPushEndpoint(event.target);
+  });
   // Requests that swap #main are page navigations; while any is in flight the
   // brand progress bar shows. Counting the requests themselves keeps a fast
   // second click from clearing the bar while the first request still runs.

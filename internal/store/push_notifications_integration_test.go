@@ -296,6 +296,66 @@ func TestPushNotificationChangeCategoriesAndDeliveryAuthorization(t *testing.T) 
 	}
 }
 
+// A browser that is signed out must stop showing the account's notifications,
+// and nothing records which session a subscription was made in, so ending
+// sessions turns push off on every browser of the account.
+func TestEndingSessionsDisablesEveryPushSubscription(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	project, err := env.store.GetProject(env.ctx, env.projectID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	member := mustPushProjectMember(t, env, "pushsignout")
+	bystander := mustPushProjectMember(t, env, "pushstays")
+	laptop := "https://push.example.test/" + uuid.NewString()
+	phone := "https://push.example.test/" + uuid.NewString()
+	bystanderEndpoint := "https://push.example.test/" + uuid.NewString()
+	mustUpsertPushSubscription(t, env, bystander.ID, bystanderEndpoint)
+
+	for _, revoke := range []struct {
+		name string
+		call func() (int64, error)
+	}{
+		{name: "sign out everywhere", call: func() (int64, error) {
+			return env.store.RevokeSessionAuthTokensForUser(env.ctx, member.ID)
+		}},
+		{name: "password change", call: func() (int64, error) {
+			return env.store.RevokeSessionAuthTokensForUserExcept(env.ctx, member.ID, uuid.New())
+		}},
+	} {
+		mustUpsertPushSubscription(t, env, member.ID, laptop)
+		mustUpsertPushSubscription(t, env, member.ID, phone)
+		if _, err := env.store.CreateIssue(store.WithActor(env.ctx, project.OwnerID), store.CreateIssueParams{
+			ProjectID: env.projectID, Title: "push " + revoke.name, AssigneeID: &member.ID,
+		}); err != nil {
+			t.Fatalf("CreateIssue: %v", err)
+		}
+		if created := mustMaterializePushEvents(t, env); created != 2 {
+			t.Fatalf("%s: queued deliveries = %d, want 2", revoke.name, created)
+		}
+
+		if _, err := revoke.call(); err != nil {
+			t.Fatalf("%s: %v", revoke.name, err)
+		}
+		for _, endpoint := range []string{laptop, phone} {
+			if active, err := env.store.PushSubscriptionActive(env.ctx, member.ID, endpoint); err != nil || active {
+				t.Fatalf("%s: subscription active = %v, %v", revoke.name, active, err)
+			}
+		}
+		if active, err := env.store.PushSubscriptionActive(env.ctx, bystander.ID, bystanderEndpoint); err != nil || !active {
+			t.Fatalf("%s: another user's subscription active = %v, %v", revoke.name, active, err)
+		}
+		var pending int
+		if err := env.pool.QueryRow(env.ctx, `
+			SELECT count(*) FROM push_notification_deliveries
+			WHERE user_id = $1 AND delivered_at IS NULL AND suppressed_at IS NULL AND failed_at IS NULL
+		`, member.ID).Scan(&pending); err != nil || pending != 0 {
+			t.Fatalf("%s: pending deliveries = %d, %v", revoke.name, pending, err)
+		}
+	}
+}
+
 func mustPushProjectMember(t *testing.T, env *sprintsTestEnv, prefix string) model.User {
 	t.Helper()
 	username := prefix + strings.ToLower(uniqueProjectKey(t))

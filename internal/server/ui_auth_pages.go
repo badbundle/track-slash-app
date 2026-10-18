@@ -127,7 +127,15 @@ func (s *Server) uiLogout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.clearUISessionCookie(w, r)
+	clearUISiteData(w)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// clearUISiteData has a browser that is signing out drop what it kept of the
+// account: htmx's history cache of pages in localStorage, cached responses,
+// and the service worker, which takes its push subscription with it.
+func clearUISiteData(w http.ResponseWriter) {
+	w.Header().Set("Clear-Site-Data", `"cache", "storage"`)
 }
 
 func (s *Server) revokeUISessionCookie(ctx context.Context, r *http.Request) error {
@@ -144,6 +152,15 @@ func (s *Server) revokeUISessionCookie(ctx context.Context, r *http.Request) err
 	}
 	if auth.Token.Kind != model.AuthTokenKindSession {
 		return nil
+	}
+	// The sign-out form names this browser's push subscription when it has one,
+	// so the server stops sending to it.
+	if endpoint := r.PostFormValue("push_endpoint"); endpoint != "" {
+		if err := s.store.DisablePushSubscription(ctx, auth.User.ID, endpoint); err != nil && !errors.Is(err, store.ErrNotFound) {
+			// Defensive: not found is the only expected failure; anything else
+			// is a DB outage.
+			return err
+		}
 	}
 	if err := s.store.RevokeAuthTokenForUser(ctx, auth.User.ID, auth.Token.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err

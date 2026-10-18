@@ -187,30 +187,38 @@ func (s *Store) revokeAuthToken(ctx context.Context, id uuid.UUID, userID *uuid.
 
 // RevokeSessionAuthTokensForUser revokes every live web session belonging to a
 // user and reports how many it revoked. API tokens are long-lived by design and
-// are never touched.
+// are never touched. The user's browser push subscriptions are disabled with
+// the sessions, since nothing records which browser holds which.
 func (s *Store) RevokeSessionAuthTokensForUser(ctx context.Context, userID uuid.UUID) (int64, error) {
-	tag, err := s.db.Exec(ctx, `
-		UPDATE auth_tokens SET revoked_at = now()
-		WHERE user_id = $1 AND kind = $2 AND revoked_at IS NULL
-	`, userID, model.AuthTokenKindSession)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
+	return s.revokeSessionAuthTokens(ctx, userID, uuid.Nil)
 }
 
 // RevokeSessionAuthTokensForUserExcept revokes every live web session of a
 // user but keep, which may be uuid.Nil to keep none, and reports how many it
-// revoked. API and connector tokens are not sessions and are left alone.
+// revoked. API and connector tokens are not sessions and are left alone. Every
+// browser push subscription of the user is disabled, the kept session's
+// browser included, and each browser re-enables push for itself.
 func (s *Store) RevokeSessionAuthTokensForUserExcept(ctx context.Context, userID, keep uuid.UUID) (int64, error) {
-	tag, err := s.db.Exec(ctx, `
-		UPDATE auth_tokens SET revoked_at = now()
-		WHERE user_id = $1 AND kind = $2 AND revoked_at IS NULL AND id <> $3
-	`, userID, model.AuthTokenKindSession, keep)
+	return s.revokeSessionAuthTokens(ctx, userID, keep)
+}
+
+func (s *Store) revokeSessionAuthTokens(ctx context.Context, userID, keep uuid.UUID) (int64, error) {
+	var revoked int64
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE auth_tokens SET revoked_at = now()
+			WHERE user_id = $1 AND kind = $2 AND revoked_at IS NULL AND id <> $3
+		`, userID, model.AuthTokenKindSession, keep)
+		if err != nil {
+			return err
+		}
+		revoked = tag.RowsAffected()
+		return disableUserPushSubscriptions(ctx, tx, userID)
+	})
 	if err != nil {
 		return 0, err
 	}
-	return tag.RowsAffected(), nil
+	return revoked, nil
 }
 
 func generateToken() (string, error) {

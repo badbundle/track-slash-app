@@ -74,6 +74,14 @@ source of a user's rights in a project.
   link-local, unique-local, carrier-grade NAT or unspecified address fails
   (`PushEndpointAddressAllowed`). The sender checks each resolved address again
   as it connects and never follows a redirect.
+- **Signing out stops a browser's notifications.** The sign-out form names
+  the browser's push subscription, which is disabled with the session, and
+  app.js unsubscribes it too. The response sends
+  `Clear-Site-Data: "cache", "storage"`, which removes the service worker and
+  its subscription along with htmx's history cache of pages. "Sign out
+  everywhere" sends the same header, and it and a password change disable push
+  on every browser of the account, including the one that changed the password.
+  Each browser turns push back on from its own Notifications page.
 - **Uploads are inert.** Only safe raster images are served inline and with
   their own type. Everything else is sent as an octet-stream download with a
   sandbox CSP.
@@ -105,8 +113,14 @@ These are known and left as they are. Change one only with that in mind.
   SameSite=Lax, Secure over https and have no Domain. Renaming them would sign
   everyone out.
 - **Ending sessions leaves API tokens and connectors alive.** "Sign out
-  everywhere" and a password change end web sessions only. API tokens and
-  connected apps are listed on Tokens and ended there.
+  everywhere" and a password change end web sessions and disable push
+  subscriptions, nothing more. API tokens and connected apps are listed on
+  Tokens and ended there.
+- **A sign-out without script can't name its push subscription,** and nothing
+  records which session made one, so the server keeps sending to it.
+  `Clear-Site-Data` still removes the subscription from a browser that
+  supports the header, so nothing is shown there, and the push service's
+  rejection of the next delivery disables it.
 - **Creating a token or registering a connector needs no reauthentication,**
   and the token can outlive the session that made it.
 - **Passkey sign-count regressions are recorded, not refused.** Synced passkeys
