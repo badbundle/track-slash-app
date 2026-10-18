@@ -62,7 +62,7 @@ Run the frontend app with the default image command:
 /app/trackd
 ```
 
-By default, `trackd` runs embedded migrations during normal startup. When a separate migration job owns migrations, set this on the frontend app:
+By default, `trackd` runs embedded migrations during normal startup. Migrations hold a Postgres advisory lock while they run, so replicas that start together take turns and the later ones find nothing left to apply. A replica that cannot take the lock within five minutes exits with an error. When a separate migration job owns migrations, set this on the frontend app:
 
 ```bash
 TRACK_SLASH_AUTO_MIGRATE=false
