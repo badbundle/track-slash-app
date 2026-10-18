@@ -91,6 +91,7 @@ func (c *Client) readPump(ctx context.Context) {
 		}
 		switch msg.Action {
 		case "subscribe":
+			disconnects := c.hub.disconnects.Load()
 			// Without an authorizer every topic is open, members-only
 			// events included.
 			access := TopicAccess{MembersOnly: true}
@@ -102,7 +103,11 @@ func (c *Client) readPump(ctx context.Context) {
 					continue
 				}
 			}
-			c.hub.SubscribeWithAccess(c, msg.Topic, access)
+			// Access changed while this was authorized: close the
+			// connection, as DisconnectAll does, so the client reauthorizes.
+			if !c.hub.subscribeAuthorized(c, msg.Topic, access, disconnects) {
+				return
+			}
 		case "unsubscribe":
 			c.hub.Unsubscribe(c, msg.Topic)
 		default:

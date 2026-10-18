@@ -614,6 +614,19 @@ func TestHubDisconnectAllDeduplicatesClients(t *testing.T) {
 	}
 }
 
+func TestHubSubscribeAuthorizedRefusesAccessFromBeforeDisconnectAll(t *testing.T) {
+	hub := NewHub()
+	client := newTestClient(1)
+	before := hub.disconnects.Load()
+	hub.DisconnectAll()
+	if hub.subscribeAuthorized(client, ProjectTopic(uuid.New()), TopicAccess{MembersOnly: true}, before) || hub.TopicCount() != 0 {
+		t.Fatal("access authorized before DisconnectAll was subscribed")
+	}
+	if !hub.subscribeAuthorized(client, ProjectTopic(uuid.New()), TopicAccess{}, hub.disconnects.Load()) || hub.TopicCount() != 1 {
+		t.Fatal("current access was refused")
+	}
+}
+
 func TestHubUnsubscribe(t *testing.T) {
 	hub := NewHub()
 	projectID := uuid.New()

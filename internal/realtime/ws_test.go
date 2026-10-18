@@ -192,3 +192,45 @@ func TestHandlerAppliesAuthorizedTopicAccess(t *testing.T) {
 		})
 	}
 }
+
+// TestHandlerClosesSubscriptionAuthorizedBeforeDisconnectAll checks a
+// subscription whose authorization raced a DisconnectAll, which couldn't
+// reach a connection with no topics yet, closes the connection instead of
+// keeping access granted before the change.
+func TestHandlerClosesSubscriptionAuthorizedBeforeDisconnectAll(t *testing.T) {
+	hub := NewHub()
+	authorize := func(context.Context, string, uuid.UUID) (TopicAccess, error) {
+		// Access changes, and every registered client is closed, while
+		// this subscription is being authorized.
+		hub.DisconnectAll()
+		return TopicAccess{MembersOnly: true}, nil
+	}
+	ts := httptest.NewServer(hub.Handler(OriginPolicy{AllowMissingOrigin: true}, authorize))
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http"), nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.CloseNow() }()
+
+	subscribe, err := json.Marshal(controlMsg{Action: "subscribe", Topic: ProjectTopic(uuid.New())})
+	if err != nil {
+		t.Fatalf("marshal subscribe: %v", err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, subscribe); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	if _, data, err := conn.Read(ctx); err == nil || ctx.Err() != nil {
+		t.Fatalf("connection stayed open: %s, %v", data, err)
+	}
+	for hub.TopicCount() != 0 {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("stale subscription is still registered: %d topics", hub.TopicCount())
+		case <-time.After(time.Millisecond):
+		}
+	}
+}

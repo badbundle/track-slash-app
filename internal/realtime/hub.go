@@ -16,6 +16,9 @@ type Hub struct {
 	mu      sync.RWMutex
 	topics  map[string]map[*Client]TopicAccess
 	dropped atomic.Uint64
+	// disconnects counts DisconnectAll calls, so a subscription authorized
+	// before one can tell its access may be out of date.
+	disconnects atomic.Uint64
 }
 
 func NewHub() *Hub {
@@ -32,6 +35,23 @@ func (h *Hub) Subscribe(c *Client, topic string) {
 func (h *Hub) SubscribeWithAccess(c *Client, topic string, access TopicAccess) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.subscribeLocked(c, topic, access)
+}
+
+// subscribeAuthorized is SubscribeWithAccess for access authorized when
+// DisconnectAll had run disconnects times. If it has run since, the client,
+// which it may not have reached, isn't joined and false is returned.
+func (h *Hub) subscribeAuthorized(c *Client, topic string, access TopicAccess, disconnects uint64) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.disconnects.Load() != disconnects {
+		return false
+	}
+	h.subscribeLocked(c, topic, access)
+	return true
+}
+
+func (h *Hub) subscribeLocked(c *Client, topic string, access TopicAccess) {
 	set, ok := h.topics[topic]
 	if !ok {
 		set = make(map[*Client]TopicAccess)
@@ -121,6 +141,9 @@ func (h *Hub) ResyncAll(reason string) {
 // this rare, coarse operation so revoked clients must reauthorize before they
 // can receive another event without adding database work to normal fanout.
 func (h *Hub) DisconnectAll() {
+	// Counted first, so a subscription authorized before this either
+	// registers in time to be closed below or sees the count change.
+	h.disconnects.Add(1)
 	h.mu.RLock()
 	clients := make(map[*Client]struct{})
 	for _, set := range h.topics {
