@@ -46,11 +46,12 @@ func parseIssueRef(raw string) (issueRef, error) {
 	if !projectKeyRe.MatchString(key) {
 		return issueRef{}, fmt.Errorf("invalid issue project key")
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(numberRaw))
+	// Ref numbers are INT columns, so one past int32 can't name anything.
+	n, err := strconv.ParseInt(strings.TrimSpace(numberRaw), 10, 32)
 	if err != nil || n < 1 {
 		return issueRef{}, fmt.Errorf("invalid issue number")
 	}
-	return issueRef{ProjectKey: key, Number: n}, nil
+	return issueRef{ProjectKey: key, Number: int(n)}, nil
 }
 
 func requireIssueRefProject(ref issueRef, projectKey string) error {
@@ -75,11 +76,11 @@ func parseTypedRef(raw, prefix string) (int, error) {
 	if !strings.HasPrefix(raw, want) {
 		return 0, fmt.Errorf("%s ref must look like %s1", prefix, want)
 	}
-	n, err := strconv.Atoi(strings.TrimPrefix(raw, want))
+	n, err := strconv.ParseInt(strings.TrimPrefix(raw, want), 10, 32)
 	if err != nil || n < 1 {
 		return 0, fmt.Errorf("invalid %s number", prefix)
 	}
-	return n, nil
+	return int(n), nil
 }
 
 func parseTypedRefParam(w http.ResponseWriter, r *http.Request, param, prefix string) (int, bool) {

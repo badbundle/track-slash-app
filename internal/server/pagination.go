@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
+	"reflect"
 	"strconv"
 )
 
@@ -56,7 +58,25 @@ func decodeCursor(raw string, v any) error {
 	if err := json.Unmarshal(data, v); err != nil {
 		return errInvalidCursor
 	}
+	if !cursorIntsFit(reflect.ValueOf(v).Elem()) {
+		return errInvalidCursor
+	}
 	return nil
+}
+
+// cursorIntsFit reports whether a cursor's int fields fit in int32. They hold
+// ref numbers, which are INT columns, so the database would fail on one that
+// doesn't; wider positions are int64 fields and pass through.
+func cursorIntsFit(v reflect.Value) bool {
+	if v.Kind() != reflect.Struct {
+		return true
+	}
+	for i := range v.NumField() {
+		if f := v.Field(i); f.Kind() == reflect.Int && (f.Int() > math.MaxInt32 || f.Int() < math.MinInt32) {
+			return false
+		}
+	}
+	return true
 }
 
 // encodeCursor marshals v to base64 JSON. Cursors are opaque to clients;
