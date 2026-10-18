@@ -7,12 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/oauth2"
 
@@ -1180,6 +1184,68 @@ func TestMCPLinkToDeletedIssueCanBeEditedAndRemoved(t *testing.T) {
 	})
 	if _, err := e.store.GetIssueLink(e.ctx, removed.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("GetIssueLink after delete err = %v, want ErrNotFound", err)
+	}
+}
+
+// A resource read that fails answers with a JSON-RPC error carrying the same
+// code a tool would give, and an internal failure is logged rather than
+// handed to the client.
+func TestMCPResourceReadErrors(t *testing.T) {
+	t.Parallel()
+	storageSvc, root := newLocalStorageService(t, 1024*1024)
+	e := newMCPHTTPEnv(t, storageSvc)
+	session := mcpConnect(t, e, e.authToken)
+	_, outsiderToken := e.mustUserToken(t, "mcp-resource-outsider")
+	outsider := mcpConnect(t, e, outsiderToken)
+	issue := decodeMCPField[model.Issue](t, mcpCall(t, e, session, "track_create_issue", map[string]any{
+		"owner": e.ownerUsername, "key": e.projKey, "title": "Resource errors",
+	}), "issue")
+	mcpCall(t, e, session, "track_create_attachment", map[string]any{
+		"owner": e.ownerUsername, "issue": issue.Identifier, "filename": "note.txt",
+		"content_type": "text/plain", "content_base64": base64.StdEncoding.EncodeToString([]byte("hello")),
+	})
+	objectURI := "track://object-content/" + e.ownerUsername + "/" + e.projKey + "/object-1"
+	readErr := func(s *mcp.ClientSession, uri string) (*jsonrpc.Error, string) {
+		t.Helper()
+		_, err := s.ReadResource(e.ctx, &mcp.ReadResourceParams{URI: uri})
+		var rpcErr *jsonrpc.Error
+		if !errors.As(err, &rpcErr) {
+			t.Fatalf("ReadResource %s err = %v, want a JSON-RPC error", uri, err)
+		}
+		var data struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal(rpcErr.Data, &data)
+		return rpcErr, data.Code
+	}
+
+	if rpcErr, code := readErr(outsider, objectURI); rpcErr.Code != jsonrpc.CodeInvalidParams || rpcErr.Message != "forbidden" || code != "forbidden" {
+		t.Fatalf("outsider read = %+v (code %q), want forbidden", rpcErr, code)
+	}
+	if rpcErr, _ := readErr(session, "track://object-content/"+e.ownerUsername+"/"+e.projKey+"/object-9"); rpcErr.Code != mcp.CodeResourceNotFound {
+		t.Fatalf("missing object read = %+v, want resource not found", rpcErr)
+	}
+
+	// The stored bytes turn into a directory, so reading them fails with an
+	// error that names a path on the server.
+	var stored string
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			stored = path
+		}
+		return err
+	}); err != nil || stored == "" {
+		t.Fatalf("find stored object: %q, %v", stored, err)
+	}
+	if err := os.Remove(stored); err != nil {
+		t.Fatalf("remove stored object: %v", err)
+	}
+	if err := os.Mkdir(stored, 0o755); err != nil {
+		t.Fatalf("replace stored object: %v", err)
+	}
+	rpcErr, code := readErr(session, objectURI)
+	if rpcErr.Code != jsonrpc.CodeInternalError || rpcErr.Message != "internal error" || code != "internal_error" || strings.Contains(string(rpcErr.Data), root) {
+		t.Fatalf("broken object read = %+v (data %s), want a bare internal error", rpcErr, rpcErr.Data)
 	}
 }
 

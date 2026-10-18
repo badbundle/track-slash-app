@@ -19,6 +19,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/google/uuid"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/bradleymackey/track-slash/internal/model"
@@ -4481,13 +4482,21 @@ func mcpURIPathParts(u *url.URL) ([]string, error) {
 	return out, nil
 }
 
+// mcpResourceError answers a failed resource read as a JSON-RPC error. It goes
+// through normalizeMCPError as a tool error does, so an internal failure is
+// logged and kept from the client, and the error's data carries the code a
+// tool would give.
 func mcpResourceError(uri string, err error) error {
-	switch {
-	case errors.Is(err, store.ErrNotFound), errors.Is(err, objectstorage.ErrNotFound):
+	appErr := normalizeMCPError(err)
+	code := int64(jsonrpc.CodeInvalidParams)
+	switch appErr.Code {
+	case "not_found":
 		return mcp.ResourceNotFoundError(uri)
-	default:
-		return err
+	case "internal_error":
+		code = jsonrpc.CodeInternalError
 	}
+	data, _ := json.Marshal(map[string]string{"uri": uri, "code": appErr.Code}) // defensive: strings always marshal
+	return &jsonrpc.Error{Code: code, Message: appErr.Message, Data: data}
 }
 
 func mcpJSONResource(uri string, v any) (*mcp.ReadResourceResult, error) {
