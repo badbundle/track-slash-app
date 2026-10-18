@@ -13,7 +13,8 @@ import (
 
 // readsPrivateIssues reports whether the user may see the project's private
 // issues: a member of any role, its owner or a site admin. Every surface that
-// lists, counts or names issues passes this on as IncludePrivate.
+// lists, counts or names issues passes this on as IncludePrivate, and sprint
+// history as IncludeDeleted too, since the same readers see deleted issues.
 func (s *Server) readsPrivateIssues(ctx context.Context, user model.User, projectID uuid.UUID) (bool, error) {
 	permissions, err := s.store.ProjectPermissionsForUser(ctx, user, projectID)
 	if err != nil {

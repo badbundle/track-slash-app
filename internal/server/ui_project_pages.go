@@ -858,6 +858,7 @@ func (s *Server) uiBuildProjectSprintHistoryPage(ctx context.Context, r *http.Re
 		ProjectID:      project.ID,
 		SprintIDs:      sprintIDs,
 		IncludePrivate: includePrivate,
+		IncludeDeleted: includePrivate,
 	})
 	if err != nil {
 		return uiProjectSprintHistoryPageData{}, err
@@ -933,6 +934,7 @@ func (s *Server) uiBuildProjectSprintHistoryIssuePage(ctx context.Context, r *ht
 		Cursor:         cursor,
 		Limit:          DefaultLimit,
 		IncludePrivate: includePrivate,
+		IncludeDeleted: includePrivate,
 	})
 	if err != nil {
 		return uiProjectSprintHistoryIssuePageData{}, err

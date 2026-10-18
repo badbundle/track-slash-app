@@ -251,6 +251,7 @@ func (s *Server) listSprintHistoryIssues(w http.ResponseWriter, r *http.Request)
 		Cursor:         cursor,
 		Limit:          limit,
 		IncludePrivate: permissions.CanReadMembersOnly,
+		IncludeDeleted: permissions.CanReadMembersOnly,
 	})
 	if err != nil {
 		writeStoreError(w, err)

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -516,6 +517,65 @@ func TestHTTPListSprintHistoryIssues(t *testing.T) {
 	code, _ = e.doWithToken(t, outsiderToken, http.MethodGet, e.sprintPath(completed)+"/history/issues", nil)
 	if code != http.StatusForbidden {
 		t.Fatalf("outsider code = %d, want 403", code)
+	}
+}
+
+// Deleted issues are members-only, so a public project's sprint history leaves
+// them out for everyone else on every surface.
+func TestSprintHistoryHidesDeletedIssuesFromNonMembers(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	e.makeProjectPublic(t)
+	_, memberToken := e.mustProjectMemberToken(t, "sprint-history-deleted-member")
+	_, outsiderToken := e.mustUserToken(t, "sprint-history-deleted-outsider")
+	sprint, err := e.store.CreateSprint(e.ctx, store.CreateSprintParams{ProjectID: e.projectID, Name: "Sprint with a deleted issue"})
+	if err != nil {
+		t.Fatalf("CreateSprint: %v", err)
+	}
+	active := model.SprintStatusActive
+	if _, err := e.store.UpdateSprint(e.ctx, sprint.ID, store.UpdateSprintParams{Status: &active}); err != nil {
+		t.Fatalf("activate sprint: %v", err)
+	}
+	live := e.mustCreateIssue(t, "Live history issue")
+	deleted := e.mustCreateIssue(t, "Deleted history issue with a secret")
+	done := model.StatusDone
+	for _, issue := range []model.Issue{live, deleted} {
+		if _, err := e.store.UpdateIssue(e.ctx, issue.ID, store.UpdateIssueParams{SprintID: &sprint.ID}); err != nil {
+			t.Fatalf("assign %s: %v", issue.Title, err)
+		}
+		if _, err := e.store.UpdateIssue(e.ctx, issue.ID, store.UpdateIssueParams{Status: &done}); err != nil {
+			t.Fatalf("complete %s: %v", issue.Title, err)
+		}
+	}
+	completed, err := e.store.CompleteSprint(e.ctx, sprint.ID)
+	if err != nil {
+		t.Fatalf("CompleteSprint: %v", err)
+	}
+	if err := e.store.DeleteIssue(e.ctx, deleted.ID); err != nil {
+		t.Fatalf("DeleteIssue: %v", err)
+	}
+	historyPath := e.sprintPath(completed) + "/history/issues"
+
+	for name, token := range map[string]string{"anonymous": "", "outsider": outsiderToken, "member": memberToken} {
+		wantDeleted := name == "member"
+		code, body := e.doWithToken(t, token, http.MethodGet, historyPath, nil)
+		if code != http.StatusOK || !strings.Contains(string(body), live.Title) || strings.Contains(string(body), deleted.Title) != wantDeleted {
+			t.Fatalf("%s REST history = %d %s", name, code, body)
+		}
+		if body := e.uiGet(t, historyPath, token); !strings.Contains(body, live.Title) || strings.Contains(body, deleted.Title) != wantDeleted {
+			t.Fatalf("%s UI history issues: %s", name, body)
+		}
+		wantCount := map[bool]string{false: `aria-label="Done: 1"`, true: `aria-label="Done: 2"`}[wantDeleted]
+		if body := e.uiGet(t, e.projectSprintsPath(), token); !strings.Contains(body, wantCount) {
+			t.Fatalf("%s UI sprint history missing %q: %s", name, wantCount, body)
+		}
+	}
+	for name, token := range map[string]string{"outsider": outsiderToken, "member": memberToken} {
+		session := mcpConnect(t, e, token)
+		issues := decodeMCPField[[]model.Issue](t, mcpCall(t, e, session, "track_list_sprint_history_issues", map[string]any{"owner": e.ownerUsername, "key": e.projKey, "sprint": completed.Ref}), "items")
+		if want := map[bool]int{false: 1, true: 2}[name == "member"]; len(issues) != want || issues[0].ID != live.ID {
+			t.Fatalf("%s MCP history = %+v, want %d issues", name, issues, want)
+		}
 	}
 }
 

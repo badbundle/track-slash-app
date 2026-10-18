@@ -295,6 +295,8 @@ type ListSprintSnapshotIssuesParams struct {
 	Limit     int
 	// IncludePrivate lists private issues too; see ListIssuesParams.
 	IncludePrivate bool
+	// IncludeDeleted lists soft-deleted issues too, which only members read.
+	IncludeDeleted bool
 }
 
 type CountSprintSnapshotIssuesByStatusParams struct {
@@ -302,6 +304,8 @@ type CountSprintSnapshotIssuesByStatusParams struct {
 	SprintIDs []uuid.UUID
 	// IncludePrivate counts private issues too; see ListIssuesParams.
 	IncludePrivate bool
+	// IncludeDeleted counts soft-deleted issues too, which only members read.
+	IncludeDeleted bool
 }
 
 func (s *Store) CountSprintSnapshotIssuesByStatus(ctx context.Context, p CountSprintSnapshotIssuesByStatusParams) (map[uuid.UUID]model.ProjectIssueStatusCounts, error) {
@@ -323,8 +327,9 @@ func (s *Store) CountSprintSnapshotIssuesByStatus(ctx context.Context, p CountSp
 		WHERE sis.project_id = $1 AND sis.sprint_id = ANY($2)
 		  AND sp.deleted_at IS NULL AND p.deleted_at IS NULL
 		  AND ($3 OR NOT EXISTS (SELECT 1 FROM issues i WHERE i.id = sis.issue_id AND i.private))
+		  AND ($4 OR NOT EXISTS (SELECT 1 FROM issues i WHERE i.id = sis.issue_id AND i.deleted_at IS NOT NULL))
 		GROUP BY sis.sprint_id
-	`, p.ProjectID, p.SprintIDs, p.IncludePrivate)
+	`, p.ProjectID, p.SprintIDs, p.IncludePrivate, p.IncludeDeleted)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +350,8 @@ func (s *Store) CountSprintSnapshotIssuesByStatus(ctx context.Context, p CountSp
 
 // ListSprintSnapshotIssues returns the current issue records for the immutable
 // membership captured when a sprint completed. Soft-deleted issues remain in
-// the history because deleting an issue does not erase its sprint membership.
+// the history for members, because deleting an issue does not erase its sprint
+// membership.
 func (s *Store) ListSprintSnapshotIssues(ctx context.Context, p ListSprintSnapshotIssuesParams) ([]model.Issue, bool, error) {
 	args := []any{p.ProjectID, p.SprintID}
 	q := `
@@ -360,6 +366,9 @@ func (s *Store) ListSprintSnapshotIssues(ctx context.Context, p ListSprintSnapsh
 	`
 	if !p.IncludePrivate {
 		q += " AND NOT i.private"
+	}
+	if !p.IncludeDeleted {
+		q += " AND i.deleted_at IS NULL"
 	}
 	if p.Cursor != nil {
 		args = append(args, p.Cursor.Number)

@@ -2530,6 +2530,7 @@ func (s *Server) mcpListSprintHistoryIssues(ctx context.Context, req *mcp.CallTo
 		Cursor:         cursor,
 		Limit:          limit,
 		IncludePrivate: includePrivate,
+		IncludeDeleted: includePrivate,
 	})
 	if err != nil {
 		return nil, err

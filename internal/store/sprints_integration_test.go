@@ -691,8 +691,9 @@ func TestCompleteSprintMovesUnfinishedToNextPlannedSprint(t *testing.T) {
 	}
 	setIssueStatus(t, env, i1.ID, model.StatusDone)
 	statusCounts, err := env.store.CountSprintSnapshotIssuesByStatus(env.ctx, store.CountSprintSnapshotIssuesByStatusParams{
-		ProjectID: env.projectID,
-		SprintIDs: []uuid.UUID{active.ID, uuid.New()},
+		ProjectID:      env.projectID,
+		SprintIDs:      []uuid.UUID{active.ID, uuid.New()},
+		IncludeDeleted: true,
 	})
 	if err != nil {
 		t.Fatalf("CountSprintSnapshotIssuesByStatus: %v", err)
@@ -700,6 +701,14 @@ func TestCompleteSprintMovesUnfinishedToNextPlannedSprint(t *testing.T) {
 	wantStatusCounts := model.ProjectIssueStatusCounts{Total: 5, Todo: 2, InProgress: 1, Done: 1, Closed: 1}
 	if got := statusCounts[active.ID]; got != wantStatusCounts {
 		t.Fatalf("snapshot status counts = %+v, want %+v", got, wantStatusCounts)
+	}
+	// Only members read deleted issues, so everyone else's counts leave i5 out.
+	liveStatusCounts, err := env.store.CountSprintSnapshotIssuesByStatus(env.ctx, store.CountSprintSnapshotIssuesByStatusParams{
+		ProjectID: env.projectID,
+		SprintIDs: []uuid.UUID{active.ID},
+	})
+	if want := (model.ProjectIssueStatusCounts{Total: 4, Todo: 2, InProgress: 1, Done: 1}); err != nil || liveStatusCounts[active.ID] != want {
+		t.Fatalf("live snapshot status counts = %+v err=%v, want %+v", liveStatusCounts[active.ID], err, want)
 	}
 	emptyStatusCounts, err := env.store.CountSprintSnapshotIssuesByStatus(env.ctx, store.CountSprintSnapshotIssuesByStatusParams{ProjectID: env.projectID})
 	if err != nil || len(emptyStatusCounts) != 0 {
@@ -714,9 +723,10 @@ func TestCompleteSprintMovesUnfinishedToNextPlannedSprint(t *testing.T) {
 	}
 
 	firstPage, hasMore, err := env.store.ListSprintSnapshotIssues(env.ctx, store.ListSprintSnapshotIssuesParams{
-		ProjectID: env.projectID,
-		SprintID:  active.ID,
-		Limit:     3,
+		ProjectID:      env.projectID,
+		SprintID:       active.ID,
+		Limit:          3,
+		IncludeDeleted: true,
 	})
 	if err != nil {
 		t.Fatalf("ListSprintSnapshotIssues first page: %v", err)
@@ -725,16 +735,26 @@ func TestCompleteSprintMovesUnfinishedToNextPlannedSprint(t *testing.T) {
 		t.Fatalf("snapshot first page = %+v, hasMore = %v", firstPage, hasMore)
 	}
 	secondPage, hasMore, err := env.store.ListSprintSnapshotIssues(env.ctx, store.ListSprintSnapshotIssuesParams{
-		ProjectID: env.projectID,
-		SprintID:  active.ID,
-		Cursor:    &store.IssuesCursor{Number: firstPage[len(firstPage)-1].Number},
-		Limit:     3,
+		ProjectID:      env.projectID,
+		SprintID:       active.ID,
+		Cursor:         &store.IssuesCursor{Number: firstPage[len(firstPage)-1].Number},
+		Limit:          3,
+		IncludeDeleted: true,
 	})
 	if err != nil {
 		t.Fatalf("ListSprintSnapshotIssues second page: %v", err)
 	}
 	if hasMore || len(secondPage) != 2 || secondPage[0].ID != i4.ID || secondPage[1].ID != i5.ID {
 		t.Fatalf("snapshot second page = %+v, hasMore = %v", secondPage, hasMore)
+	}
+	liveSecondPage, hasMore, err := env.store.ListSprintSnapshotIssues(env.ctx, store.ListSprintSnapshotIssuesParams{
+		ProjectID: env.projectID,
+		SprintID:  active.ID,
+		Cursor:    &store.IssuesCursor{Number: firstPage[len(firstPage)-1].Number},
+		Limit:     3,
+	})
+	if err != nil || hasMore || len(liveSecondPage) != 1 || liveSecondPage[0].ID != i4.ID {
+		t.Fatalf("live snapshot second page = %+v, hasMore = %v, err = %v", liveSecondPage, hasMore, err)
 	}
 	wrongProject, hasMore, err := env.store.ListSprintSnapshotIssues(env.ctx, store.ListSprintSnapshotIssuesParams{
 		ProjectID: uuid.New(),
