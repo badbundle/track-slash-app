@@ -247,6 +247,8 @@ func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
 		if tag.RowsAffected() == 0 {
 			return ErrNotFound
 		}
+		// The approvals go first, as when a single grant ends; see
+		// lockOAuthGrant.
 		for _, q := range []string{
 			`DELETE FROM oauth_client_consents WHERE user_id = $1`,
 			`DELETE FROM oauth_authorization_codes WHERE user_id = $1`,

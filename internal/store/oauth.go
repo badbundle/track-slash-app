@@ -305,12 +305,16 @@ func (s *Store) DisconnectOAuthGrantForUser(ctx context.Context, userID, clientI
 
 // endOAuthGrant is revokeOAuthGrants plus forgetting the approval and any
 // codes in flight, and reports how many rows it touched.
+//
+// The approval is deleted first. That waits for any exchange or refresh
+// holding it (see lockOAuthGrant), so the revocations after it see every
+// token those issued.
 func endOAuthGrant(ctx context.Context, tx pgx.Tx, clientID, userID uuid.UUID) (int64, error) {
 	var total int64
 	for _, q := range []string{
+		`DELETE FROM oauth_client_consents WHERE client_id = $1 AND user_id = $2`,
 		`UPDATE oauth_refresh_tokens SET revoked_at = now() WHERE client_id = $1 AND user_id = $2 AND revoked_at IS NULL`,
 		`UPDATE auth_tokens SET revoked_at = now() WHERE oauth_client_id = $1 AND user_id = $2 AND revoked_at IS NULL`,
-		`DELETE FROM oauth_client_consents WHERE client_id = $1 AND user_id = $2`,
 		`DELETE FROM oauth_authorization_codes WHERE client_id = $1 AND user_id = $2`,
 	} {
 		tag, err := tx.Exec(ctx, q, clientID, userID)
@@ -411,41 +415,89 @@ type ConsumedOAuthCode struct {
 	Resource      string
 }
 
-// ConsumeOAuthAuthorizationCode claims a code exactly once, for the client it
-// was issued to.
+// lockOAuthGrant holds a (client, user) grant's approval for the rest of the
+// transaction, and is ErrUnauthorized once the approval is gone.
 //
-// clientID is part of the lookup, not a check applied afterwards. A client that
-// presents someone else's code must not be able to consume it: doing so would
-// burn the code and leave the rightful client's next exchange looking like a
-// replay, which revokes that client's entire grant. Matching in the query means
-// a foreign code is simply not found and nothing is mutated.
+// The approval row serialises every change to a grant. Issuing tokens holds it
+// shared, before any other lock; ending a grant deletes it first. A
+// revocation's UPDATE cannot see a token another transaction has inserted but
+// not yet committed, so without this a disconnect racing a refresh could miss
+// the token minted alongside it and leave the connector working. With it, an
+// exchange or refresh either waits for the disconnect and then finds no
+// approval, or finishes first so the disconnect's revocations see what it
+// issued.
+func lockOAuthGrant(ctx context.Context, tx pgx.Tx, clientID, userID uuid.UUID) error {
+	var held bool
+	err := tx.QueryRow(ctx, `
+		SELECT true FROM oauth_client_consents
+		WHERE client_id = $1 AND user_id = $2
+		FOR SHARE
+	`, clientID, userID).Scan(&held)
+	if isNoRows(err) {
+		return ErrUnauthorized
+	}
+	return err
+}
+
+// ExchangeOAuthAuthorizationCode claims a code exactly once, for the client it
+// was issued to, and issues the tokens it grants in the same transaction.
+//
+// client.ID is part of the lookup, not a check applied afterwards. A client
+// that presents someone else's code must not be able to consume it: doing so
+// would burn the code and leave the rightful client's next exchange looking
+// like a replay, which revokes that client's entire grant. Matching in the
+// query means a foreign code is simply not found and nothing is mutated.
 //
 // The row is locked before it is marked consumed, so two simultaneous exchanges
 // cannot both succeed. A code that was already consumed means someone replayed
 // it, which means a copy leaked: every token the pair holds is revoked before
-// ErrOAuthReplay is returned, per RFC 6749 section 4.1.2.
-func (s *Store) ConsumeOAuthAuthorizationCode(ctx context.Context, raw string, clientID uuid.UUID) (ConsumedOAuthCode, error) {
+// ErrOAuthReplay is returned, per RFC 6749 section 4.1.2. The tokens are issued
+// before the code's lock is released, so a replay racing the first exchange
+// waits for them and revokes them too.
+//
+// verify checks the claimed code against the rest of the token request before
+// anything is issued. Its error is returned as it is, and the code stays spent.
+func (s *Store) ExchangeOAuthAuthorizationCode(ctx context.Context, raw string, client model.OAuthClient, verify func(ConsumedOAuthCode) error) (IssuedOAuthTokens, error) {
 	hash := tokenHash(raw)
-	var out ConsumedOAuthCode
+	var out IssuedOAuthTokens
 	var replayed bool
+	var refused error
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		var consumed *time.Time
-		var expires time.Time
+		// The grant is locked before the code, in the order every change to a
+		// grant takes its locks; see lockOAuthGrant.
+		var userID uuid.UUID
 		err := tx.QueryRow(ctx, `
-			SELECT client_id, user_id, redirect_uri, code_challenge, scope, resource, expires_at, consumed_at
-			FROM oauth_authorization_codes
-			WHERE code_hash = $1 AND client_id = $2
-			FOR UPDATE
-		`, hash[:], clientID).Scan(&out.ClientID, &out.UserID, &out.RedirectURI, &out.CodeChallenge,
-			&out.Scope, &out.Resource, &expires, &consumed)
+			SELECT user_id FROM oauth_authorization_codes WHERE code_hash = $1 AND client_id = $2
+		`, hash[:], client.ID).Scan(&userID)
 		if err != nil {
 			if isNoRows(err) {
 				return ErrUnauthorized
 			}
 			return err
 		}
+		if err := lockOAuthGrant(ctx, tx, client.ID, userID); err != nil {
+			return err
+		}
+		var code ConsumedOAuthCode
+		var consumed *time.Time
+		var expires time.Time
+		err = tx.QueryRow(ctx, `
+			SELECT client_id, user_id, redirect_uri, code_challenge, scope, resource, expires_at, consumed_at
+			FROM oauth_authorization_codes
+			WHERE code_hash = $1 AND client_id = $2
+			FOR UPDATE
+		`, hash[:], client.ID).Scan(&code.ClientID, &code.UserID, &code.RedirectURI, &code.CodeChallenge,
+			&code.Scope, &code.Resource, &expires, &consumed)
+		if err != nil {
+			// Since the read above, only the purge of long-expired codes can
+			// have deleted it.
+			if isNoRows(err) {
+				return ErrUnauthorized
+			}
+			return err // defensive: DB outage past the read above
+		}
 		if consumed != nil {
-			if err := revokeOAuthGrants(ctx, tx, out.ClientID, out.UserID); err != nil {
+			if err := revokeOAuthGrants(ctx, tx, code.ClientID, code.UserID); err != nil {
 				return err // defensive: DB outage past the replay check
 			}
 			// Report the replay after the transaction commits, not by failing
@@ -457,21 +509,35 @@ func (s *Store) ConsumeOAuthAuthorizationCode(ctx context.Context, raw string, c
 		if !expires.After(time.Now()) {
 			return ErrUnauthorized
 		}
-		_, err = tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			UPDATE oauth_authorization_codes SET consumed_at = now() WHERE code_hash = $1
-		`, hash[:])
-		return err
+		`, hash[:]); err != nil {
+			return err // defensive: DB outage past the row lock
+		}
+		// A refused request still spends the code, so the refusal is reported
+		// after the commit as well.
+		if refused = verify(code); refused != nil {
+			return nil
+		}
+		return issueOAuthTokens(ctx, tx, issueOAuthTokensParams{
+			ClientID:   client.ID,
+			ClientName: client.Name,
+			UserID:     code.UserID,
+			Scope:      code.Scope,
+		}, &out)
 	})
-	if err != nil {
-		return ConsumedOAuthCode{}, err
-	}
-	if replayed {
-		return ConsumedOAuthCode{}, ErrOAuthReplay
+	switch {
+	case err != nil:
+		return IssuedOAuthTokens{}, err
+	case replayed:
+		return IssuedOAuthTokens{}, ErrOAuthReplay
+	case refused != nil:
+		return IssuedOAuthTokens{}, refused
 	}
 	return out, nil
 }
 
-type IssueOAuthTokensParams struct {
+type issueOAuthTokensParams struct {
 	ClientID   uuid.UUID
 	ClientName string
 	UserID     uuid.UUID
@@ -487,21 +553,11 @@ type IssuedOAuthTokens struct {
 	Scope string
 }
 
-// IssueOAuthTokens mints an access and refresh token pair for an approved
-// grant. The access token is an ordinary auth_tokens row, so it authenticates
-// through exactly the same path as an API token the user made themselves.
-func (s *Store) IssueOAuthTokens(ctx context.Context, p IssueOAuthTokensParams) (IssuedOAuthTokens, error) {
-	var out IssuedOAuthTokens
-	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		return issueOAuthTokens(ctx, tx, p, &out)
-	})
-	if err != nil {
-		return IssuedOAuthTokens{}, err
-	}
-	return out, nil
-}
-
-func issueOAuthTokens(ctx context.Context, tx pgx.Tx, p IssueOAuthTokensParams, out *IssuedOAuthTokens) error {
+// issueOAuthTokens mints an access and refresh token pair for an approved
+// grant, whose approval the caller holds with lockOAuthGrant. The access token
+// is an ordinary auth_tokens row, so it authenticates through exactly the same
+// path as an API token the user made themselves.
+func issueOAuthTokens(ctx context.Context, tx pgx.Tx, p issueOAuthTokensParams, out *IssuedOAuthTokens) error {
 	access, err := generateToken()
 	if err != nil {
 		return err
@@ -521,11 +577,7 @@ func issueOAuthTokens(ctx context.Context, tx pgx.Tx, p IssueOAuthTokensParams, 
 	`, p.UserID, model.AuthTokenKindOAuth, p.ClientName, accessHash[:],
 		oauthAccessTokenTTL.Seconds(), p.ClientID).Scan(&accessID)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-			return ErrNotFound
-		}
-		return err
+		return err // defensive: the held approval's foreign keys vouch for the user and client
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO oauth_refresh_tokens
@@ -577,11 +629,8 @@ func (s *Store) RotateOAuthRefreshToken(ctx context.Context, raw string, clientI
 		var revoked *time.Time
 		var replacedBy *uuid.UUID
 		err := tx.QueryRow(ctx, `
-			SELECT id, client_id, user_id, scope, expires_at, revoked_at, replaced_by_id
-			FROM oauth_refresh_tokens
-			WHERE token_hash = $1
-			FOR UPDATE
-		`, hash[:]).Scan(&id, &rowClientID, &userID, &scope, &expires, &revoked, &replacedBy)
+			SELECT client_id, user_id FROM oauth_refresh_tokens WHERE token_hash = $1
+		`, hash[:]).Scan(&rowClientID, &userID)
 		if err != nil {
 			if isNoRows(err) {
 				return ErrUnauthorized
@@ -592,6 +641,19 @@ func (s *Store) RotateOAuthRefreshToken(ctx context.Context, raw string, clientI
 		// to rotate, and saying so precisely would confirm the token exists.
 		if rowClientID != clientID {
 			return ErrUnauthorized
+		}
+		// The grant is locked before the token, in the order every change to a
+		// grant takes its locks; see lockOAuthGrant.
+		if err := lockOAuthGrant(ctx, tx, rowClientID, userID); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			SELECT id, scope, expires_at, revoked_at, replaced_by_id
+			FROM oauth_refresh_tokens
+			WHERE token_hash = $1
+			FOR UPDATE
+		`, hash[:]).Scan(&id, &scope, &expires, &revoked, &replacedBy); err != nil {
+			return err // defensive: nothing deletes a refresh token whose grant is held
 		}
 		if replacedBy != nil {
 			if err := revokeOAuthGrants(ctx, tx, rowClientID, userID); err != nil {
@@ -616,7 +678,7 @@ func (s *Store) RotateOAuthRefreshToken(ctx context.Context, raw string, clientI
 			}
 			return err
 		}
-		if err := issueOAuthTokens(ctx, tx, IssueOAuthTokensParams{
+		if err := issueOAuthTokens(ctx, tx, issueOAuthTokensParams{
 			ClientID:   rowClientID,
 			ClientName: clientName,
 			UserID:     userID,

@@ -77,7 +77,21 @@ func (s *Server) oauthExchangeAuthorizationCode(w http.ResponseWriter, r *http.R
 	// The client is part of the lookup, so a code belonging to someone else is
 	// not found rather than consumed. Burning another client's code would make
 	// its rightful exchange look like a replay and revoke that client's grant.
-	consumed, err := s.store.ConsumeOAuthAuthorizationCode(r.Context(), code, client.ID)
+	// The tokens are issued in the same transaction that spends the code, so a
+	// disconnect or a replay cannot slip in between.
+	issued, err := s.store.ExchangeOAuthAuthorizationCode(r.Context(), code, client, func(consumed store.ConsumedOAuthCode) error {
+		// The client binding is already enforced by the lookup; it is asserted
+		// again here so the invariant survives a change to that query. The
+		// redirect URI is only checked here, because the code alone must not be
+		// enough to obtain a token.
+		if consumed.ClientID != client.ID || consumed.RedirectURI != redirectURI {
+			return errOAuthCodeMismatch
+		}
+		if !oauthVerifyPKCE(consumed.CodeChallenge, verifier) {
+			return errOAuthVerifierMismatch
+		}
+		return nil
+	})
 	if err != nil {
 		s.oauthNoteAuthFailure(r, client.ClientID)
 		switch {
@@ -85,42 +99,26 @@ func (s *Server) oauthExchangeAuthorizationCode(w http.ResponseWriter, r *http.R
 			// The store has already revoked everything this pair held.
 			writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
 				"this authorization code has already been used; all access for this application has been revoked")
+		case errors.Is(err, errOAuthCodeMismatch):
+			writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
+				"the authorization code was not issued for this client and redirect URI")
+		case errors.Is(err, errOAuthVerifierMismatch):
+			writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the code verifier does not match")
 		case errors.Is(err, store.ErrUnauthorized):
 			writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
 				"the authorization code is invalid or has expired")
 		default:
-			writeInternalError(w, "oauth consume authorization code", err)
+			writeInternalError(w, "oauth exchange authorization code", err)
 		}
 		return
 	}
-	// The client binding is already enforced by the lookup above; it is asserted
-	// again here so the invariant survives a change to that query. The redirect
-	// URI is only checked here, because the code alone must not be enough to
-	// obtain a token.
-	if consumed.ClientID != client.ID || consumed.RedirectURI != redirectURI {
-		s.oauthNoteAuthFailure(r, client.ClientID)
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant",
-			"the authorization code was not issued for this client and redirect URI")
-		return
-	}
-	if !oauthVerifyPKCE(consumed.CodeChallenge, verifier) {
-		s.oauthNoteAuthFailure(r, client.ClientID)
-		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "the code verifier does not match")
-		return
-	}
-
-	issued, err := s.store.IssueOAuthTokens(r.Context(), store.IssueOAuthTokensParams{
-		ClientID:   client.ID,
-		ClientName: client.Name,
-		UserID:     consumed.UserID,
-		Scope:      consumed.Scope,
-	})
-	if err != nil {
-		writeInternalError(w, "oauth issue tokens", err)
-		return
-	}
-	writeOAuthTokens(w, issued, consumed.Scope)
+	writeOAuthTokens(w, issued, issued.Scope)
 }
+
+var (
+	errOAuthCodeMismatch     = errors.New("authorization code issued for another client or redirect URI")
+	errOAuthVerifierMismatch = errors.New("code verifier does not match")
+)
 
 func (s *Server) oauthExchangeRefreshToken(w http.ResponseWriter, r *http.Request, client model.OAuthClient) {
 	refresh := r.PostForm.Get("refresh_token")

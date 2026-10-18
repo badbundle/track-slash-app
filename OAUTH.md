@@ -71,15 +71,29 @@ refresh token that has already been rotated away, means a copy leaked. Both
 revoke every token that (client, user) pair holds before reporting the failure.
 The revocation is committed before the error is returned; failing the
 transaction instead would roll back the very thing that makes detection useful.
+A code is spent and its tokens issued in one transaction
+(`ExchangeOAuthAuthorizationCode`), so a replay racing the first exchange waits
+for its tokens and revokes them too. A request that fails the redirect URI or
+PKCE check still spends the code.
 
 **A code is looked up by client, not merely checked against one.** Both
-`ConsumeOAuthAuthorizationCode` and `RotateOAuthRefreshToken` take the
-authenticated client and match on it in the locking `SELECT`. Checking the
-binding after consuming would let any registered client — and on this instance
-any signed-in user can register one — burn a code belonging to someone else.
-The rightful client's exchange would then look like a replay, and replay revokes
+`ExchangeOAuthAuthorizationCode` and `RotateOAuthRefreshToken` take the
+authenticated client and match on it in their lookup. Checking the binding
+after consuming would let any registered client — and on this instance any
+signed-in user can register one — burn a code belonging to someone else. The
+rightful client's exchange would then look like a replay, and replay revokes
 the whole grant. Matching in the query means a foreign code is simply not found
 and nothing is mutated.
+
+**A grant's approval row serialises changes to it.** Exchanging a code and
+refreshing a token both lock the (client, user) row in `oauth_client_consents`
+shared, before any other lock, and fail once it is gone. Ending a grant —
+disconnecting it, revoking one of its access tokens, revoking the client or
+deleting the user — deletes that row before it revokes anything. A revocation
+cannot see a token another transaction has not yet committed, so without this a
+disconnect racing a refresh could miss the refresh token minted alongside it.
+With it, issuing either waits for the disconnect and then fails, or finishes
+first so the disconnect revokes what it issued.
 
 **A connector cannot manage credentials.** `requireFirstPartyToken` (and
 `requireMCPFirstPartyToken` on the MCP surface) refuses the token endpoints to a

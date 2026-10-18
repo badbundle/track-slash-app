@@ -46,13 +46,8 @@ func TestDeleteUserEndsEveryCredential(t *testing.T) {
 		}
 		return code
 	}
-	if _, err := e.store.ConsumeOAuthAuthorizationCode(e.ctx, code(), client.Client.ID); err != nil {
-		t.Fatalf("ConsumeOAuthAuthorizationCode: %v", err)
-	}
-	if _, err := e.store.IssueOAuthTokens(e.ctx, store.IssueOAuthTokensParams{
-		ClientID: client.Client.ID, ClientName: "Claude", UserID: gone.ID, Scope: model.OAuthScopeMCP,
-	}); err != nil {
-		t.Fatalf("IssueOAuthTokens: %v", err)
+	if _, err := e.store.ExchangeOAuthAuthorizationCode(e.ctx, code(), client.Client, acceptCode); err != nil {
+		t.Fatalf("ExchangeOAuthAuthorizationCode: %v", err)
 	}
 	code() // approved again, but never exchanged
 

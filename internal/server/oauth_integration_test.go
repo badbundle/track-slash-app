@@ -1159,29 +1159,34 @@ func TestOAuthRejectsMalformedPKCELengths(t *testing.T) {
 	}
 }
 
-// The refresh response reports the grant's own scope rather than assuming it.
+// The token responses report the grant's own scope rather than assuming it.
 //
-// The grant is issued through the store with a scope the authorize endpoint
-// would never mint, because a response that hardcodes the default scope is
+// The code is minted through the store with a scope the authorize endpoint
+// would never grant, because a response that hardcodes the default scope is
 // indistinguishable from a correct one whenever the grant happens to hold it.
 func TestOAuthRefreshReportsTheGrantScope(t *testing.T) {
 	t.Parallel()
 	e := newOAuthHTTPEnv(t)
 
 	const granted = "mcp:future-scope"
-	issued, err := e.store.IssueOAuthTokens(e.ctx, store.IssueOAuthTokensParams{
-		ClientID:   e.client.Client.ID,
-		ClientName: e.client.Client.Name,
-		UserID:     e.user.ID,
-		Scope:      granted,
+	code, err := e.store.CreateOAuthAuthorizationCode(e.ctx, store.CreateOAuthAuthorizationCodeParams{
+		ClientID:      e.client.Client.ID,
+		UserID:        e.user.ID,
+		RedirectURI:   oauthTestRedirectURI,
+		CodeChallenge: oauthTestChallenge(),
+		Scope:         granted,
 	})
 	if err != nil {
-		t.Fatalf("IssueOAuthTokens: %v", err)
+		t.Fatalf("CreateOAuthAuthorizationCode: %v", err)
+	}
+	issued := e.exchange(t, code)
+	if issued["scope"] != granted {
+		t.Fatalf("exchanged scope = %v, want %q", issued["scope"], granted)
 	}
 
 	res, rotated := e.postToken(t, url.Values{
 		"grant_type":    {"refresh_token"},
-		"refresh_token": {issued.RefreshToken},
+		"refresh_token": {issued["refresh_token"].(string)},
 		"client_id":     {e.client.Client.ClientID},
 		"client_secret": {e.client.RawSecret},
 	}, false)
