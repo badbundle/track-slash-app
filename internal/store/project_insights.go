@@ -196,7 +196,9 @@ func insightPrivateSQL(alias string, includePrivate bool) string {
 }
 
 // insightIssueHistoryCTE rebuilds each live issue's status timeline from the
-// project changelog. $1 is the project ID. A change stamped before its issue
+// project changelog. $1 is the project ID. Changes join issues by its primary
+// key and each issue's first change is found once, so the work grows with the
+// number of changes rather than issues times changes. A change stamped before its issue
 // was created (only possible with imported or hand-edited rows) is moved to
 // the creation time so intervals never run backwards.
 func insightIssueHistoryCTE(includePrivate bool) string {
@@ -208,12 +210,13 @@ live_issues AS (
 ),
 status_changes AS (
 	SELECT e.entity_id AS issue_id,
-	       GREATEST(e.created_at, li.created_at) AS at,
+	       i.status::text AS issue_status,
+	       GREATEST(e.created_at, i.created_at) AS at,
 	       e.id AS entry_id,
 	       ` + insightStatusSQL(`c.value->>'from'`) + ` AS from_status,
 	       ` + insightStatusSQL(`c.value->>'to'`) + ` AS to_status
 	FROM project_changelog_entries e
-	JOIN live_issues li ON li.id = e.entity_id
+	JOIN issues i ON i.id = e.entity_id
 	CROSS JOIN LATERAL jsonb_array_elements(
 		CASE WHEN jsonb_typeof(e.details->'changes') = 'array' THEN e.details->'changes' ELSE '[]'::jsonb END
 	) AS c(value)
@@ -221,17 +224,18 @@ status_changes AS (
 	  AND e.entity = 'issue'
 	  AND e.op = 'update'
 	  AND c.value->>'field' = 'status'
+	  AND i.project_id = $1 AND i.deleted_at IS NULL AND ` + insightPrivateSQL("i", includePrivate) + `
+),
+first_status_changes AS MATERIALIZED (
+	SELECT DISTINCT ON (issue_id) issue_id, from_status
+	FROM status_changes
+	ORDER BY issue_id, at, entry_id
 ),
 status_points AS (
 	SELECT li.id AS issue_id, li.created_at AS at, 0 AS seq, NULL::uuid AS entry_id,
-	       COALESCE((
-	           SELECT sc.from_status
-	           FROM status_changes sc
-	           WHERE sc.issue_id = li.id
-	           ORDER BY sc.at, sc.entry_id
-	           LIMIT 1
-	       ), li.status) AS status
+	       COALESCE(fsc.from_status, li.status) AS status
 	FROM live_issues li
+	LEFT JOIN first_status_changes fsc ON fsc.issue_id = li.id
 	UNION ALL
 	SELECT sc.issue_id, sc.at, 1, sc.entry_id, sc.to_status
 	FROM status_changes sc
@@ -337,19 +341,18 @@ func insightFlowAndThroughput(ctx context.Context, tx pgx.Tx, projectID uuid.UUI
 // finished again are measured to their final completion.
 func insightCycleTimeCTE(includePrivate bool) string {
 	return insightIssueHistoryCTE(includePrivate) + `,
-completions AS (
-	SELECT sc.issue_id, max(sc.at) AS completed_at
+done_changes AS (
+	SELECT sc.issue_id, sc.at, sc.to_status,
+	       max(sc.at) FILTER (WHERE sc.to_status = 'done') OVER (PARTITION BY sc.issue_id) AS completed_at
 	FROM status_changes sc
-	JOIN live_issues li ON li.id = sc.issue_id
-	WHERE li.status = 'done' AND sc.to_status = 'done'
-	GROUP BY sc.issue_id
+	WHERE sc.issue_status = 'done'
 ),
 cycle AS (
-	SELECT c.issue_id, c.completed_at,
-	       (SELECT min(sc.at) FROM status_changes sc
-	        WHERE sc.issue_id = c.issue_id AND sc.to_status = 'in_progress' AND sc.at <= c.completed_at) AS started_at
-	FROM completions c
-	WHERE c.completed_at >= $2 AND c.completed_at < $3
+	SELECT issue_id, completed_at,
+	       min(at) FILTER (WHERE to_status = 'in_progress' AND at <= completed_at) AS started_at
+	FROM done_changes
+	WHERE completed_at >= $2 AND completed_at < $3
+	GROUP BY issue_id, completed_at
 )`
 }
 
