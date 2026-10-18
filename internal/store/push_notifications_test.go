@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/base64"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -36,6 +37,15 @@ func TestNormalizePushSubscription(t *testing.T) {
 		{name: "HTTP endpoint", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "http://push.example.test" }},
 		{name: "missing host", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://" }},
 		{name: "credentials", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://user@push.example.test" }},
+		{name: "localhost", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://LOCALHOST./push" }},
+		{name: "localhost subdomain", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://push.localhost/push" }},
+		{name: "port only", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://:8443/push" }},
+		{name: "loopback", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://127.0.0.1:8443/push" }},
+		{name: "IPv6 loopback", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://[::1]/push" }},
+		{name: "private", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://10.0.0.8/push" }},
+		{name: "metadata", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://169.254.169.254/latest" }},
+		{name: "unique local", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://[fd00::1]/push" }},
+		{name: "mapped private", mutate: func(p *UpsertPushSubscriptionParams) { p.Endpoint = "https://[::ffff:192.168.1.1]/push" }},
 		{name: "long endpoint", mutate: func(p *UpsertPushSubscriptionParams) {
 			p.Endpoint = "https://push.example.test/" + strings.Repeat("x", 4096)
 		}},
@@ -56,6 +66,55 @@ func TestNormalizePushSubscription(t *testing.T) {
 				t.Fatal("normalizePushSubscription returned nil error")
 			}
 		})
+	}
+}
+
+func TestPushEndpointAddressPolicy(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		addr string
+		want bool
+	}{
+		{"8.8.8.8", true},
+		{"142.250.180.10", true},
+		{"2a00:1450:4009:81d::200a", true},
+		{"::ffff:8.8.8.8", true},
+		{"127.0.0.1", false},
+		{"127.10.0.1", false},
+		{"::1", false},
+		{"::ffff:127.0.0.1", false},
+		{"0.0.0.0", false},
+		{"0.1.2.3", false},
+		{"::", false},
+		{"10.1.2.3", false},
+		{"172.16.0.1", false},
+		{"192.168.0.1", false},
+		{"fd12:3456::1", false},
+		{"169.254.169.254", false},
+		{"fe80::1", false},
+		{"fe80::1%eth0", false},
+		{"100.64.0.1", false},
+		{"100.127.255.254", false},
+		{"224.0.0.1", false},
+		{"ff02::1", false},
+		{"255.255.255.255", false},
+		{"240.0.0.1", false},
+	} {
+		addr := netip.MustParseAddr(test.addr)
+		if got := PushEndpointAddressAllowed(addr); got != test.want {
+			t.Errorf("PushEndpointAddressAllowed(%s) = %v, want %v", test.addr, got, test.want)
+		}
+	}
+	if PushEndpointAddressAllowed(netip.Addr{}) {
+		t.Fatal("zero address allowed")
+	}
+	for host, want := range map[string]bool{
+		"push.example.test": true, "8.8.8.8": true, "": false, "localhost": false,
+		"Localhost.": false, "app.localhost": false, "192.168.1.1": false,
+	} {
+		if got := pushEndpointHostAllowed(host); got != want {
+			t.Errorf("pushEndpointHostAllowed(%q) = %v, want %v", host, got, want)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"sort"
@@ -176,6 +177,9 @@ func normalizePushSubscription(p UpsertPushSubscriptionParams) (string, string, 
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || len(endpoint) > 4096 {
 		return "", "", "", "", fmt.Errorf("push endpoint must be an HTTPS URL: %w", ErrConflict)
 	}
+	if !pushEndpointHostAllowed(parsed.Hostname()) {
+		return "", "", "", "", fmt.Errorf("push endpoint must be a public address: %w", ErrConflict)
+	}
 	p256dh := strings.TrimSpace(p.P256DH)
 	authSecret := strings.TrimSpace(p.AuthSecret)
 	publicKey, publicErr := base64.RawURLEncoding.DecodeString(p256dh)
@@ -188,6 +192,46 @@ func normalizePushSubscription(p UpsertPushSubscriptionParams) (string, string, 
 		return "", "", "", "", fmt.Errorf("push subscription user agent is too long: %w", ErrConflict)
 	}
 	return endpoint, p256dh, authSecret, userAgent, nil
+}
+
+// pushEndpointHostAllowed refuses an endpoint that names this host or a
+// private network outright. A hostname is checked again once resolved, when a
+// delivery connects to it.
+func pushEndpointHostAllowed(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if host == "" || host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return PushEndpointAddressAllowed(addr)
+	}
+	return true
+}
+
+// pushEndpointNonPublicPrefixes are the special-purpose ranges netip.Addr has
+// no predicate for.
+var pushEndpointNonPublicPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),     // "this network"
+	netip.MustParsePrefix("100.64.0.0/10"), // carrier-grade NAT
+	netip.MustParsePrefix("240.0.0.0/4"),   // reserved, and broadcast
+}
+
+// PushEndpointAddressAllowed reports whether a push delivery may connect to
+// addr. A browser chooses its own endpoint, so deliveries must not be steerable
+// at this host or its network: loopback, private, unique-local, link-local,
+// carrier-grade NAT, unspecified, multicast and reserved addresses are refused.
+func PushEndpointAddressAllowed(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	if !addr.IsValid() || addr.Zone() != "" || addr.IsUnspecified() || addr.IsLoopback() ||
+		addr.IsPrivate() || addr.IsLinkLocalUnicast() || addr.IsMulticast() {
+		return false
+	}
+	for _, prefix := range pushEndpointNonPublicPrefixes {
+		if prefix.Contains(addr) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) PushSubscriptionActive(ctx context.Context, userID uuid.UUID, endpoint string) (bool, error) {

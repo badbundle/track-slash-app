@@ -54,7 +54,15 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 			"auth":   base64.RawURLEncoding.EncodeToString(make([]byte, 16)),
 		},
 	}
+	request["endpoint"] = "https://127.0.0.1:8443/push"
 	requestBody, _ := json.Marshal(request)
+	res = e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/settings/push/subscription", token, strings.NewReader(string(requestBody)), map[string]string{"Content-Type": "application/json"})
+	defer res.Body.Close()
+	if body := readBody(t, res); res.StatusCode != http.StatusConflict || !strings.Contains(body, "public address") {
+		t.Fatalf("loopback subscription code=%d body=%s", res.StatusCode, body)
+	}
+	request["endpoint"] = endpoint
+	requestBody, _ = json.Marshal(request)
 	res = e.uiDoNoRedirectWithHeaders(t, http.MethodPost, "/settings/push/subscription", token, strings.NewReader(string(requestBody)), map[string]string{
 		"Content-Type": "application/json", "User-Agent": "Push Browser",
 	})

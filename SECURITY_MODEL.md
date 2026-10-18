@@ -69,6 +69,11 @@ source of a user's rights in a project.
 - **Guesses are budgeted.** Password sign-in, password changes, reauthentication
   and OAuth client authentication share per-address and per-identifier failure
   budgets (`auth_rate_limit.go`).
+- **Push deliveries reach only public addresses.** A browser names its own
+  push endpoint, so saving one on `localhost` or a loopback, private,
+  link-local, unique-local, carrier-grade NAT or unspecified address fails
+  (`PushEndpointAddressAllowed`). The sender checks each resolved address again
+  as it connects and never follows a redirect.
 - **Uploads are inert.** Only safe raster images are served inline and with
   their own type. Everything else is sent as an octet-stream download with a
   sandbox CSP.
