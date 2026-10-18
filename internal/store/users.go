@@ -303,11 +303,11 @@ func (s *Store) ListUserProfilesByID(ctx context.Context, ids []uuid.UUID) ([]mo
 }
 
 // DeleteUser soft-deletes a user and ends every way into the account in the
-// same transaction: its tokens, sessions, connector grants, codes, password and
-// passkeys are all revoked, so none of them rests on a deleted_at filter to
-// stay dead. The connectors they registered go with them, for everyone who
-// approved one: their secrets are scrubbed and every token they hold stops
-// working at once.
+// same transaction: its tokens, sessions, connector grants, codes, password,
+// passkeys and password reset links are all revoked, so none of them rests on
+// a deleted_at filter to stay dead. The connectors they registered go with
+// them, for everyone who approved one: their secrets are scrubbed and every
+// token they hold stops working at once.
 func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
@@ -329,6 +329,7 @@ func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
 			`UPDATE oauth_refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
 			`UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
 			`UPDATE auth_credentials SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+			`DELETE FROM password_resets WHERE user_id = $1 AND used_at IS NULL`,
 		} {
 			if _, err := tx.Exec(ctx, q, id); err != nil {
 				return err // defensive: DB outage mid-transaction

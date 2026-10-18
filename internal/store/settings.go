@@ -103,16 +103,27 @@ func (s *Store) ChangePassword(ctx context.Context, userID uuid.UUID, currentPas
 	}
 	nextHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
+		// Defensive: ValidatePassword keeps to what bcrypt accepts.
 		return err
 	}
-	if _, err := s.db.Exec(ctx, `
-		UPDATE auth_credentials SET secret_hash = $2, last_used_at = now()
-		WHERE id = $1
-	`, credentialID, string(nextHash)); err != nil {
-		// Defensive: credential row was just read; failure here is a DB/runtime fault.
-		return err
-	}
-	return nil
+	// The new password cancels any reset link still waiting. The user row is
+	// locked as a reset link is made, so a link made while this runs is either
+	// cancelled here or made after the change.
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if err := lockUserCredentials(ctx, tx, userID); err != nil {
+			// Defensive: the credential was just read for a live user; only a
+			// DB outage or a deletion in between reaches this.
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			UPDATE auth_credentials SET secret_hash = $2, last_used_at = now()
+			WHERE id = $1
+		`, credentialID, string(nextHash)); err != nil {
+			// Defensive: credential row was just read; failure here is a DB/runtime fault.
+			return err
+		}
+		return cancelPasswordResets(ctx, tx, userID)
+	})
 }
 
 func (s *Store) HasPasswordCredential(ctx context.Context, userID uuid.UUID) (bool, error) {
@@ -204,6 +215,11 @@ func (s *Store) SetPasswordLoginEnabled(ctx context.Context, userID uuid.UUID, e
 			WHERE user_id = $1
 			  AND consumed_at IS NULL
 		`, userID); err != nil {
+			return model.PasswordLoginState{}, err
+		}
+		// A password that no longer signs in has nothing to reset.
+		if err := cancelPasswordResets(ctx, tx, userID); err != nil {
+			// Defensive: the user row is locked; only a DB outage reaches this.
 			return model.PasswordLoginState{}, err
 		}
 	}

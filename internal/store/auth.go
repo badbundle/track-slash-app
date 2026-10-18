@@ -205,20 +205,27 @@ func (s *Store) RevokeSessionAuthTokensForUserExcept(ctx context.Context, userID
 func (s *Store) revokeSessionAuthTokens(ctx context.Context, userID, keep uuid.UUID) (int64, error) {
 	var revoked int64
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-			UPDATE auth_tokens SET revoked_at = now()
-			WHERE user_id = $1 AND kind = $2 AND revoked_at IS NULL AND id <> $3
-		`, userID, model.AuthTokenKindSession, keep)
-		if err != nil {
-			return err
-		}
-		revoked = tag.RowsAffected()
-		return disableUserPushSubscriptions(ctx, tx, userID)
+		var err error
+		revoked, err = revokeSessionAuthTokensTx(ctx, tx, userID, keep)
+		return err
 	})
 	if err != nil {
 		return 0, err
 	}
 	return revoked, nil
+}
+
+// revokeSessionAuthTokensTx is RevokeSessionAuthTokensForUserExcept inside a
+// caller's transaction.
+func revokeSessionAuthTokensTx(ctx context.Context, tx pgx.Tx, userID, keep uuid.UUID) (int64, error) {
+	tag, err := tx.Exec(ctx, `
+		UPDATE auth_tokens SET revoked_at = now()
+		WHERE user_id = $1 AND kind = $2 AND revoked_at IS NULL AND id <> $3
+	`, userID, model.AuthTokenKindSession, keep)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), disableUserPushSubscriptions(ctx, tx, userID)
 }
 
 func generateToken() (string, error) {
