@@ -139,6 +139,10 @@ func main() {
 		githubWorker := githubintegration.NewWorker(st, githubService, githubintegration.WorkerOptions{})
 		go githubWorker.Run(ctx)
 	}
+	emailMailer, err := newMailer(cfg.Email)
+	if err != nil {
+		log.Fatalf("email: %v", err)
+	}
 
 	srv := server.NewWithOptions(st, hub, server.Options{
 		CORSAllowedOrigins:   cfg.CORSAllowedOrigins,
@@ -150,6 +154,7 @@ func main() {
 		ObjectStorage:        storageSvc,
 		WebPushPublicKey:     cfg.WebPush.PublicKey,
 		GitHubIntegration:    githubService,
+		Mailer:               emailMailer,
 	})
 
 	httpSrv := &http.Server{

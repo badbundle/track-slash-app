@@ -48,6 +48,7 @@ type uiShellData struct {
 	ProfilePanel      *uiProfilePanelData
 	LoginPanel        *uiLoginPanelData
 	NotificationPanel *uiNotificationPanelData
+	EmailConfirmPanel *uiEmailConfirmPanelData
 	ErrorPanel        *uiErrorPanelData
 }
 
@@ -904,6 +905,9 @@ type uiProfilePanelData struct {
 	// BackdropOOB adds the saved backdrop to an htmx response, which replaces
 	// only #main.
 	BackdropOOB bool
+	// Email is the Email card, set only while email is on. The address is then
+	// changed there, through a confirmed link, instead of in the profile form.
+	Email *uiEmailPanelData
 }
 
 // uiLoginPanelData backs the Login account page: passkeys and password. They

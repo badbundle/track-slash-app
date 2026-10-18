@@ -520,7 +520,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	readOnly, add, write := mcpReadOnly, mcpAdditive, mcpDestructive
 
 	addMCPTool(srv, "track_get_me", "Return current MCP-authenticated user and token kind.", readOnly, s.mcpGetMe)
-	addMCPTool(srv, "track_update_my_settings", "Update current user profile or password.", write, s.mcpUpdateMySettings)
+	addMCPTool(srv, "track_update_my_settings", "Update current user profile or password. Where the deployment confirms email addresses by email, a new email is refused here and is set on the Profile page instead.", write, s.mcpUpdateMySettings)
 
 	addMCPTool(srv, "track_create_project", "Create a project owned by current user.", add, s.mcpCreateProject)
 	addMCPTool(srv, "track_list_projects", "List projects you own or are a member of. Public projects you are not in are not listed; get them by owner and key.", readOnly, s.mcpListProjects)
@@ -1144,8 +1144,12 @@ func (s *Server) mcpUpdateMySettings(ctx context.Context, req *mcp.CallToolReque
 		if err := store.ValidateEmail(email); err != nil {
 			return nil, validationError(err.Error())
 		}
-		user, err = s.store.UpdateUserProfile(ctx, user.ID, name, email)
+		user, err = s.saveProfile(ctx, user, name, email)
+		if errors.Is(err, errEmailNeedsConfirmation) {
+			return nil, validationError(err.Error())
+		}
 		if err != nil {
+			// Defensive: as in updateMySettings.
 			return nil, err
 		}
 		changed = true

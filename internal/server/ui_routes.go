@@ -75,6 +75,7 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Post("/settings/passkeys/options", s.uiPasskeyAddOptions)
 		r.Post("/settings/passkeys", s.uiPasskeyAdd)
 		r.Post("/settings/passkeys/{id}/revoke", s.uiPasskeyRevoke)
+		s.mountUIEmailRoutes(r)
 		r.Post("/settings/github-tokens", s.uiCreateGitHubToken)
 		r.Post("/settings/github-tokens/{credentialID}", s.uiUpdateGitHubToken)
 		r.Post("/settings/github-tokens/{credentialID}/delete", s.uiDeleteGitHubToken)

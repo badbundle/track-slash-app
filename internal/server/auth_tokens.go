@@ -63,8 +63,15 @@ func (s *Server) updateMySettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		user, err = s.store.UpdateUserProfile(r.Context(), user.ID, name, email)
+		user, err = s.saveProfile(r.Context(), user, name, email)
+		if errors.Is(err, errEmailNeedsConfirmation) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err != nil {
+			// Defensive: the input was checked above and an unverified
+			// address no longer conflicts, so only a DB outage or a
+			// concurrent account deletion reaches this.
 			writeStoreError(w, err)
 			return
 		}

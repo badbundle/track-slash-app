@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/bradleymackey/track-slash/internal/githubintegration"
+	"github.com/bradleymackey/track-slash/internal/mailer"
 	"github.com/bradleymackey/track-slash/internal/passkeys"
 	"github.com/bradleymackey/track-slash/internal/realtime"
 	objectstorage "github.com/bradleymackey/track-slash/internal/storage"
@@ -57,6 +58,9 @@ type Server struct {
 	previewTermsRequired bool
 	webPushPublicKey     string
 	githubIntegration    *githubintegration.Service
+	// mailer is nil when email is off; see emailEnabled.
+	mailer       mailer.Mailer
+	emailLimiter *fixedWindowLimiter
 }
 
 type Options struct {
@@ -74,6 +78,9 @@ type Options struct {
 	ObjectStorage        *objectstorage.Service
 	WebPushPublicKey     string
 	GitHubIntegration    *githubintegration.Service
+	// Mailer turns email on. It is ignored without PublicOrigin, because every
+	// link in a message is built from it, never from a request's Host.
+	Mailer mailer.Mailer
 }
 
 // New constructs a Server. corsAllowedOrigins is a list of exact browser
@@ -133,6 +140,8 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 		previewTermsRequired: opts.PreviewTermsRequired,
 		webPushPublicKey:     opts.WebPushPublicKey,
 		githubIntegration:    opts.GitHubIntegration,
+		mailer:               emailMailer(opts),
+		emailLimiter:         newEmailLimiter(),
 	}
 }
 

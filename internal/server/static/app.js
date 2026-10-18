@@ -1118,6 +1118,34 @@
     event.preventDefault();
     signOutWithPushEndpoint(event.target);
   });
+  // Changing or removing the account email asks for the password or a passkey
+  // first, as passkey changes do, then posts the form with the one-use token.
+  const setEmailStatus = (panel, message) => {
+    const status = panel && panel.querySelector("[data-email-status]");
+    if (!status) return;
+    status.textContent = message || "";
+    status.classList.toggle("hidden", !message);
+    ["border-rose-200", "bg-rose-50", "text-rose-700", "dark:border-rose-900", "dark:bg-rose-950/40", "dark:text-rose-200"]
+      .forEach((name) => status.classList.toggle(name, !!message));
+  };
+  document.body.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement) || !form.matches("[data-email-change-form]")) return;
+    const panel = form.closest("[data-email-panel]");
+    const tokenInput = form.querySelector("[data-email-reauth-token]");
+    if (!panel || !tokenInput || tokenInput.value) return;
+    event.preventDefault();
+    setEmailStatus(panel, "");
+    getPasskeyReauthToken(panel).then((token) => {
+      delete panel.dataset.reauthToken;
+      tokenInput.value = token;
+      ensureCSRFFormToken(form);
+      form.submit();
+    }).catch((err) => {
+      if (err && err.passkeyCanceled) return;
+      setEmailStatus(panel, err && err.message ? err.message : "Couldn't confirm it's you.");
+    });
+  });
   // Requests that swap #main are page navigations; while any is in flight the
   // brand progress bar shows. Counting the requests themselves keeps a fast
   // second click from clearing the bar while the first request still runs.

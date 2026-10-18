@@ -655,6 +655,10 @@ func safeUINext(raw string) string {
 	// connection fails with nothing to explain why.
 	case path == "/", path == "/me", path == "/me/panel", path == "/me/all", path == "/me/all/panel", path == "/projects", path == "/projects/panel", path == "/projects/new", path == "/projects/new/panel", path == "/issues/new", path == "/issues/new/panel", path == "/issues/new/projects", path == "/settings", path == uiProfilePath, path == uiLoginSettingsPath, path == uiNotificationsPath, path == uiTokensPath, path == oauthAuthorizePath:
 		return raw
+	// A confirmation link opened while signed out comes back here, token and
+	// all, once its owner has signed in.
+	case path == uiEmailConfirmPath:
+		return raw
 	case safeUIIssuePath(path):
 		return raw
 	case safeUIProjectPath(path):

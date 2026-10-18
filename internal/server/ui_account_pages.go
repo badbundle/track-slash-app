@@ -83,7 +83,14 @@ func (s *Server) uiUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		s.renderUIProfile(w, r, currentUser(r), "Unable to read form.", false)
 		return
 	}
-	user, err := s.store.UpdateUserProfile(r.Context(), currentUser(r).ID, r.Form.Get("name"), r.Form.Get("email"))
+	var user model.User
+	var err error
+	if s.emailEnabled() {
+		// The address changes only through a confirmed link, never from this form.
+		user, err = s.store.UpdateUserName(r.Context(), currentUser(r).ID, r.Form.Get("name"))
+	} else {
+		user, err = s.store.UpdateUserProfile(r.Context(), currentUser(r).ID, r.Form.Get("name"), r.Form.Get("email"))
+	}
 	if err != nil {
 		s.renderUIProfile(w, r, currentUser(r), err.Error(), false)
 		return
@@ -120,6 +127,10 @@ func (s *Server) renderUIProfile(w http.ResponseWriter, r *http.Request, user mo
 }
 
 func (s *Server) renderUIProfilePanel(w http.ResponseWriter, r *http.Request, user model.User, panel *uiProfilePanelData) {
+	s.renderUIProfilePanelStatus(w, r, http.StatusOK, user, panel)
+}
+
+func (s *Server) renderUIProfilePanelStatus(w http.ResponseWriter, r *http.Request, status int, user model.User, panel *uiProfilePanelData) {
 	background, err := s.store.GetUserBackground(r.Context(), user.ID)
 	if err != nil {
 		// Defensive: the signed-in user's own row; only a DB outage or a
@@ -130,7 +141,18 @@ func (s *Server) renderUIProfilePanel(w http.ResponseWriter, r *http.Request, us
 	panel.CSRFToken = uiSessionCSRFToken(r)
 	panel.User = user
 	panel.Background = background
-	s.renderUIAccountPage(w, r, user, "profile", uiShellData{Background: background, ProfilePanel: panel})
+	if s.emailEnabled() {
+		if panel.Email == nil {
+			panel.Email = &uiEmailPanelData{}
+		}
+		panel.Email.CSRFToken = panel.CSRFToken
+		if err := s.fillUIEmailPanel(r.Context(), user, panel.Email); err != nil {
+			// Defensive: the signed-in user's own rows.
+			writeUIStoreError(w, err)
+			return
+		}
+	}
+	s.renderUIAccountPageStatus(w, r, status, user, "profile", uiShellData{Background: background, ProfilePanel: panel})
 }
 
 // The internal-error branches in the account renderers below are defensive:
@@ -184,9 +206,13 @@ func (s *Server) renderUINotifications(w http.ResponseWriter, r *http.Request) {
 // renderUIAccountPage puts one account page in the shell and marks its entry in
 // the sidebar's account group as the current page.
 func (s *Server) renderUIAccountPage(w http.ResponseWriter, r *http.Request, user model.User, view string, shell uiShellData) {
+	s.renderUIAccountPageStatus(w, r, http.StatusOK, user, view, shell)
+}
+
+func (s *Server) renderUIAccountPageStatus(w http.ResponseWriter, r *http.Request, status int, user model.User, view string, shell uiShellData) {
 	shell.User = user
 	shell.SidebarActive = uiSidebarState{View: view}
-	s.renderUIShell(w, r, http.StatusOK, shell)
+	s.renderUIShell(w, r, status, shell)
 }
 
 func (s *Server) uiCreateToken(w http.ResponseWriter, r *http.Request) {
