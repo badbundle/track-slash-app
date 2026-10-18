@@ -37,7 +37,14 @@ func main() {
 	adminTokenName := flag.String("token-name", "bootstrap", "token name for -create-admin-token")
 	promoteExisting := flag.Bool("promote-existing", false, "with -create-admin-token, make the existing non-admin account that holds -email an admin (emails are not verified, so check who holds it first)")
 	generateVAPIDKeys := flag.Bool("generate-vapid-keys", false, "generate a Web Push VAPID key pair and exit")
+	healthcheck := flag.Bool("healthcheck", false, "check the health of the server listening on PORT, exit 0 if healthy and 1 otherwise")
 	flag.Parse()
+	if *healthcheck {
+		if err := checkHealth("http://127.0.0.1:" + config.LoadPort()); err != nil {
+			log.Fatalf("healthcheck: %v", err)
+		}
+		return
+	}
 	if *generateVAPIDKeys {
 		privateKey, publicKey, err := webpush.GenerateVAPIDKeys()
 		if err != nil {

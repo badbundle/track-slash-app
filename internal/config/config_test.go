@@ -137,6 +137,17 @@ func TestLoadDatabaseRequiresDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestLoadPort(t *testing.T) {
+	t.Setenv("PORT", "")
+	if got := LoadPort(); got != "8080" {
+		t.Fatalf("default LoadPort = %q, want 8080", got)
+	}
+	t.Setenv("PORT", "9090")
+	if got := LoadPort(); got != "9090" {
+		t.Fatalf("LoadPort = %q, want 9090", got)
+	}
+}
+
 func TestDirectConnConfigDropsPoolSettings(t *testing.T) {
 	for _, databaseURL := range []string{
 		"postgres://track:track@localhost:5432/track?sslmode=disable&pool_max_conns=20&pool_min_conns=2&search_path=app",

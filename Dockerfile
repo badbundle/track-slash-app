@@ -25,4 +25,7 @@ USER 65532:65532
 VOLUME ["/var/lib/track-slash/storage"]
 EXPOSE 8080
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+	CMD ["/app/trackd", "-healthcheck"]
+
 ENTRYPOINT ["/app/trackd"]

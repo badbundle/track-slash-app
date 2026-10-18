@@ -94,7 +94,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg := Config{
-		Port:                 envOr("PORT", "8080"),
+		Port:                 LoadPort(),
 		DatabaseURL:          db.DatabaseURL,
 		CORSAllowedOrigins:   parseList(os.Getenv("CORS_ALLOWED_ORIGINS")),
 		PublicOrigin:         publicOrigin,
@@ -156,6 +156,11 @@ func LoadDatabase() (DatabaseConfig, error) {
 		return cfg, errors.New("DATABASE_URL is required")
 	}
 	return cfg, nil
+}
+
+// LoadPort returns the port the HTTP server listens on.
+func LoadPort() string {
+	return envOr("PORT", "8080")
 }
 
 // DirectConnConfig parses databaseURL for a single connection made outside

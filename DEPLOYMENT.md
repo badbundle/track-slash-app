@@ -10,6 +10,8 @@ Build locally:
 docker build -t track-slash-frontend .
 ```
 
+The image declares a `HEALTHCHECK` that runs `/app/trackd -healthcheck` every 30 seconds after a 30-second start period, since the distroless image has no shell or curl. The probe requests `http://127.0.0.1:$PORT/api/v1/healthz` with a three-second timeout and exits 0 on a 200 response and 1 otherwise. That endpoint answers 200 only while the server is up and can reach Postgres, so the container also reports unhealthy during a database outage. A container that runs the image with another command, such as the `-migrate-only` job, never serves the endpoint; if your platform acts on health, turn the check off for it, for example with `docker run --no-healthcheck`.
+
 ## Database Migrations
 
 For production platforms such as Dokploy, prefer a separate migration app/job that runs before the frontend app is deployed or restarted.
