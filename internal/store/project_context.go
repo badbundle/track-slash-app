@@ -237,15 +237,36 @@ func (s *Store) CreateIssueContext(ctx context.Context, p CreateIssueContextPara
 			return err // defensive: project ID came from the live issue row
 		}
 
-		var err error
+		// The entry naming the issue goes in before the context, so the
+		// context's realtime event can tell it belongs to a private issue.
+		issue, err := getIssueForChangelog(ctx, tx, p.IssueID, false)
+		if err != nil {
+			return err
+		}
+		contextID := uuid.New()
+		targetRef, targetTitle := changelogTarget(issue)
+		if err := appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
+			ProjectID:   projectID,
+			Entity:      "project_context",
+			Op:          "insert",
+			EntityID:    contextID,
+			IssueID:     &issue.ID,
+			TargetRef:   targetRef,
+			TargetTitle: targetTitle,
+			Summary:     fmt.Sprintf("Created context for %s", issue.Identifier),
+			Details:     model.ProjectChangelogDetails{Preview: changelogPreview(p.Body)},
+		}); err != nil {
+			return err
+		}
+
 		out, err = scanProjectContext(tx.QueryRow(ctx, `
 			INSERT INTO project_context (
-				project_id, number, scope, title, kind, content_type, body, source_filename, created_by_id, updated_by_id
+				id, project_id, number, scope, title, kind, content_type, body, source_filename, created_by_id, updated_by_id
 			)
-			VALUES ($1, $2, 'issue', $3, $4, $5, $6, $7, $8, $8)
+			VALUES ($1, $2, $3, 'issue', $4, $5, $6, $7, $8, $9, $9)
 			RETURNING id, project_id, number, scope, position, title, kind, content_type, body,
 			          source_filename, created_by_id, updated_by_id, created_at, updated_at
-		`, projectID, number, p.Title, string(projectContextKindOrDefault(p.Kind)), projectContextContentTypeOrDefault(p.ContentType, "text/plain; charset=utf-8"), p.Body, p.SourceFilename, p.CreatedByID))
+		`, contextID, projectID, number, p.Title, string(projectContextKindOrDefault(p.Kind)), projectContextContentTypeOrDefault(p.ContentType, "text/plain; charset=utf-8"), p.Body, p.SourceFilename, p.CreatedByID))
 		if err != nil {
 			if mapped := mapProjectContextWriteError(err); mapped != nil {
 				return mapped
@@ -277,22 +298,7 @@ func (s *Store) CreateIssueContext(ctx context.Context, p CreateIssueContextPara
 		`, projectID); err != nil {
 			return err // defensive: project row was locked above
 		}
-		issue, err := getIssueForChangelog(ctx, tx, p.IssueID, false)
-		if err != nil {
-			return err
-		}
-		targetRef, targetTitle := changelogTarget(issue)
-		return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
-			ProjectID:   out.ProjectID,
-			Entity:      "project_context",
-			Op:          "insert",
-			EntityID:    out.ID,
-			IssueID:     &issue.ID,
-			TargetRef:   targetRef,
-			TargetTitle: targetTitle,
-			Summary:     fmt.Sprintf("Created context for %s", issue.Identifier),
-			Details:     model.ProjectChangelogDetails{Preview: changelogPreview(out.Body)},
-		})
+		return nil
 	})
 	if err != nil {
 		return model.ProjectContext{}, err

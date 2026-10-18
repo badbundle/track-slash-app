@@ -741,3 +741,34 @@ func TestHubDeliversMembersOnlyEventsOnlyToMembersOnlySubscribers(t *testing.T) 
 		t.Fatal("viewer granted members-only access did not receive event")
 	}
 }
+
+// Project blocks and a private issue's own context, with the files on it,
+// reach only members on the project and context topics.
+func TestHubKeepsMembersOnlyBlockAndContextEventsFromViewers(t *testing.T) {
+	hub := NewHub()
+	projectID := uuid.New()
+	contextID := uuid.New()
+	member := newTestClient(8)
+	viewer := newTestClient(8)
+	for _, topic := range []string{ProjectTopic(projectID), ProjectContextTopic(contextID)} {
+		hub.SubscribeWithAccess(member, topic, TopicAccess{MembersOnly: true})
+		hub.SubscribeWithAccess(viewer, topic, TopicAccess{})
+	}
+
+	for _, ev := range []Event{
+		{Op: OpInsert, Entity: EntityProjectBlock, ID: uuid.New(), ProjectID: &projectID, MembersOnly: true},
+		{Op: OpInsert, Entity: EntityContext, ID: contextID, ProjectID: &projectID, MembersOnly: true},
+		{Op: OpDelete, Entity: EntityContextAttachment, ID: uuid.New(), ContextID: &contextID, ProjectID: &projectID, MembersOnly: true},
+	} {
+		hub.Publish(ev)
+		if got, ok := recv(t, member, time.Second); !ok || got.Entity != ev.Entity || !got.MembersOnly {
+			t.Fatalf("member %s event = %#v, received = %v", ev.Entity, got, ok)
+		}
+		if _, ok := recv(t, member, 50*time.Millisecond); ok {
+			t.Fatalf("member received %s event twice", ev.Entity)
+		}
+		if got, ok := recv(t, viewer, 50*time.Millisecond); ok {
+			t.Fatalf("viewer received members-only %s event: %#v", ev.Entity, got)
+		}
+	}
+}

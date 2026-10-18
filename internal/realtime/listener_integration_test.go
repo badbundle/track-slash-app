@@ -7,8 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleymackey/track-slash/internal/store"
 	"github.com/bradleymackey/track-slash/internal/testutil"
 )
 
@@ -209,7 +211,7 @@ func TestListenerReceivesProjectBlockEvent(t *testing.T) {
 
 	projectID := insertRealtimeProject(ctx, t, pool, "rt-project-block")
 	client := newTestClient(8)
-	hub.Subscribe(client, "project:"+projectID)
+	hub.SubscribeWithAccess(client, "project:"+projectID, TopicAccess{MembersOnly: true})
 
 	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
 	var userID string
@@ -236,7 +238,7 @@ func TestListenerReceivesProjectBlockEvent(t *testing.T) {
 			if ev.Entity != EntityProjectBlock {
 				continue
 			}
-			if ev.Op != OpInsert || ev.ID.String() != blockID {
+			if ev.Op != OpInsert || ev.ID.String() != blockID || !ev.MembersOnly {
 				t.Fatalf("project block event = %#v", ev)
 			}
 			if ev.ProjectID == nil || ev.ProjectID.String() != projectID {
@@ -655,6 +657,116 @@ func TestListenerMarksPrivateIssueEvents(t *testing.T) {
 			}
 		case <-deadline:
 			t.Fatal("viewer did not receive the issue once it was public")
+		}
+	}
+}
+
+// TestListenerMarksPrivateIssueContextAndBlockEvents verifies a private
+// issue's own context, from the moment the store creates it until it is
+// deleted, files on that context and project blocks all carry members_only,
+// so the hub keeps them from subscribers without members-only access.
+func TestListenerMarksPrivateIssueContextAndBlockEvents(t *testing.T) {
+	t.Parallel()
+	ctx, pool, dbURL := newRealtimeDB(t)
+
+	hub := NewHub()
+	runRealtimeListener(t, ctx, dbURL, hub)
+	time.Sleep(500 * time.Millisecond)
+
+	projectID := insertRealtimeProject(ctx, t, pool, "rt-private-context")
+	var ownerID, privateID string
+	if err := pool.QueryRow(ctx, `SELECT owner_id::text FROM projects WHERE id = $1`, projectID).Scan(&ownerID); err != nil {
+		t.Fatalf("select owner: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO issues (project_id, number, title, private) VALUES ($1, 1, 'Private', true) RETURNING id::text
+	`, projectID).Scan(&privateID); err != nil {
+		t.Fatalf("insert private issue: %v", err)
+	}
+	member := newTestClient(64)
+	viewer := newTestClient(64)
+	hub.SubscribeWithAccess(member, "project:"+projectID, TopicAccess{MembersOnly: true})
+	hub.SubscribeWithAccess(viewer, "project:"+projectID, TopicAccess{})
+
+	st := store.New(pool)
+	contextItem, err := st.CreateIssueContext(ctx, store.CreateIssueContextParams{
+		IssueID: uuid.MustParse(privateID), Title: "Private note", Body: "Only for members", CreatedByID: uuid.MustParse(ownerID),
+	})
+	if err != nil {
+		t.Fatalf("CreateIssueContext: %v", err)
+	}
+	var objectID, attachmentID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO storage_objects (
+			project_id, number, backend, bucket, object_key, filename, content_type,
+			byte_size, sha256, created_by_id
+		)
+		VALUES ($1::uuid, 1, 'local', 'local', 'projects/' || $1::text || '/objects/private-1',
+			'note.png', 'image/png', 4, repeat('a', 64), $2::uuid)
+		RETURNING id::text
+	`, projectID, ownerID).Scan(&objectID); err != nil {
+		t.Fatalf("insert storage object: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO context_attachments (project_id, context_id, storage_object_id, created_by_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id::text
+	`, projectID, contextItem.ID, objectID, ownerID).Scan(&attachmentID); err != nil {
+		t.Fatalf("insert context attachment: %v", err)
+	}
+	suffix := strconv.FormatInt(time.Now().UnixNano(), 10)
+	var blockedID, blockID string
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO users (username, email, name) VALUES ($1, $2, 'Blocked') RETURNING id::text
+	`, "rtprivblocked"+suffix, "rt-priv-blocked-"+suffix+"@example.com").Scan(&blockedID); err != nil {
+		t.Fatalf("insert blocked user: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		INSERT INTO project_user_blocks (project_id, user_id, created_by_id) VALUES ($1, $2, $3) RETURNING id::text
+	`, projectID, blockedID, ownerID).Scan(&blockID); err != nil {
+		t.Fatalf("insert project block: %v", err)
+	}
+	if err := st.DeleteProjectContext(ctx, contextItem.ID); err != nil {
+		t.Fatalf("DeleteProjectContext: %v", err)
+	}
+
+	type key struct {
+		id string
+		op Op
+	}
+	want := map[key]bool{
+		{contextItem.ID.String(), OpInsert}: false,
+		{attachmentID, OpInsert}:            false,
+		{blockID, OpInsert}:                 false,
+		{contextItem.ID.String(), OpDelete}: false,
+		{attachmentID, OpDelete}:            false,
+	}
+	deadline := time.After(3 * time.Second)
+	for remaining := len(want); remaining > 0; {
+		select {
+		case ev := <-member.send:
+			k := key{ev.ID.String(), ev.Op}
+			if seen, ok := want[k]; ok && !seen {
+				if !ev.MembersOnly {
+					t.Fatalf("member event without members_only: %#v", ev)
+				}
+				want[k] = true
+				remaining--
+			}
+		case <-deadline:
+			t.Fatalf("member did not receive every members-only event: %v", want)
+		}
+	}
+	quiet := time.After(200 * time.Millisecond)
+	for waiting := true; waiting; {
+		select {
+		case ev := <-viewer.send:
+			switch ev.ID.String() {
+			case contextItem.ID.String(), attachmentID, blockID:
+				t.Fatalf("viewer received a members-only event: %#v", ev)
+			}
+		case <-quiet:
+			waiting = false
 		}
 	}
 }
