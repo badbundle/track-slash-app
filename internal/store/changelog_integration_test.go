@@ -97,3 +97,45 @@ func TestProjectChangelogRecordsActorChangesAndPagination(t *testing.T) {
 		t.Fatalf("page2 = %+v after page1 %+v", second, first)
 	}
 }
+
+// Comment visibility changes, issue-scoped context lookups and the realtime
+// trigger find a changelog entity's entries by (entity, entity_id) alone.
+// With sequential scans ruled out, each of those lookups must reach the
+// entries through the index made for them, not a scan of the table.
+func TestProjectChangelogEntityLookupsUseIndex(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	tx, err := env.pool.Begin(env.ctx)
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	defer tx.Rollback(env.ctx)
+	if _, err := tx.Exec(env.ctx, `SET LOCAL enable_seqscan = off`); err != nil {
+		t.Fatalf("disable seqscan: %v", err)
+	}
+	for _, q := range []string{
+		`UPDATE project_changelog_entries SET members_only = true
+		 WHERE entity = 'comment' AND entity_id = '00000000-0000-0000-0000-000000000001' AND members_only <> true`,
+		`SELECT issue_id FROM project_changelog_entries
+		 WHERE entity = 'project_context' AND entity_id = '00000000-0000-0000-0000-000000000001' AND issue_id IS NOT NULL`,
+		`SELECT 1 FROM project_changelog_entries c JOIN issues i ON i.id = c.issue_id
+		 WHERE c.entity = 'project_context' AND c.entity_id = '00000000-0000-0000-0000-000000000001' AND i.private`,
+	} {
+		rows, err := tx.Query(env.ctx, "EXPLAIN "+q)
+		if err != nil {
+			t.Fatalf("EXPLAIN: %v", err)
+		}
+		var plan strings.Builder
+		for rows.Next() {
+			var line string
+			if err := rows.Scan(&line); err != nil {
+				t.Fatalf("scan plan: %v", err)
+			}
+			plan.WriteString(line + "\n")
+		}
+		rows.Close()
+		if !strings.Contains(plan.String(), "idx_project_changelog_entity") {
+			t.Fatalf("plan for %q does not use the entity index:\n%s", q, plan.String())
+		}
+	}
+}
