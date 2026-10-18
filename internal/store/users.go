@@ -115,17 +115,17 @@ func (s *Store) CreateOrUpdateAdminUser(ctx context.Context, email, name string)
 	username := UsernameFromEmail(email)
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	// Bootstraps take turns, so two at once cannot both create an admin for
 	// the same email now that the email column is not unique.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('track-slash admin bootstrap'))`); err != nil {
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	holders, err := lockUsersHoldingEmail(ctx, tx, email, true)
 	if err != nil {
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	live := slices.DeleteFunc(slices.Clone(holders), func(h emailHolder) bool { return h.deleted })
 	var u model.User
@@ -155,10 +155,10 @@ func (s *Store) CreateOrUpdateAdminUser(ctx context.Context, email, name string)
 			// Another account has the username this email gives.
 			return model.User{}, ErrConflict
 		}
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	return u, nil
 }
@@ -169,12 +169,12 @@ func (s *Store) CreateOrUpdateAdminUser(ctx context.Context, email, name string)
 func (s *Store) PromoteUserToAdminByEmail(ctx context.Context, email string) (model.User, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	holders, err := lockUsersHoldingEmail(ctx, tx, email, false)
 	if err != nil {
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	switch len(holders) {
 	case 0:
@@ -193,7 +193,7 @@ func (s *Store) PromoteUserToAdminByEmail(ctx context.Context, email string) (mo
 		return model.User{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return model.User{}, err
+		return model.User{}, err // defensive: DB outage
 	}
 	return u, nil
 }
