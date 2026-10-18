@@ -62,6 +62,40 @@ func TestDecodeJSON(t *testing.T) {
 	})
 }
 
+func TestDecodeJSONNulls(t *testing.T) {
+	type payload struct {
+		Name  *string `json:"name"`
+		Other *string `json:"other"`
+	}
+	r := httptest.NewRequest(http.MethodPatch, "/x", strings.NewReader(`{"name":null,"other":"set"}`))
+	var p payload
+	nulls, err := decodeJSONNulls(r, &p)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !nulls["name"] || nulls["other"] || len(nulls) != 1 || p.Name != nil || p.Other == nil {
+		t.Fatalf("nulls = %v payload = %+v, want only name null", nulls, p)
+	}
+
+	for name, body := range map[string]string{
+		"unknown field": `{"name":null,"extra":1}`,
+		"empty body":    ``,
+		"oversized":     `{"name":"` + strings.Repeat("a", maxJSONBodyBytes) + `"}`,
+	} {
+		if _, err := decodeJSONNulls(httptest.NewRequest(http.MethodPatch, "/x", strings.NewReader(body)), &p); err == nil {
+			t.Fatalf("%s: expected error, got nil", name)
+		}
+	}
+	noBody := httptest.NewRequest(http.MethodPatch, "/x", nil)
+	noBody.Body = nil
+	if _, err := decodeJSONNulls(noBody, &p); err == nil {
+		t.Fatal("nil body: expected error, got nil")
+	}
+	if nulls := jsonNullFields(nil); len(nulls) != 0 {
+		t.Fatalf("jsonNullFields(nil) = %v, want none", nulls)
+	}
+}
+
 // A JSON body is read only up to maxJSONBodyBytes; past that the decode fails
 // instead of streaming the rest into memory.
 func TestDecodeJSONBoundsTheBody(t *testing.T) {

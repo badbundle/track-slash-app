@@ -481,8 +481,9 @@ type updateIssueReq struct {
 	Worker      *model.IssueWorker      `json:"worker,omitempty"`
 	ClearWorker bool                    `json:"clear_worker,omitempty"`
 	Private     *bool                   `json:"private,omitempty"`
-	// AssigneeID: pointer-to-pointer pattern via json.RawMessage would be cleaner,
-	// but v0 keeps it simple: assignee_id present sets it, assignee_id null clears.
+	// The worker and the fields below are cleared by their clear_ flag, or by
+	// sending them as null: decoding can't tell null from a field left out, so
+	// updateIssue reads the nulls from the body.
 	AssigneeID    *uuid.UUID  `json:"assignee_id,omitempty"`
 	ClearAssignee bool        `json:"clear_assignee,omitempty"`
 	ReporterID    *uuid.UUID  `json:"reporter_id,omitempty"`
@@ -504,7 +505,8 @@ func (s *Server) updateIssue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req updateIssueReq
-	if err := decodeJSON(r, &req); err != nil {
+	nulls, err := decodeJSONNulls(r, &req)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -571,18 +573,18 @@ func (s *Server) updateIssue(w http.ResponseWriter, r *http.Request) {
 		CloseReason:   req.CloseReason,
 		Priority:      req.Priority,
 		Worker:        req.Worker,
-		ClearWorker:   req.ClearWorker,
+		ClearWorker:   req.ClearWorker || nulls["worker"],
 		Private:       req.Private,
 		AssigneeID:    req.AssigneeID,
-		ClearAssignee: req.ClearAssignee,
+		ClearAssignee: req.ClearAssignee || nulls["assignee_id"],
 		ReporterID:    req.ReporterID,
-		ClearReporter: req.ClearReporter,
+		ClearReporter: req.ClearReporter || nulls["reporter_id"],
 		SprintID:      sprintID,
-		ClearSprint:   req.ClearSprint,
+		ClearSprint:   req.ClearSprint || nulls["sprint"],
 		DueDate:       req.DueDate,
-		ClearDueDate:  req.ClearDueDate,
+		ClearDueDate:  req.ClearDueDate || nulls["due_date"],
 		Repeat:        repeat,
-		ClearRepeat:   req.ClearRepeat,
+		ClearRepeat:   req.ClearRepeat || nulls["repeat"],
 	})
 	if err != nil {
 		writeStoreError(w, err)
