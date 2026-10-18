@@ -24,6 +24,7 @@ import (
 
 type httpEnv struct {
 	ctx           context.Context
+	srv           *server.Server
 	ts            *httptest.Server
 	pool          *pgxpool.Pool
 	store         *store.Store
@@ -79,7 +80,7 @@ func newHTTPEnvWithOptions(t *testing.T, options server.Options) *httpEnv {
 	}
 
 	return &httpEnv{
-		ctx: ctx, ts: ts, pool: db.Pool, store: s, projectID: proj.ID, projKey: key, ownerUsername: admin.Username,
+		ctx: ctx, srv: srv, ts: ts, pool: db.Pool, store: s, projectID: proj.ID, projKey: key, ownerUsername: admin.Username,
 		adminID: admin.ID, authToken: token.RawToken,
 	}
 }

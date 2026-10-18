@@ -13,7 +13,8 @@ const (
 	// emailConfirmationLimit is how many confirmation emails one account may
 	// send, and one address may receive, in emailConfirmationWindow. It stops
 	// the form being used to fill someone's inbox and keeps a deployment well
-	// under its provider's daily cap.
+	// under its provider's daily cap. Password reset emails have the same
+	// budget per account, under their own key.
 	emailConfirmationLimit  = 3
 	emailConfirmationWindow = time.Hour
 )
@@ -31,6 +32,13 @@ func emailVerifyUserKey(userID uuid.UUID) string {
 // receives, whichever accounts ask.
 func emailVerifyToKey(address string) string {
 	return "email-verify-to:" + strings.ToLower(strings.TrimSpace(address))
+}
+
+// passwordResetKey is the budget for password reset emails sent to one
+// account, whoever asks for them. A reset only ever goes to the account's
+// verified address, so it is also that address's budget.
+func passwordResetKey(userID uuid.UUID) string {
+	return "password-reset:" + userID.String()
 }
 
 // allowEmailConfirmation spends one send from both the account's and the

@@ -363,6 +363,12 @@ func TestUIAuthRenderCSRFErrors(t *testing.T) {
 		{name: "signup", render: func(s *Server, w http.ResponseWriter, r *http.Request) {
 			s.renderUISignup(w, r, http.StatusOK, uiSignupData{})
 		}},
+		{name: "forgot-password", render: func(s *Server, w http.ResponseWriter, r *http.Request) {
+			s.renderUIForgotPassword(w, r, http.StatusOK, uiForgotPasswordData{})
+		}},
+		{name: "reset-password", render: func(s *Server, w http.ResponseWriter, r *http.Request) {
+			s.renderUIResetPassword(w, r, http.StatusOK, uiResetPasswordData{})
+		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()

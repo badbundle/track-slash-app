@@ -43,13 +43,15 @@
           <input type="hidden" name="next" value="{{.Next}}">
           {{if .Error}}
           <div role="alert" class="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{{.Error}}</div>
+          {{else if .Notice}}
+          <div data-login-notice role="status" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">{{.Notice}}</div>
           {{end}}
           <div data-passkey-status class="hidden rounded-md border px-3 py-2 text-sm"></div>
           <button type="button" data-passkey-login class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm shadow-indigo-600/30 transition hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-900">
             <i data-lucide="key-round" class="h-4 w-4 shrink-0" aria-hidden="true"></i>
             Log in with passkey
           </button>
-          <details data-password-login{{if .Error}} open{{end}} class="group">
+          <details data-password-login{{if or .Error .Notice}} open{{end}} class="group">
             <summary class="mx-auto flex w-fit cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-slate-600 transition hover:text-slate-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-300 dark:hover:text-white">
               Log in with password
               <i data-lucide="chevron-down" class="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" aria-hidden="true"></i>
@@ -57,13 +59,18 @@
             <div data-password-login-fields class="mt-3 space-y-3">
               <div class="space-y-1.5">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="username">Username</label>
-                <input id="username" name="username" type="text"{{if .Error}} autofocus{{end}} autocomplete="username" autocapitalize="none" spellcheck="false" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" required>
+                <input id="username" name="username" type="text"{{if or .Error .Notice}} autofocus{{end}} autocomplete="username" autocapitalize="none" spellcheck="false" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" required>
               </div>
               <div class="space-y-1.5">
                 <label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="password">Password</label>
                 <input id="password" name="password" type="password" autocomplete="current-password" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" required>
               </div>
               <button type="submit" class="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus-visible:ring-offset-slate-900">Log in</button>
+              {{if .ForgotPassword}}
+              <p class="text-center text-sm">
+                <a href="/forgot-password" data-forgot-password-link class="rounded-md font-medium text-indigo-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300">Forgot password?</a>
+              </p>
+              {{end}}
             </div>
           </details>
         </form>

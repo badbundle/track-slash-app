@@ -13,6 +13,12 @@ type uiLoginData struct {
 	Error     string
 	Next      string
 	CSRFToken string
+	// Notice confirms something done before signing in, such as a password
+	// reset. It opens the password form.
+	Notice string
+	// ForgotPassword links to the password reset form, which exists only
+	// while email is on.
+	ForgotPassword bool
 }
 
 type uiSignupData struct {

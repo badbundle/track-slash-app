@@ -13,12 +13,15 @@ import (
 )
 
 func (s *Server) uiLoginPage(w http.ResponseWriter, r *http.Request) {
-	s.renderUILogin(w, r, http.StatusOK, uiLoginData{
-		Next: safeUINext(r.URL.Query().Get("next")),
-	})
+	data := uiLoginData{Next: safeUINext(r.URL.Query().Get("next"))}
+	if s.emailEnabled() && r.URL.Query().Get("password_reset") == "done" {
+		data.Notice = uiResetPasswordDone
+	}
+	s.renderUILogin(w, r, http.StatusOK, data)
 }
 
 func (s *Server) renderUILogin(w http.ResponseWriter, r *http.Request, status int, data uiLoginData) {
+	data.ForgotPassword = s.emailEnabled()
 	if data.CSRFToken == "" {
 		var err error
 		data.CSRFToken, err = s.ensureUIPreAuthCSRFToken(w, r)

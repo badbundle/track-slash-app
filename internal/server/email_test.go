@@ -9,6 +9,7 @@ import (
 
 	"github.com/bradleymackey/track-slash/internal/mailer"
 	"github.com/bradleymackey/track-slash/internal/model"
+	"github.com/bradleymackey/track-slash/internal/store"
 )
 
 func TestUIRetryIn(t *testing.T) {
@@ -34,6 +35,9 @@ func TestEmailLimiterKeysAreDistinct(t *testing.T) {
 	id := uuid.New()
 	if got := emailVerifyUserKey(id); got != "email-verify-user:"+id.String() {
 		t.Fatalf("user key = %q", got)
+	}
+	if got := passwordResetKey(id); got != "password-reset:"+id.String() {
+		t.Fatalf("password reset key = %q", got)
 	}
 	if got := emailVerifyToKey("  Ada@Example.com "); got != "email-verify-to:ada@example.com" {
 		t.Fatalf("recipient key = %q", got)
@@ -83,5 +87,44 @@ func TestEmailVerifiedBadge(t *testing.T) {
 	}
 	if badge := (uiEmailPanelData{Status: model.EmailStatus{Email: "a@example.com"}}).VerifiedBadge(); badge.Tinted || badge.Label != "Not verified" {
 		t.Fatalf("unverified badge = %+v", badge)
+	}
+}
+
+func TestPasswordResetMessages(t *testing.T) {
+	t.Parallel()
+	account := store.PasswordResetAccount{Username: "ada<script>", Email: "ada@example.com"}
+	reset := passwordResetMessage("https://track.example.com/", account, "tok+en/=")
+	link := "https://track.example.com/reset-password?token=tok%2Ben%2F%3D"
+	if reset.To != "ada@example.com" || reset.Subject != "Reset your Trackslash password" || !strings.Contains(reset.Text, link+"\n") {
+		t.Fatalf("reset message = %+v", reset)
+	}
+	for _, want := range []string{"expires in 30 minutes", "If you didn't ask for this, ignore this email. Your password hasn't changed."} {
+		if !strings.Contains(reset.Text, want) || !strings.Contains(reset.HTML, want) {
+			t.Fatalf("reset message missing %q: %+v", want, reset)
+		}
+	}
+	if !strings.Contains(reset.HTML, `href="`+link+`"`) {
+		t.Fatalf("reset HTML link: %s", reset.HTML)
+	}
+
+	passkey := passwordResetPasskeyMessage("https://track.example.com/", account)
+	if passkey.To != "ada@example.com" || passkey.Subject != "Sign in to Trackslash with your passkey" || !strings.Contains(passkey.Text, "https://track.example.com/login\n") || !strings.Contains(passkey.HTML, `href="https://track.example.com/login"`) {
+		t.Fatalf("passkey message = %+v", passkey)
+	}
+	if strings.Contains(passkey.Text+passkey.HTML, "reset-password") {
+		t.Fatalf("passkey message carries a reset link: %+v", passkey)
+	}
+
+	notice := passwordResetNoticeMessage("https://track.example.com", account)
+	if notice.To != "ada@example.com" || notice.Subject != "Your Trackslash password was reset" || !strings.Contains(notice.Text, "Settings → Tokens") || !strings.Contains(notice.Text, "https://track.example.com/tokens\n") || !strings.Contains(notice.HTML, `href="https://track.example.com/tokens"`) {
+		t.Fatalf("reset notice = %+v", notice)
+	}
+	for _, m := range []mailer.Message{reset, passkey, notice} {
+		if strings.Contains(m.HTML, "<script>") || !strings.Contains(m.HTML, "@ada&lt;script&gt;") || !strings.Contains(m.Text, "@ada<script>") {
+			t.Fatalf("message HTML is not escaped: %s", m.HTML)
+		}
+		if strings.Contains(m.HTML, "<img") || strings.Contains(m.Subject, "\n") {
+			t.Fatalf("message has an image or a multi-line subject: %+v", m)
+		}
 	}
 }
