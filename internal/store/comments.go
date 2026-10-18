@@ -345,6 +345,15 @@ func (s *Store) DeleteComment(ctx context.Context, p DeleteCommentParams) error 
 		if tag.RowsAffected() == 0 {
 			return ErrNotFound
 		}
+		// A deleted comment's previews are for members, so its earlier
+		// entries are kept to them, as a members-only comment's are.
+		if _, err := tx.Exec(ctx, `
+			UPDATE project_changelog_entries
+			SET members_only = true
+			WHERE entity = 'comment' AND entity_id = $1 AND NOT members_only
+		`, before.ID); err != nil {
+			return err
+		}
 		targetRef, targetTitle := changelogTarget(issue)
 		return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
 			ProjectID:   issue.ProjectID,

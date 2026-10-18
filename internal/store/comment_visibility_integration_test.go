@@ -176,6 +176,24 @@ func TestCommentVisibility(t *testing.T) {
 		t.Fatalf("members changelog after delete = %+v", got)
 	}
 
+	// Deleting a shared comment keeps its earlier previews to members too.
+	if _, err := env.store.UpdateComment(env.ctx, store.UpdateCommentParams{ID: shared.ID, AuthorID: owner.ID, Body: "shared, edited"}); err != nil {
+		t.Fatalf("UpdateComment shared: %v", err)
+	}
+	if got := changelogFor(false, shared.ID); len(got) != 2 {
+		t.Fatalf("public changelog before deleting shared comment = %+v", got)
+	}
+	if err := env.store.DeleteComment(env.ctx, store.DeleteCommentParams{ID: shared.ID, AuthorID: owner.ID}); err != nil {
+		t.Fatalf("DeleteComment shared: %v", err)
+	}
+	if got := changelogFor(false, shared.ID); len(got) != 0 {
+		t.Fatalf("public changelog after deleting shared comment = %+v", got)
+	}
+	entries = changelogFor(true, shared.ID)
+	if len(entries) != 3 || entries[0].Op != "delete" || !entries[1].MembersOnly || !entries[2].MembersOnly {
+		t.Fatalf("members changelog after deleting shared comment = %+v", entries)
+	}
+
 	// A help desk keeps new comments to members unless shared on purpose.
 	if _, err := env.pool.Exec(env.ctx, `UPDATE projects SET access_mode = 'helpdesk' WHERE id = $1`, env.projectID); err != nil {
 		t.Fatalf("set helpdesk: %v", err)
