@@ -53,6 +53,7 @@ type Server struct {
 	requestTimeout       time.Duration
 	authRequestTimeout   time.Duration
 	uploadTimeout        time.Duration
+	downloadIdleTimeout  time.Duration
 	previewTermsRequired bool
 	webPushPublicKey     string
 	githubIntegration    *githubintegration.Service
@@ -67,6 +68,7 @@ type Options struct {
 	RequestTimeout       time.Duration
 	AuthRequestTimeout   time.Duration
 	UploadTimeout        time.Duration
+	DownloadIdleTimeout  time.Duration
 	PreviewTermsRequired bool
 	DevReload            bool
 	ObjectStorage        *objectstorage.Service
@@ -104,6 +106,10 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 	if uploadTimeout <= 0 {
 		uploadTimeout = 2 * time.Minute
 	}
+	downloadIdleTimeout := opts.DownloadIdleTimeout
+	if downloadIdleTimeout <= 0 {
+		downloadIdleTimeout = 30 * time.Second
+	}
 	return &Server{
 		store:                s,
 		hub:                  hub,
@@ -123,6 +129,7 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 		requestTimeout:       requestTimeout,
 		authRequestTimeout:   authRequestTimeout,
 		uploadTimeout:        uploadTimeout,
+		downloadIdleTimeout:  downloadIdleTimeout,
 		previewTermsRequired: opts.PreviewTermsRequired,
 		webPushPublicKey:     opts.WebPushPublicKey,
 		githubIntegration:    opts.GitHubIntegration,

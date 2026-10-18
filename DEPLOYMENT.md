@@ -201,6 +201,8 @@ Request contexts and body reads use these deadlines:
 
 HTTP headers retain a separate five-second read deadline. WebSocket and development reload streams are explicitly excluded from request deadlines; idle keep-alive HTTP connections are closed after 60 seconds.
 
+File downloads (the `GET` routes ending in `/content`) are excluded too, so a large file over a slow link can finish. A download is cut off instead when reading from object storage or writing to the client makes no progress for 30 seconds. Downloads do not support `Range` requests, so an interrupted one starts again from the beginning.
+
 ### OAuth connectors
 
 `/oauth/token` and `/oauth/revoke` budget *failures* rather than traffic: the limiter is consumed only when client authentication or a grant fails. Hosted clients refresh from a small pool of shared egress addresses, so a per-IP budget spent by successful refreshes would throttle exactly the traffic that is working. `POST /oauth/authorize` uses the ordinary per-IP limit, since it is already behind a session.

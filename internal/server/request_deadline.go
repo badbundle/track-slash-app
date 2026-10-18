@@ -9,7 +9,7 @@ import (
 
 func (s *Server) requestDeadline(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if isLongLivedRequest(r.URL.Path) {
+		if isLongLivedRequest(r.URL.Path) || isDownloadRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -50,4 +50,12 @@ func isLongLivedRequest(path string) bool {
 	default:
 		return false
 	}
+}
+
+// isDownloadRequest reports whether r fetches stored object bytes: every such
+// route ends in /content. A large file over a slow link can take longer than
+// any fixed deadline, so streamStorageObjectContent cuts a download off only
+// when it stops making progress.
+func isDownloadRequest(r *http.Request) bool {
+	return (r.Method == http.MethodGet || r.Method == http.MethodHead) && strings.HasSuffix(r.URL.Path, "/content")
 }

@@ -169,7 +169,14 @@ func (s *Server) streamStorageObjectContent(w http.ResponseWriter, r *http.Reque
 	if !s.requireObjectStorage(w) {
 		return
 	}
-	body, err := s.objectStorage.Open(r.Context(), object.ObjectKey)
+	// Downloads have no request deadline (see isDownloadRequest). Instead,
+	// opening the object and each read from it must finish within the idle
+	// timeout, or idle cancels the backend's context.
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	idle := time.AfterFunc(s.downloadIdleTimeout, cancel)
+	defer idle.Stop()
+	body, err := s.objectStorage.Open(ctx, object.ObjectKey)
 	if err != nil {
 		writeStorageError(w, err)
 		return
@@ -198,7 +205,32 @@ func (s *Server) streamStorageObjectContent(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": object.Filename}))
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, body)
+	copyWithIdleTimeout(w, body, idle, s.downloadIdleTimeout)
+}
+
+// copyWithIdleTimeout copies body to w. Each read from body must return
+// within timeout, or idle fires and cancels it; each write must finish within
+// timeout, or its write deadline fails it.
+func copyWithIdleTimeout(w http.ResponseWriter, body io.Reader, idle *time.Timer, timeout time.Duration) {
+	controller := http.NewResponseController(w)
+	// The server sets no write timeout of its own, so a deadline left here
+	// would carry over to the next request on the connection.
+	defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
+	buf := make([]byte, 32*1024)
+	for {
+		idle.Reset(timeout)
+		n, err := body.Read(buf)
+		idle.Stop()
+		if n > 0 {
+			_ = controller.SetWriteDeadline(time.Now().Add(timeout))
+			if _, err := w.Write(buf[:n]); err != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func (s *Server) cleanupStorageObject(ctx context.Context, object model.StorageObject) {

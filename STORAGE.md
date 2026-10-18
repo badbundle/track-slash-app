@@ -99,7 +99,7 @@ Project readers can fetch the current project image. Project writers can replace
 - `GET /api/v1/{owner}/projects/{key}/image/content`.
 - `GET /api/v1/{owner}/projects/{key}/image/thumbnail/content`.
 
-Downloads stream backend bytes and set `Content-Type`, `Content-Length`, `ETag` from SHA-256, and `Content-Disposition` with the stored filename.
+Downloads stream backend bytes and set `Content-Type`, `Content-Length`, `ETag` from SHA-256, and `Content-Disposition` with the stored filename. They have no overall request deadline; one stops only when a backend read or a write to the client makes no progress for 30 seconds.
 
 Signed-in users can use profile image routes:
 

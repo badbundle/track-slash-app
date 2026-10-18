@@ -46,12 +46,17 @@ func newLocalStorageService(t *testing.T, maxUploadBytes int64) (*objectstorage.
 
 func newStorageHTTPEnvWithService(t *testing.T, storageSvc *objectstorage.Service) *httpEnv {
 	t.Helper()
+	return newStorageHTTPEnvWithOptions(t, server.Options{ObjectStorage: storageSvc})
+}
+
+func newStorageHTTPEnvWithOptions(t *testing.T, options server.Options) *httpEnv {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
 	db := testutil.NewMigratedDatabase(t)
 	st := store.New(db.Pool)
-	srv := server.NewWithOptions(st, nil, server.Options{ObjectStorage: storageSvc})
+	srv := server.NewWithOptions(st, nil, options)
 	ts := httptest.NewServer(srv.Router())
 	t.Cleanup(ts.Close)
 

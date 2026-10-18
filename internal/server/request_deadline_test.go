@@ -11,17 +11,18 @@ import (
 func TestRequestDeadlineConfiguration(t *testing.T) {
 	t.Parallel()
 	configured := NewWithOptions(nil, nil, Options{
-		RequestTimeout:     time.Second,
-		AuthRequestTimeout: 2 * time.Second,
-		UploadTimeout:      3 * time.Second,
+		RequestTimeout:      time.Second,
+		AuthRequestTimeout:  2 * time.Second,
+		UploadTimeout:       3 * time.Second,
+		DownloadIdleTimeout: 4 * time.Second,
 	})
-	if configured.requestTimeout != time.Second || configured.authRequestTimeout != 2*time.Second || configured.uploadTimeout != 3*time.Second {
-		t.Fatalf("configured timeouts = %v/%v/%v", configured.requestTimeout, configured.authRequestTimeout, configured.uploadTimeout)
+	if configured.requestTimeout != time.Second || configured.authRequestTimeout != 2*time.Second || configured.uploadTimeout != 3*time.Second || configured.downloadIdleTimeout != 4*time.Second {
+		t.Fatalf("configured timeouts = %v/%v/%v/%v", configured.requestTimeout, configured.authRequestTimeout, configured.uploadTimeout, configured.downloadIdleTimeout)
 	}
 
 	defaults := NewWithOptions(nil, nil, Options{})
-	if defaults.requestTimeout != 15*time.Second || defaults.authRequestTimeout != 30*time.Second || defaults.uploadTimeout != 2*time.Minute {
-		t.Fatalf("default timeouts = %v/%v/%v", defaults.requestTimeout, defaults.authRequestTimeout, defaults.uploadTimeout)
+	if defaults.requestTimeout != 15*time.Second || defaults.authRequestTimeout != 30*time.Second || defaults.uploadTimeout != 2*time.Minute || defaults.downloadIdleTimeout != 30*time.Second {
+		t.Fatalf("default timeouts = %v/%v/%v/%v", defaults.requestTimeout, defaults.authRequestTimeout, defaults.uploadTimeout, defaults.downloadIdleTimeout)
 	}
 }
 
@@ -68,7 +69,28 @@ func TestLongLivedRequestPaths(t *testing.T) {
 	}
 }
 
-func TestRequestDeadlineSkipsLongLivedConnections(t *testing.T) {
+func TestDownloadRequests(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		method string
+		path   string
+		want   bool
+	}{
+		{method: http.MethodGet, path: "/api/v1/alice/projects/TRACK/objects/object-1/content", want: true},
+		{method: http.MethodHead, path: "/alice/issues/TRACK-1/attachments/object-2/content", want: true},
+		{method: http.MethodGet, path: "/users/7c0b6c37-4e8f-4a65-8f3c-9b1d6b2f9a10/profile-image/thumbnail/content", want: true},
+		{method: http.MethodDelete, path: "/api/v1/alice/projects/TRACK/objects/object-1/content", want: false},
+		{method: http.MethodGet, path: "/api/v1/alice/projects/TRACK/objects/object-1", want: false},
+		{method: http.MethodGet, path: "/api/v1/alice/projects/TRACK/context", want: false},
+	} {
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		if got := isDownloadRequest(req); got != tt.want {
+			t.Fatalf("isDownloadRequest(%s %s) = %v, want %v", tt.method, tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestRequestDeadlineSkipsLongLivedConnectionsAndDownloads(t *testing.T) {
 	t.Parallel()
 	srv := NewWithOptions(nil, nil, Options{RequestTimeout: time.Second})
 	handler := srv.requestDeadline(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -79,11 +101,13 @@ func TestRequestDeadlineSkipsLongLivedConnections(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/ws", nil)
-	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, req)
-	if recorder.Code != http.StatusNoContent {
-		t.Fatalf("code = %d, want 204", recorder.Code)
+	for _, path := range []string{"/api/v1/ws", "/alice/projects/TRACK/attachments/object-1/content"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("%s code = %d, want 204", path, recorder.Code)
+		}
 	}
 }
 
