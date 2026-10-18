@@ -81,7 +81,7 @@ func (s *Server) updateMySettings(w http.ResponseWriter, r *http.Request) {
 		}
 		// Checking the current password is a guess like any sign-in, so it
 		// spends the same budget as reauthentication.
-		if !s.allowAuthIP(w, r) || !s.allowAuthIdentifier(w, auth.User.ID.String()) {
+		if !s.allowAuthIP(w, r) || !s.allowAuthIdentifier(w, accountKey(auth.User.ID)) {
 			return
 		}
 		if err := s.store.ChangePassword(r.Context(), auth.User.ID, req.CurrentPassword, req.NewPassword); err != nil {
@@ -114,16 +114,17 @@ func (s *Server) createAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !s.allowAuthIdentifier(w, req.Username) {
-		return
-	}
 	previewTermsVersion, err := s.previewTermsVersion(req.AcceptTerms)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if _, err := store.NormalizeUsername(req.Username); err != nil {
+	username, err := store.NormalizeUsername(req.Username)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.allowAuthIdentifier(w, signupKey(username)) {
 		return
 	}
 	if err := store.ValidatePassword(req.Password); err != nil {

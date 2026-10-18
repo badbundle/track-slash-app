@@ -69,9 +69,12 @@ source of a user's rights in a project.
 - **Credentials are the account's own.** A connector (OAuth) token cannot read
   or change tokens, email, password, password login, passkeys, saved GitHub
   tokens, or site-admin account administration. See [OAUTH.md](OAUTH.md).
-- **Guesses are budgeted.** Password sign-in, password changes, reauthentication
-  and OAuth client authentication share per-address and per-identifier failure
-  budgets (`auth_rate_limit.go`).
+- **Guesses are budgeted.** Password sign-in, password changes, reauthentication,
+  sign-up and OAuth client authentication have per-address and per-identifier
+  budgets (`auth_rate_limit.go`). Each purpose keys its identifier budgets
+  under its own prefix, so spending one never spends another, and sign-up is
+  budgeted by the normalized username. A successful passkey sign-in spends
+  nothing, since it cannot be a guess.
 - **Push deliveries reach only public addresses.** A browser names its own
   push endpoint, so saving one on `localhost` or a loopback, private,
   link-local, unique-local, carrier-grade NAT or unspecified address fails

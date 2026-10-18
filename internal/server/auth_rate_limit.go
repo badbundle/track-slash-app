@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -179,15 +181,20 @@ func (s *Server) authIdentifierAllowed(identifier string) bool {
 
 func (s *Server) authAccountRateLimited(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.allowAuthIdentifier(w, currentUser(r).ID.String()) {
+		if !s.allowAuthIdentifier(w, accountKey(currentUser(r).ID)) {
 			return
 		}
 		next(w, r)
 	}
 }
 
-func (s *Server) allowAuthIdentifier(w http.ResponseWriter, identifier string) bool {
-	allowed, retryAfter := s.authLimiter.byIdentifier.allow(authIdentifierKey(identifier))
+// allowAuthIdentifier spends one attempt from the budget key names. Every
+// identifier budget shares one table, so each key starts with its purpose's
+// prefix (see accountKey and signupKey): some are built from request input,
+// and an unprefixed one could spell another purpose's key and spend that
+// budget instead.
+func (s *Server) allowAuthIdentifier(w http.ResponseWriter, key string) bool {
+	allowed, retryAfter := s.authLimiter.byIdentifier.allow(authIdentifierKey(key))
 	if !allowed {
 		writeAuthRateLimit(w, retryAfter)
 		return false
@@ -201,6 +208,18 @@ func authIdentifierKey(identifier string) string {
 		key = "unknown"
 	}
 	return key
+}
+
+// accountKey is the budget for checks of a signed-in account's own
+// credentials: reauthentication and password changes.
+func accountKey(userID uuid.UUID) string {
+	return "account:" + userID.String()
+}
+
+// signupKey is the budget for sign-ups under one username, which must already
+// have passed store.NormalizeUsername.
+func signupKey(username string) string {
+	return "signup:" + username
 }
 
 // passwordLoginKey is the budget for password sign-ins to one username. It is

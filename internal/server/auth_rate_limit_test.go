@@ -120,7 +120,7 @@ func TestPasswordLoginBudgetCountsFailuresOnly(t *testing.T) {
 		t.Fatalf("after two failures blocked code = %d, want 429", rec.Code)
 	}
 	// Sign-up attempts for the same name spend a separate budget.
-	if !srv.allowAuthIdentifier(httptest.NewRecorder(), "user") {
+	if !srv.allowAuthIdentifier(httptest.NewRecorder(), signupKey("user")) {
 		t.Fatal("password failures spent the sign-up budget")
 	}
 }

@@ -90,16 +90,21 @@ func (s *Server) uiSignup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	next := safeUINext(r.Form.Get("next"))
-	if !s.allowAuthIdentifier(w, r.Form.Get("username")) {
-		return
-	}
 	previewTermsVersion, err := s.previewTermsVersion(r.Form.Get("accept_terms") == "on")
 	if err != nil {
 		s.renderUISignup(w, r, http.StatusBadRequest, uiSignupData{Error: err.Error(), Next: next})
 		return
 	}
+	username, err := store.NormalizeUsername(r.Form.Get("username"))
+	if err != nil {
+		s.renderUISignup(w, r, http.StatusBadRequest, uiSignupData{Error: err.Error(), Next: next})
+		return
+	}
+	if !s.allowAuthIdentifier(w, signupKey(username)) {
+		return
+	}
 	u, err := s.store.CreateAccount(r.Context(), store.CreateAccountParams{
-		Username:            r.Form.Get("username"),
+		Username:            username,
 		Password:            r.Form.Get("password"),
 		Name:                r.Form.Get("name"),
 		PreviewTermsVersion: previewTermsVersion,

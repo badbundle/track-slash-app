@@ -1157,7 +1157,7 @@ func (s *Server) mcpUpdateMySettings(ctx context.Context, req *mcp.CallToolReque
 		if err := store.ValidatePassword(input.NewPassword); err != nil {
 			return nil, validationError(err.Error())
 		}
-		if !s.authIdentifierAllowed(auth.User.ID.String()) {
+		if !s.authIdentifierAllowed(accountKey(auth.User.ID)) {
 			return nil, errMCPRateLimited
 		}
 		if err := s.store.ChangePassword(ctx, auth.User.ID, input.CurrentPassword, input.NewPassword); err != nil {
