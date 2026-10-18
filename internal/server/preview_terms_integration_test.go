@@ -39,7 +39,7 @@ func TestPublicLegalPagesAndLinks(t *testing.T) {
 	}{
 		{path: "/terms", wants: []string{"trackslash Preview Terms", "Bad Bundle Limited", "not ready for production or commercial use", "independent installations"}},
 		{path: "/privacy", wants: []string{"trackslash Privacy Notice", "Authentication information", "independent installations"}},
-		{path: "/security", wants: []string{"trackslash Security Policy", "security@trackslash.com", "does not currently operate a bug-bounty programme"}},
+		{path: "/security", wants: []string{"trackslash Security Policy", "security@badbundle.com", "does not currently operate a bug-bounty programme"}},
 	} {
 		res := e.uiDoNoRedirect(t, http.MethodGet, tc.path, "", nil)
 		body := readBody(t, res)

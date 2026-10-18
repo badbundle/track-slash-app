@@ -7,7 +7,7 @@ trackslash is under active development and has no supported stable release. Secu
 
 ## Reporting a vulnerability
 
-Email [security@trackslash.com](mailto:security@trackslash.com) with:
+Email [security@badbundle.com](mailto:security@badbundle.com) with:
 
 - a description of the issue and its potential impact;
 - the affected route, component, commit, or deployment;

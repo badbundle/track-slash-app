@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	securityContactAddress = "mailto:security@trackslash.com"
+	securityContactAddress = "mailto:security@badbundle.com"
 	securityPolicyPath     = "/security"
 
 	// RFC 9116 makes Expires mandatory and requires it to be in the future, so
