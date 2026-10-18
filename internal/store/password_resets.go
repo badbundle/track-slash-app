@@ -178,7 +178,8 @@ func (s *Store) ResetPassword(ctx context.Context, rawToken, newPassword string)
 	// A dead link is turned away before the slow hash, which is made outside
 	// the transaction so no lock waits on it. The link is checked again under
 	// the lock below.
-	if _, err := s.CheckPasswordReset(ctx, rawToken); err != nil {
+	checked, err := s.CheckPasswordReset(ctx, rawToken)
+	if err != nil {
 		return PasswordResetAccount{}, err
 	}
 	nextHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
@@ -189,6 +190,7 @@ func (s *Store) ResetPassword(ctx context.Context, rawToken, newPassword string)
 	hash := tokenHash(rawToken)
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
+		// Defensive: the link was just read; only a DB outage reaches this.
 		return PasswordResetAccount{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -196,15 +198,7 @@ func (s *Store) ResetPassword(ctx context.Context, rawToken, newPassword string)
 	// sign-in methods and reset links does (see lockUserCredentials), so the
 	// link and the password checked next stay as they are until this commits,
 	// and a link can't be used twice.
-	var userID uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT user_id FROM password_resets WHERE token_hash = $1`, hash[:]).Scan(&userID); err != nil {
-		if isNoRows(err) {
-			return PasswordResetAccount{}, ErrNotFound
-		}
-		// Defensive: only a DB outage reaches this.
-		return PasswordResetAccount{}, err
-	}
-	if err := lockUserCredentials(ctx, tx, userID); err != nil {
+	if err := lockUserCredentials(ctx, tx, checked.UserID); err != nil {
 		// Defensive: a link goes with its user, so only a DB outage reaches this.
 		return PasswordResetAccount{}, err
 	}
