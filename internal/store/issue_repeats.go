@@ -189,6 +189,22 @@ func stopIssueRepeat(ctx context.Context, tx pgx.Tx, issueID uuid.UUID) (issueRe
 	return issueRepeatChange{From: state.summary(), To: "None"}, nil
 }
 
+// lockIssueProject locks the issue's project before the caller locks the
+// issue. Whatever may complete an issue takes it first, since completing a
+// repeating issue numbers its next repetition in the project, and linking to
+// an issue or adding context to it locks the project and then the issue.
+// FOR NO KEY UPDATE still serializes numbering, while other writes to the
+// project's issues can check their changelog entries' project meanwhile.
+// A missing issue locks nothing, and the caller's own lock reports it.
+func lockIssueProject(ctx context.Context, tx pgx.Tx, issueID uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		SELECT 1 FROM projects
+		WHERE id = (SELECT project_id FROM issues WHERE id = $1)
+		FOR NO KEY UPDATE
+	`, issueID)
+	return err
+}
+
 // advanceIssueRepeat runs when an issue becomes done or closed. If it was
 // its series' live repetition, it creates the next repetition: the very next
 // schedule date, or, when that date has already passed, the first one that
@@ -202,7 +218,7 @@ func advanceIssueRepeat(ctx context.Context, tx pgx.Tx, completed model.Issue, n
 		createdBy            *uuid.UUID
 	)
 	// Locking the series makes concurrent completions create one repetition;
-	// the issue row is already locked by the caller.
+	// the caller has already locked the project and then the issue.
 	err := tx.QueryRow(ctx, `
 		SELECT r.id, i.repeat_occurrence, r.rule, r.time_zone, r.starts_on, r.created_by
 		FROM issues i
@@ -238,7 +254,7 @@ func advanceIssueRepeat(ctx context.Context, tx pgx.Tx, completed model.Issue, n
 
 	var number int
 	if err := tx.QueryRow(ctx, `
-		SELECT next_issue_number FROM projects WHERE id = $1 FOR UPDATE
+		SELECT next_issue_number FROM projects WHERE id = $1 FOR NO KEY UPDATE
 	`, completed.ProjectID).Scan(&number); err != nil {
 		return nil, err
 	}

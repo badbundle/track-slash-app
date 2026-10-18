@@ -50,12 +50,17 @@ func (s *Store) CreateIssueLink(ctx context.Context, p CreateIssueLinkParams) (m
 			sourceStatus  model.Status
 			number        int
 		)
+		// The project goes before either issue, as it does when completing
+		// one, which closing the source as a duplicate does.
+		if err := lockIssueProject(ctx, tx, p.SourceID); err != nil {
+			return err
+		}
 		err := tx.QueryRow(ctx, `
 			SELECT i.project_id, i.status, pr.next_issue_link_number
 			FROM issues i
 			JOIN projects pr ON pr.id = i.project_id
 			WHERE i.id = $1 AND i.deleted_at IS NULL AND pr.deleted_at IS NULL
-			FOR UPDATE OF i, pr
+			FOR UPDATE OF i
 		`, p.SourceID).Scan(&sourceProject, &sourceStatus, &number)
 		if err != nil {
 			if isNoRows(err) {
@@ -198,6 +203,13 @@ func (s *Store) UpdateIssueLink(ctx context.Context, id uuid.UUID, p UpdateIssue
 			sourceProject uuid.UUID
 			sourceStatus  model.Status
 		)
+		// Closing the source as a duplicate completes it, which takes the
+		// project before the issue.
+		if p.LinkType == model.LinkTypeDuplicates {
+			if err := lockIssueProject(ctx, tx, p.SourceID); err != nil {
+				return err
+			}
+		}
 		if err := tx.QueryRow(ctx, `
 			SELECT i.project_id, i.status
 			FROM issues i

@@ -507,6 +507,152 @@ func TestIssueRepeatConcurrentCompletion(t *testing.T) {
 	}
 }
 
+// raceCompletion completes a repeating issue while other runs. A test
+// transaction holds the issue's series, so the completion stops there with
+// the locks it took before; other starts once the completion waits and runs
+// until it waits too or finishes. Then the series is let go.
+func raceCompletion(t *testing.T, env *sprintsTestEnv, issue model.Issue, other func() error) (completeErr, otherErr error) {
+	t.Helper()
+	blocker, err := env.pool.Begin(env.ctx)
+	if err != nil {
+		t.Fatalf("begin blocker: %v", err)
+	}
+	defer func() { _ = blocker.Rollback(env.ctx) }()
+	if _, err := blocker.Exec(env.ctx, `SELECT 1 FROM issue_repeats WHERE id = $1 FOR UPDATE`, issue.Repeat.ID); err != nil {
+		t.Fatalf("lock series: %v", err)
+	}
+	completed := make(chan error, 1)
+	go func() {
+		done := model.StatusDone
+		_, err := env.store.UpdateIssue(env.ctx, issue.ID, store.UpdateIssueParams{Status: &done})
+		completed <- err
+	}()
+	finished := make(chan error, 1)
+	waitForLockWaits(t, env, 1, nil)
+	go func() { finished <- other() }()
+	waitForLockWaits(t, env, 2, finished)
+	if err := blocker.Rollback(env.ctx); err != nil {
+		t.Fatalf("release series: %v", err)
+	}
+	return <-completed, <-finished
+}
+
+// waitForLockWaits waits until n sessions in the test's database are waiting
+// on a lock, or until done has a result, which it puts back.
+func waitForLockWaits(t *testing.T, env *sprintsTestEnv, n int, done chan error) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := env.pool.QueryRow(env.ctx, `
+			SELECT count(*) FROM pg_stat_activity
+			WHERE datname = current_database() AND wait_event_type = 'Lock'
+		`).Scan(&waiting); err != nil {
+			t.Fatalf("count lock waits: %v", err)
+		}
+		if waiting >= n {
+			return
+		}
+		select {
+		case err := <-done:
+			done <- err
+			return
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d sessions wait on a lock, want %d", waiting, n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TRACK-111: completing a repeating issue takes its project's lock before the
+// issue's, the order linking it and adding context to it use, so none of
+// them deadlock.
+func TestIssueRepeatCompletionLockOrder(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	setRepeatClock(env, "2026-10-05T12:00:00Z")
+	project, err := env.store.GetProject(env.ctx, env.projectID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	other := mustCreateIssue(t, env, "Neighbour")
+	for name, run := range map[string]func(issue model.Issue) error{
+		"link to it": func(issue model.Issue) error {
+			_, err := env.store.CreateIssueLink(env.ctx, store.CreateIssueLinkParams{SourceID: other.ID, TargetID: issue.ID, LinkType: model.LinkTypeRelatesTo})
+			return err
+		},
+		"link from it": func(issue model.Issue) error {
+			_, err := env.store.CreateIssueLink(env.ctx, store.CreateIssueLinkParams{SourceID: issue.ID, TargetID: other.ID, LinkType: model.LinkTypeBlocks})
+			return err
+		},
+		"add context to it": func(issue model.Issue) error {
+			_, err := env.store.CreateIssueContext(env.ctx, store.CreateIssueContextParams{IssueID: issue.ID, Title: "Notes", Body: "Context", CreatedByID: project.OwnerID})
+			return err
+		},
+		"add a sub-issue to it": func(issue model.Issue) error {
+			_, err := env.store.CreateSubIssue(env.ctx, store.CreateSubIssueParams{ParentIssueID: issue.ID, Title: "Step"})
+			return err
+		},
+	} {
+		issue, err := env.store.CreateIssue(env.ctx, store.CreateIssueParams{ProjectID: env.projectID, Title: "Repeat while " + name, Repeat: &store.IssueRepeatSetting{Rule: mustRepeatRule(t, "daily")}})
+		if err != nil {
+			t.Fatalf("CreateIssue: %v", err)
+		}
+		completeErr, otherErr := raceCompletion(t, env, issue, func() error { return run(issue) })
+		if completeErr != nil || otherErr != nil {
+			t.Fatalf("complete while %s: complete err = %v, other err = %v", name, completeErr, otherErr)
+		}
+		if got := repetitionCount(t, env, issue.Repeat.ID); got != 2 {
+			t.Fatalf("repetitions after completing while %s = %d, want 2", name, got)
+		}
+	}
+}
+
+// An edit that holds the issue when completion starts still logs its change:
+// the project lock completion takes first doesn't hold up the changelog
+// entry's check of its project.
+func TestIssueRepeatCompletionWaitsForAnEdit(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	setRepeatClock(env, "2026-10-05T12:00:00Z")
+	issue, err := env.store.CreateIssue(env.ctx, store.CreateIssueParams{ProjectID: env.projectID, Title: "Edited", Repeat: &store.IssueRepeatSetting{Rule: mustRepeatRule(t, "daily")}})
+	if err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+	edit, err := env.pool.Begin(env.ctx)
+	if err != nil {
+		t.Fatalf("begin edit: %v", err)
+	}
+	defer func() { _ = edit.Rollback(env.ctx) }()
+	if _, err := edit.Exec(env.ctx, `SELECT 1 FROM issues WHERE id = $1 FOR UPDATE`, issue.ID); err != nil {
+		t.Fatalf("lock issue: %v", err)
+	}
+	completed := make(chan error, 1)
+	go func() {
+		done := model.StatusDone
+		_, err := env.store.UpdateIssue(env.ctx, issue.ID, store.UpdateIssueParams{Status: &done})
+		completed <- err
+	}()
+	waitForLockWaits(t, env, 1, completed)
+	if _, err := edit.Exec(env.ctx, `
+		INSERT INTO project_changelog_entries (project_id, entity, op, entity_id, issue_id, summary)
+		VALUES ($1, 'issue', 'update', $2, $2, 'Edited')
+	`, env.projectID, issue.ID); err != nil {
+		t.Fatalf("log edit: %v", err)
+	}
+	if err := edit.Commit(env.ctx); err != nil {
+		t.Fatalf("commit edit: %v", err)
+	}
+	if err := <-completed; err != nil {
+		t.Fatalf("complete after edit: %v", err)
+	}
+	if got := repetitionCount(t, env, issue.Repeat.ID); got != 2 {
+		t.Fatalf("repetitions = %d, want 2", got)
+	}
+}
+
 func TestIssueRepeatDeleteRestoreSubIssueAndPeople(t *testing.T) {
 	t.Parallel()
 	env := newSprintsEnv(t)

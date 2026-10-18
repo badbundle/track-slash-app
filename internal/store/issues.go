@@ -218,6 +218,10 @@ func (s *Store) CreateSubIssue(ctx context.Context, p CreateSubIssueParams) (mod
 			parentIssueID *uuid.UUID
 			parentPrivate bool
 		)
+		// The project goes first, as it does when completing the parent.
+		if err := lockIssueProject(ctx, tx, p.ParentIssueID); err != nil {
+			return err
+		}
 		err := tx.QueryRow(ctx, `
 			SELECT pr.next_issue_number, pr.key, u.username, i.project_id, i.parent_issue_id, i.private
 			FROM issues i
@@ -225,7 +229,7 @@ func (s *Store) CreateSubIssue(ctx context.Context, p CreateSubIssueParams) (mod
 			JOIN users u ON u.id = pr.owner_id
 			WHERE i.id = $1 AND i.deleted_at IS NULL AND pr.deleted_at IS NULL
 			  AND u.deleted_at IS NULL
-			FOR UPDATE OF i, pr
+			FOR UPDATE OF i
 		`, p.ParentIssueID).Scan(&number, &projectKey, &ownerUsername, &projectID, &parentIssueID, &parentPrivate)
 		if err != nil {
 			if isNoRows(err) {
@@ -1078,6 +1082,11 @@ func (s *Store) UpdateIssue(ctx context.Context, id uuid.UUID, p UpdateIssuePara
 
 	var out model.Issue
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if p.Status != nil && p.Status.CountsAsDone() {
+			if err := lockIssueProject(ctx, tx, id); err != nil {
+				return err
+			}
+		}
 		before, err := getIssueForChangelog(ctx, tx, id, false)
 		if err != nil {
 			if isNoRows(err) {
