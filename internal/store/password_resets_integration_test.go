@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/bradleymackey/track-slash/internal/model"
 	"github.com/bradleymackey/track-slash/internal/store"
@@ -18,21 +19,36 @@ import (
 
 const resetOldPassword = "correct-horse-battery"
 
+// resetOldPasswordHash is resetOldPassword at bcrypt's lowest cost. These
+// tests make many accounts, and at the default cost, under the race
+// detector, hashing alone would take most of a test's deadline.
+var resetOldPasswordHash = func() string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(resetOldPassword), bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+	return string(hash)
+}()
+
 // resetAccount is a password account whose email is verified.
 type resetAccount struct {
 	user  model.User
 	email string
 }
 
+// mustResetAccount makes an account like CreateAccount does, with
+// resetOldPassword as its password, and verifies an email for it.
 func mustResetAccount(t *testing.T, env *sprintsTestEnv, label string) resetAccount {
 	t.Helper()
-	user, err := env.store.CreateAccount(env.ctx, store.CreateAccountParams{
-		Username: label + strings.ReplaceAll(uuid.NewString()[:13], "-", ""),
-		Password: resetOldPassword,
-		Name:     "Reset User",
-	})
+	user, err := env.store.CreateUserProfile(env.ctx, label+strings.ReplaceAll(uuid.NewString()[:13], "-", ""), "", "Reset User")
 	if err != nil {
-		t.Fatalf("CreateAccount: %v", err)
+		t.Fatalf("CreateUserProfile: %v", err)
+	}
+	if _, err := env.pool.Exec(env.ctx, `
+		INSERT INTO auth_credentials (user_id, kind, identifier, secret_hash)
+		VALUES ($1, $2, $3, $4)
+	`, user.ID, string(model.AuthCredentialKindPassword), user.Username, resetOldPasswordHash); err != nil {
+		t.Fatalf("add password: %v", err)
 	}
 	email := "Reset-" + uuid.NewString()[:8] + "@Example.com"
 	mustVerifyEmail(t, env, user.ID, email)
@@ -303,8 +319,8 @@ func TestPasswordResetLinkStopsWhenTheAccountChanges(t *testing.T) {
 			}
 		}},
 	} {
+		// Not parallel: every case shares env, whose context has a deadline.
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			a := mustResetAccount(t, env, "resetbound")
 			token := mustCreatePasswordReset(t, env, a)
 			tt.change(t, a)
