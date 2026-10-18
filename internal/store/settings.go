@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/bradleymackey/track-slash/internal/model"
@@ -34,9 +33,14 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID uuid.UUID, name, e
 	if email != "" {
 		emailValue = email
 	}
+	// A new address starts unverified and an unchanged one keeps its
+	// verification. Only verified addresses are unique, so this can no longer
+	// collide with another account's address.
 	const q = `
 		UPDATE users
-		SET name = $2, email = $3
+		SET name = $2,
+		    email = $3,
+		    email_verified_at = CASE WHEN email IS NOT DISTINCT FROM $3 THEN email_verified_at END
 		WHERE id = $1 AND deleted_at IS NULL
 		RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
 	`
@@ -45,9 +49,26 @@ func (s *Store) UpdateUserProfile(ctx context.Context, userID uuid.UUID, name, e
 		if isNoRows(err) {
 			return model.User{}, ErrNotFound
 		}
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return model.User{}, ErrConflict
+		return model.User{}, err
+	}
+	return u, nil
+}
+
+// UpdateUserName changes only the display name, so saving a name can never
+// write back an address read before a confirmation changed it.
+func (s *Store) UpdateUserName(ctx context.Context, userID uuid.UUID, name string) (model.User, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return model.User{}, errors.New("name required")
+	}
+	u, err := scanUser(s.db.QueryRow(ctx, `
+		UPDATE users SET name = $2
+		WHERE id = $1 AND deleted_at IS NULL
+		RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
+	`, userID, name))
+	if err != nil {
+		if isNoRows(err) {
+			return model.User{}, ErrNotFound
 		}
 		return model.User{}, err
 	}

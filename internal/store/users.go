@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -100,33 +101,63 @@ var ErrEmailBelongsToNonAdmin = fmt.Errorf("that email belongs to an existing ac
 // row keeps its email, so the bootstrap needs a different one.
 var ErrEmailBelongsToDeletedUser = fmt.Errorf("that email belongs to a deleted account, which cannot be restored: %w", ErrConflict)
 
+// ErrEmailHeldBySeveralAccounts refuses to pick one account by an email that
+// several hold. Only a verified address is unique, so an unverified one can be
+// on more than one account.
+var ErrEmailHeldBySeveralAccounts = fmt.Errorf("several accounts hold that email, so it does not say which one to use: %w", ErrConflict)
+
 // CreateOrUpdateAdminUser creates an admin with this email, or refreshes the
-// live admin who already has it. An existing non-admin with the email is
-// refused with ErrEmailBelongsToNonAdmin; PromoteUserToAdminByEmail does that
-// on purpose. A deleted account with the email is refused with
+// live admin who already has it. A live non-admin with the email is refused
+// with ErrEmailBelongsToNonAdmin; PromoteUserToAdminByEmail does that on
+// purpose. An email held only by deleted accounts is refused with
 // ErrEmailBelongsToDeletedUser.
 func (s *Store) CreateOrUpdateAdminUser(ctx context.Context, email, name string) (model.User, error) {
 	username := UsernameFromEmail(email)
-	const q = `
-		INSERT INTO users (username, email, name, is_admin)
-		VALUES ($1, $2, $3, true)
-		ON CONFLICT (email) DO UPDATE
-		SET username = EXCLUDED.username, name = EXCLUDED.name, is_admin = true
-		WHERE users.is_admin AND users.deleted_at IS NULL
-		RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
-	`
-	u, err := scanUser(s.db.QueryRow(ctx, q, username, email, name))
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		if isNoRows(err) {
-			var deleted bool
-			if err := s.db.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM users WHERE email = $1`, email).Scan(&deleted); err != nil {
-				return model.User{}, err // defensive: the conflicting row was just found
-			}
-			if deleted {
-				return model.User{}, ErrEmailBelongsToDeletedUser
-			}
-			return model.User{}, ErrEmailBelongsToNonAdmin
+		return model.User{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	// Bootstraps take turns, so two at once cannot both create an admin for
+	// the same email now that the email column is not unique.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('track-slash admin bootstrap'))`); err != nil {
+		return model.User{}, err
+	}
+	holders, err := lockUsersHoldingEmail(ctx, tx, email, true)
+	if err != nil {
+		return model.User{}, err
+	}
+	live := slices.DeleteFunc(slices.Clone(holders), func(h emailHolder) bool { return h.deleted })
+	var u model.User
+	switch {
+	case slices.ContainsFunc(live, func(h emailHolder) bool { return !h.admin }):
+		return model.User{}, ErrEmailBelongsToNonAdmin
+	case len(live) > 1:
+		return model.User{}, ErrEmailHeldBySeveralAccounts
+	case len(live) == 1:
+		u, err = scanUser(tx.QueryRow(ctx, `
+			UPDATE users SET username = $2, name = $3
+			WHERE id = $1
+			RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
+		`, live[0].id, username, name))
+	case len(holders) > 0:
+		return model.User{}, ErrEmailBelongsToDeletedUser
+	default:
+		u, err = scanUser(tx.QueryRow(ctx, `
+			INSERT INTO users (username, email, name, is_admin)
+			VALUES ($1, $2, $3, true)
+			RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
+		`, username, email, name))
+	}
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			// Another account has the username this email gives.
+			return model.User{}, ErrConflict
 		}
+		return model.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return model.User{}, err
 	}
 	return u, nil
@@ -134,20 +165,63 @@ func (s *Store) CreateOrUpdateAdminUser(ctx context.Context, email, name string)
 
 // PromoteUserToAdminByEmail makes the live account with this email an admin,
 // keeping its username and name. It is for an operator who has checked who
-// holds the email.
+// holds the email, and it refuses when several live accounts do.
 func (s *Store) PromoteUserToAdminByEmail(ctx context.Context, email string) (model.User, error) {
-	u, err := scanUser(s.db.QueryRow(ctx, `
-		UPDATE users SET is_admin = true
-		WHERE email = $1 AND deleted_at IS NULL
-		RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
-	`, email))
+	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		if isNoRows(err) {
-			return model.User{}, ErrNotFound
-		}
+		return model.User{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	holders, err := lockUsersHoldingEmail(ctx, tx, email, false)
+	if err != nil {
+		return model.User{}, err
+	}
+	switch len(holders) {
+	case 0:
+		return model.User{}, ErrNotFound
+	case 1:
+	default:
+		return model.User{}, ErrEmailHeldBySeveralAccounts
+	}
+	u, err := scanUser(tx.QueryRow(ctx, `
+		UPDATE users SET is_admin = true
+		WHERE id = $1
+		RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
+	`, holders[0].id))
+	if err != nil {
+		// Defensive: the row is locked; only a DB outage reaches this.
+		return model.User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return model.User{}, err
 	}
 	return u, nil
+}
+
+type emailHolder struct {
+	id      uuid.UUID
+	admin   bool
+	deleted bool
+}
+
+// lockUsersHoldingEmail locks the accounts whose email is exactly email,
+// oldest first, leaving out deleted ones unless includeDeleted is set.
+func lockUsersHoldingEmail(ctx context.Context, tx pgx.Tx, email string, includeDeleted bool) ([]emailHolder, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT id, is_admin, deleted_at IS NOT NULL FROM users
+		WHERE email = $1 AND ($2 OR deleted_at IS NULL)
+		ORDER BY created_at, id
+		FOR UPDATE
+	`, email, includeDeleted)
+	if err != nil {
+		// Defensive: a fixed query; only a DB outage reaches this.
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (emailHolder, error) {
+		var h emailHolder
+		err := row.Scan(&h.id, &h.admin, &h.deleted)
+		return h, err
+	})
 }
 
 // UsersCursor is the keyset position for ListUsers. Encoded base64 JSON at the
