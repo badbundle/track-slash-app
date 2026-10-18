@@ -140,7 +140,7 @@ Profile image replacement writes the original and generated thumbnail to the bac
 
 Project image replacement follows the same lifecycle with project-owned metadata rows and transactional project pointers. Project image keys use `projects/{project_id}/images/{object_id}/{variant}`. Replacement and removal soft-delete and queue the previous pair transactionally.
 
-The server accepts decodable PNG, JPEG, GIF, WebP, and BMP profile and project-image uploads. SVG, AVIF, non-images, corrupt images, oversized files, and unreasonable dimensions are rejected before image metadata is linked. The generated thumbnail is a centered square `128x128` PNG; animated formats use the decoded first frame. User images render as circles; project images retain the square crop with a small corner radius.
+The server accepts decodable PNG, JPEG, GIF, WebP, and BMP profile and project-image uploads. SVG, AVIF, non-images, corrupt images, oversized files, and unreasonable dimensions are rejected before image metadata is linked. An image's header is read before its pixels: one over 8192 pixels a side, over 16 megapixels, or that would take more than 64 MiB to decode, such as a 16-bit image over about 8 megapixels, is rejected without being decoded. At most two uploaded images are decoded and resized at once; an upload that ends while waiting for its turn is answered `503`. The generated thumbnail is a centered square `128x128` PNG; animated formats use the decoded first frame. User images render as circles; project images retain the square crop with a small corner radius.
 
 ## Remote Backend Path
 

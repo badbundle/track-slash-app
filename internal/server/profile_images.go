@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"image"
+	"image/color"
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
@@ -25,10 +26,15 @@ import (
 const (
 	profileThumbnailSize         = 128
 	maxProfileImageDimension     = 8192
-	maxProfileImagePixelCount    = 25_000_000
+	maxProfileImagePixelCount    = 16_000_000
+	maxProfileImageDecodedBytes  = 64 << 20
 	profileImageOriginalVariant  = "original"
 	profileImageThumbnailVariant = "thumbnail"
 )
+
+// imageDecodeSlots caps how many uploaded images are decoded and resized at
+// once. Each can take up to maxProfileImageDecodedBytes and a second of CPU.
+var imageDecodeSlots = make(chan struct{}, 2)
 
 type profileImageUpload struct {
 	Filename     string
@@ -195,6 +201,15 @@ func parseSquareImageUpload(w http.ResponseWriter, r *http.Request, maxUploadByt
 		return profileImageUpload{}, false
 	}
 
+	select {
+	case imageDecodeSlots <- struct{}{}:
+	case <-r.Context().Done():
+		writeError(w, http.StatusServiceUnavailable, imageKind+" image processing busy, try again")
+		return profileImageUpload{}, false
+	}
+	// Released by defer so a decoder panic, which Recoverer survives, cannot
+	// keep the slot.
+	defer func() { <-imageDecodeSlots }()
 	thumbnail, err := generateSquareImageThumbnail(data, imageKind)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -284,6 +299,22 @@ func profileImageContentTypeAllowed(contentType string) bool {
 	}
 }
 
+// decodedBytesPerPixel is the most memory per pixel that decoding an image
+// of this colour model can take. Every 8-bit model takes at most 4 bytes, and
+// a 16-bit one up to 8: PNG decodes a 16-bit grey image with transparency as
+// NRGBA64, though it reports the grey model.
+func decodedBytesPerPixel(model color.Model) int64 {
+	if _, ok := model.(color.Palette); ok {
+		return 4
+	}
+	switch model {
+	case color.GrayModel, color.AlphaModel, color.YCbCrModel, color.NYCbCrAModel, color.CMYKModel, color.RGBAModel, color.NRGBAModel:
+		return 4
+	default:
+		return 8
+	}
+}
+
 func generateProfileImageThumbnail(data []byte) ([]byte, error) {
 	return generateSquareImageThumbnail(data, "profile")
 }
@@ -296,7 +327,11 @@ func generateSquareImageThumbnail(data []byte, imageKind string) ([]byte, error)
 	if cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, errors.New(imageKind + " image dimensions required")
 	}
-	if cfg.Width > maxProfileImageDimension || cfg.Height > maxProfileImageDimension || int64(cfg.Width)*int64(cfg.Height) > maxProfileImagePixelCount {
+	// A small file can declare a large image, so its size once decoded is
+	// bounded before it is decoded.
+	pixels := int64(cfg.Width) * int64(cfg.Height)
+	if cfg.Width > maxProfileImageDimension || cfg.Height > maxProfileImageDimension || pixels > maxProfileImagePixelCount ||
+		pixels*decodedBytesPerPixel(cfg.ColorModel) > maxProfileImageDecodedBytes {
 		return nil, errors.New(imageKind + " image dimensions too large")
 	}
 	img, _, err := image.Decode(bytes.NewReader(data))

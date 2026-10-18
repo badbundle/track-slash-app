@@ -1,9 +1,11 @@
 package server_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"hash/crc32"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -44,6 +46,41 @@ func TestHTTPMalformedImageDecoderFixturesAreRejectedBeforeStorage(t *testing.T)
 			assertNoStoredImages(t, e, root)
 		})
 	}
+}
+
+// A small file can declare an image that takes far more memory to decode
+// than the file's size suggests. It is refused before decoding.
+func TestHTTPImagesTooLargeToDecodeAreRejectedBeforeStorage(t *testing.T) {
+	t.Parallel()
+	e, root := newStorageHTTPEnv(t, 1<<20)
+	// 16 megapixels at 16 bits per channel decodes to 128 MB.
+	data := pngHeaderOnlyFixture(4000, 4000, 16)
+	for _, project := range []bool{false, true} {
+		var code int
+		var body []byte
+		if project {
+			code, body = e.doMultipartProjectImage(t, e.authToken, "deep.png", data)
+		} else {
+			code, body = e.doMultipartProfileImage(t, e.authToken, "deep.png", data)
+		}
+		if code != http.StatusBadRequest || !strings.Contains(string(body), "dimensions too large") {
+			t.Fatalf("project=%v upload code = %d body = %s", project, code, body)
+		}
+		assertNoStoredImages(t, e, root)
+	}
+}
+
+// pngHeaderOnlyFixture is a truecolour PNG signature and IHDR chunk with no
+// pixel data: enough for DecodeConfig, which is all a size check may read.
+func pngHeaderOnlyFixture(width, height uint32, bitDepth byte) []byte {
+	ihdr := make([]byte, 0, 25)
+	ihdr = binary.BigEndian.AppendUint32(ihdr, 13)
+	ihdr = append(ihdr, "IHDR"...)
+	ihdr = binary.BigEndian.AppendUint32(ihdr, width)
+	ihdr = binary.BigEndian.AppendUint32(ihdr, height)
+	ihdr = append(ihdr, bitDepth, 2, 0, 0, 0)
+	ihdr = binary.BigEndian.AppendUint32(ihdr, crc32.ChecksumIEEE(ihdr[4:]))
+	return bytes.Join([][]byte{[]byte("\x89PNG\r\n\x1a\n"), ihdr}, nil)
 }
 
 func assertNoStoredImages(t *testing.T, e *httpEnv, root string) {

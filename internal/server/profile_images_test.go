@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"hash/crc32"
 	"image"
@@ -37,7 +38,11 @@ func TestGenerateProfileImageThumbnailRejectsInvalidInput(t *testing.T) {
 		want string
 	}{
 		{name: "corrupt", data: []byte("not an image"), want: "could not be decoded"},
-		{name: "huge dimensions", data: testProfilePNGConfigOnly(9000, 10), want: "dimensions too large"},
+		{name: "huge dimensions", data: testProfilePNGConfigOnly(9000, 10, 8), want: "dimensions too large"},
+		{name: "too many pixels", data: testProfilePNGConfigOnly(5000, 4000, 8), want: "dimensions too large"},
+		// 16 megapixels is allowed, but at 16 bits per channel it decodes
+		// to 128 MB.
+		{name: "16-bit too large to decode", data: testProfilePNGConfigOnly(4000, 4000, 16), want: "dimensions too large"},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -47,6 +52,62 @@ func TestGenerateProfileImageThumbnailRejectsInvalidInput(t *testing.T) {
 				t.Fatalf("generateProfileImageThumbnail err = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestGenerateProfileImageThumbnailAccepts16BitImages(t *testing.T) {
+	t.Parallel()
+	img := image.NewNRGBA64(image.Rect(0, 0, 3, 2))
+	img.Set(1, 1, color.NRGBA64{R: 0xffff, A: 0xffff})
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("png.Encode: %v", err)
+	}
+	if _, err := generateProfileImageThumbnail(buf.Bytes()); err != nil {
+		t.Fatalf("generateProfileImageThumbnail: %v", err)
+	}
+}
+
+func TestDecodedBytesPerPixel(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		model color.Model
+		want  int64
+	}{
+		{name: "palette", model: color.Palette{color.Black, color.White}, want: 4},
+		{name: "gray", model: color.GrayModel, want: 4},
+		{name: "YCbCr", model: color.YCbCrModel, want: 4},
+		{name: "NRGBA", model: color.NRGBAModel, want: 4},
+		{name: "gray16", model: color.Gray16Model, want: 8},
+		{name: "RGBA64", model: color.RGBA64Model, want: 8},
+	} {
+		if got := decodedBytesPerPixel(tc.model); got != tc.want {
+			t.Fatalf("decodedBytesPerPixel(%s) = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// Decoding waits for one of a few slots. A request that ends while it waits
+// is answered as busy rather than decoded.
+func TestParseProfileImageUploadWaitsForADecodeSlot(t *testing.T) {
+	for range cap(imageDecodeSlots) {
+		imageDecodeSlots <- struct{}{}
+	}
+	defer func() {
+		for range cap(imageDecodeSlots) {
+			<-imageDecodeSlots
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := testProfileImageRequest(t, "face.png", testProfilePNG(t, 2, 2)).WithContext(ctx)
+	rec := httptest.NewRecorder()
+	if _, ok := parseProfileImageUpload(rec, req, 1024); ok {
+		t.Fatal("parseProfileImageUpload ok = true with every decode slot taken")
+	}
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "busy") {
+		t.Fatalf("status=%d body=%s, want 503 busy", rec.Code, rec.Body.String())
 	}
 }
 
@@ -171,13 +232,13 @@ func testProfileImageRequest(t *testing.T, filename string, content []byte) *htt
 	return req
 }
 
-func testProfilePNGConfigOnly(width, height uint32) []byte {
+func testProfilePNGConfigOnly(width, height uint32, bitDepth byte) []byte {
 	var buf bytes.Buffer
 	buf.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
 	ihdr := make([]byte, 13)
 	binary.BigEndian.PutUint32(ihdr[0:4], width)
 	binary.BigEndian.PutUint32(ihdr[4:8], height)
-	ihdr[8] = 8
+	ihdr[8] = bitDepth
 	ihdr[9] = 2
 	testProfilePNGChunk(&buf, "IHDR", ihdr)
 	return buf.Bytes()
