@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -185,10 +186,10 @@ type mcpProjectProgressInput struct {
 
 type mcpCreateSprintInput struct {
 	mcpProjectInput
-	Name      string  `json:"name,omitempty"`
-	Goal      string  `json:"goal,omitempty"`
-	StartDate *string `json:"start_date,omitempty"`
-	EndDate   *string `json:"end_date,omitempty"`
+	Name      string   `json:"name,omitempty"`
+	Goal      string   `json:"goal,omitempty"`
+	StartDate *mcpDate `json:"start_date,omitempty"`
+	EndDate   *mcpDate `json:"end_date,omitempty"`
 }
 
 type mcpListSprintsInput struct {
@@ -207,8 +208,8 @@ type mcpUpdateSprintInput struct {
 	mcpSprintInput
 	Name       *string             `json:"name,omitempty"`
 	Goal       *string             `json:"goal,omitempty"`
-	StartDate  *string             `json:"start_date,omitempty"`
-	EndDate    *string             `json:"end_date,omitempty"`
+	StartDate  *mcpDate            `json:"start_date,omitempty"`
+	EndDate    *mcpDate            `json:"end_date,omitempty"`
 	ClearDates bool                `json:"clear_dates,omitempty"`
 	Status     *model.SprintStatus `json:"status,omitempty"`
 }
@@ -516,13 +517,12 @@ func (s *Server) newMCPServer() *mcp.Server {
 		Instructions: "Use trackslash tools to read and update issue-tracking data. Prefer refs like KEY-123, sprint-1, tag-1, link-1, context-1, whiteboard-1, object-1.",
 	})
 
-	readOnly := true
-	write := false
+	readOnly, add, write := mcpReadOnly, mcpAdditive, mcpDestructive
 
 	addMCPTool(srv, "track_get_me", "Return current MCP-authenticated user and token kind.", readOnly, s.mcpGetMe)
 	addMCPTool(srv, "track_update_my_settings", "Update current user profile or password.", write, s.mcpUpdateMySettings)
 
-	addMCPTool(srv, "track_create_project", "Create a project owned by current user.", write, s.mcpCreateProject)
+	addMCPTool(srv, "track_create_project", "Create a project owned by current user.", add, s.mcpCreateProject)
 	addMCPTool(srv, "track_list_projects", "List projects you own or are a member of. Public projects you are not in are not listed; get them by owner and key.", readOnly, s.mcpListProjects)
 	addMCPTool(srv, "track_get_project", "Get project by owner and key, including whether sprints are enabled.", readOnly, s.mcpGetProject)
 	addMCPTool(srv, "track_delete_project", "Soft-delete a project. Project owner or admin only.", write, s.mcpDeleteProject)
@@ -543,7 +543,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_get_project_progress", "Get what a project is working on now: top-level issues in progress, highest priority first, and issues completed within a window (Done or Closed, including won't-do and duplicates), most recently completed first, each with completed_at.", readOnly, s.mcpGetProjectProgress)
 	addMCPTool(srv, "track_list_project_changelog", "List project changelog entries.", readOnly, s.mcpListProjectChangelog)
 
-	addMCPTool(srv, "track_create_issue", "Create issue in project. Set private to keep it to the project's members and you, even on a public project, for example for a security report. Set repeat to make it repeat: only one repetition exists at a time, and completing it creates the next. In a help desk you are not a member of, only title, description and private are accepted and the issue comes back as its reporter sees it, as does a private issue you file into a public project you are not a member of.", write, s.mcpCreateIssue)
+	addMCPTool(srv, "track_create_issue", "Create issue in project. Set private to keep it to the project's members and you, even on a public project, for example for a security report. Set repeat to make it repeat: only one repetition exists at a time, and completing it creates the next. In a help desk you are not a member of, only title, description and private are accepted and the issue comes back as its reporter sees it, as does a private issue you file into a public project you are not a member of.", add, s.mcpCreateIssue)
 	addMCPTool(srv, "track_list_issues", "List project issues. Filter workers by agent for issues meant for an agent, or by human for issues waiting on a person. Private issues are listed to project members only. In a help desk you are not a member of, lists only the issues you reported, newest first, as their reporter sees them; filters are ignored.", readOnly, s.mcpListIssues)
 	addMCPTool(srv, "track_list_deleted_issues", "List deleted project issues.", readOnly, s.mcpListDeletedIssues)
 	addMCPTool(srv, "track_batch_get_issues", "Get visible issues by refs.", readOnly, s.mcpBatchIssues)
@@ -551,16 +551,16 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_update_issue", "Update issue fields. A field left out or sent as null stays as it is; clear worker, assignee_id, reporter_id, sprint, due_date and repeat with their clear_ flags. worker says who is meant to complete the issue: agent or human. If you cannot finish an issue and a person has to step in, set worker to human and add a comment saying what they need to do. repeat changes how an issue repeats and clear_repeat stops it. Completing a repeating issue creates its next repetition, which the result's repeat.next names; if the next date had already passed, it is skipped and listed in repeat.next.skipped_dates.", write, s.mcpUpdateIssue)
 	addMCPTool(srv, "track_delete_issue", "Soft-delete issue.", write, s.mcpDeleteIssue)
 	addMCPTool(srv, "track_restore_issue", "Restore deleted issue.", write, s.mcpRestoreIssue)
-	addMCPTool(srv, "track_create_sub_issue", "Create sub-issue under an issue. Set repeat to make it repeat; its repetitions stay under the same parent.", write, s.mcpCreateSubIssue)
+	addMCPTool(srv, "track_create_sub_issue", "Create sub-issue under an issue. Set repeat to make it repeat; its repetitions stay under the same parent.", add, s.mcpCreateSubIssue)
 	addMCPTool(srv, "track_list_sub_issues", "List sub-issues under an issue.", readOnly, s.mcpListSubIssues)
 
-	addMCPTool(srv, "track_create_comment", "Create issue comment. visibility is shared (anyone who can read the issue) or members (project members only).", write, s.mcpCreateComment)
+	addMCPTool(srv, "track_create_comment", "Create issue comment. visibility is shared (anyone who can read the issue) or members (project members only).", add, s.mcpCreateComment)
 	addMCPTool(srv, "track_list_comments", "List issue comments you can see: members-only comments are listed for project members only.", readOnly, s.mcpListComments)
 	addMCPTool(srv, "track_get_comment", "Get issue comment.", readOnly, s.mcpGetComment)
 	addMCPTool(srv, "track_update_comment", "Update own issue comment: its body, its visibility (shared or members), or both.", write, s.mcpUpdateComment)
 	addMCPTool(srv, "track_delete_comment", "Delete issue comment.", write, s.mcpDeleteComment)
 
-	addMCPTool(srv, "track_create_sprint", "Create project sprint.", write, s.mcpCreateSprint)
+	addMCPTool(srv, "track_create_sprint", "Create project sprint.", add, s.mcpCreateSprint)
 	addMCPTool(srv, "track_list_sprints", "List project sprints.", readOnly, s.mcpListSprints)
 	addMCPTool(srv, "track_list_sprint_history_issues", "List issues captured when a completed sprint finished.", readOnly, s.mcpListSprintHistoryIssues)
 	addMCPTool(srv, "track_get_sprint", "Get project sprint.", readOnly, s.mcpGetSprint)
@@ -569,12 +569,12 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_complete_sprint", "Complete project sprint.", write, s.mcpCompleteSprint)
 	addMCPTool(srv, "track_reorder_planned_sprints", "Reorder planned sprints.", write, s.mcpReorderPlannedSprints)
 
-	addMCPTool(srv, "track_create_tag", "Create project issue tag.", write, s.mcpCreateTag)
+	addMCPTool(srv, "track_create_tag", "Create project issue tag.", add, s.mcpCreateTag)
 	addMCPTool(srv, "track_list_tags", "List project issue tags.", readOnly, s.mcpListTags)
 	addMCPTool(srv, "track_get_tag", "Get project issue tag.", readOnly, s.mcpGetTag)
 	addMCPTool(srv, "track_update_tag", "Update project issue tag.", write, s.mcpUpdateTag)
 	addMCPTool(srv, "track_delete_tag", "Delete project issue tag.", write, s.mcpDeleteTag)
-	addMCPTool(srv, "track_attach_issue_tag", "Attach tag to issue.", write, s.mcpAttachIssueTag)
+	addMCPTool(srv, "track_attach_issue_tag", "Attach tag to issue.", add, s.mcpAttachIssueTag)
 	addMCPTool(srv, "track_list_issue_tags", "List tags attached to issue.", readOnly, s.mcpListIssueTags)
 	addMCPTool(srv, "track_detach_issue_tag", "Detach tag from issue.", write, s.mcpDetachIssueTag)
 
@@ -584,52 +584,52 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_update_link", "Update project issue link.", write, s.mcpUpdateLink)
 	addMCPTool(srv, "track_delete_link", "Delete project issue link.", write, s.mcpDeleteLink)
 
-	addMCPTool(srv, "track_create_project_context", "Create project context item.", write, s.mcpCreateProjectContext)
+	addMCPTool(srv, "track_create_project_context", "Create project context item.", add, s.mcpCreateProjectContext)
 	addMCPTool(srv, "track_list_project_context", "List project context items.", readOnly, s.mcpListProjectContext)
 	addMCPTool(srv, "track_get_project_context", "Get project context item.", readOnly, s.mcpGetProjectContext)
 	addMCPTool(srv, "track_update_project_context", "Update project context item.", write, s.mcpUpdateProjectContext)
 	addMCPTool(srv, "track_delete_project_context", "Delete project context item.", write, s.mcpDeleteProjectContext)
-	addMCPTool(srv, "track_create_project_context_attachment", "Upload and attach file to project context.", write, s.mcpCreateContextAttachment)
+	addMCPTool(srv, "track_create_project_context_attachment", "Upload and attach file to project context.", add, s.mcpCreateContextAttachment)
 	addMCPTool(srv, "track_list_project_context_attachments", "List files attached to project context.", readOnly, s.mcpListContextAttachments)
 	addMCPTool(srv, "track_read_project_context_attachment_content", "Read project context attachment content as base64.", readOnly, s.mcpReadContextAttachmentContent)
 	addMCPTool(srv, "track_delete_project_context_attachment", "Delete project context attachment and owned object.", write, s.mcpDeleteContextAttachment)
-	addMCPTool(srv, "track_create_issue_context", "Create issue-scoped context or link project context to issue.", write, s.mcpCreateIssueContext)
-	addMCPTool(srv, "track_bulk_link_issue_contexts", "Link up to 200 issue and project-context pairs atomically.", write, s.mcpBulkLinkIssueContexts)
+	addMCPTool(srv, "track_create_issue_context", "Create issue-scoped context or link project context to issue.", add, s.mcpCreateIssueContext)
+	addMCPTool(srv, "track_bulk_link_issue_contexts", "Link up to 200 issue and project-context pairs atomically.", add, s.mcpBulkLinkIssueContexts)
 	addMCPTool(srv, "track_list_issue_context", "List context items linked to issue.", readOnly, s.mcpListIssueContext)
 	addMCPTool(srv, "track_delete_issue_context", "Delete issue-context link.", write, s.mcpDeleteIssueContext)
 
 	addMCPTool(srv, "track_list_whiteboard_pages", "List project whiteboard pages, most recently updated first. Bodies are omitted; read one page with track_get_whiteboard_page.", readOnly, s.mcpListWhiteboardPages)
 	addMCPTool(srv, "track_get_whiteboard_page", "Get a project whiteboard page with its Markdown body.", readOnly, s.mcpGetWhiteboardPage)
-	addMCPTool(srv, "track_create_whiteboard_page", "Create a free-form project whiteboard page. Whiteboard pages are never linked to issues.", write, s.mcpCreateWhiteboardPage)
+	addMCPTool(srv, "track_create_whiteboard_page", "Create a free-form project whiteboard page. Whiteboard pages are never linked to issues.", add, s.mcpCreateWhiteboardPage)
 	addMCPTool(srv, "track_update_whiteboard_page", "Update a project whiteboard page title or Markdown body.", write, s.mcpUpdateWhiteboardPage)
 	addMCPTool(srv, "track_delete_whiteboard_page", "Delete a project whiteboard page.", write, s.mcpDeleteWhiteboardPage)
 
-	addMCPTool(srv, "track_create_object", "Upload project storage object from base64 content.", write, s.mcpCreateObject)
+	addMCPTool(srv, "track_create_object", "Upload project storage object from base64 content.", add, s.mcpCreateObject)
 	addMCPTool(srv, "track_list_objects", "List project storage objects.", readOnly, s.mcpListObjects)
 	addMCPTool(srv, "track_get_object", "Get project storage object metadata.", readOnly, s.mcpGetObject)
 	addMCPTool(srv, "track_read_object_content", "Read project storage object content as base64.", readOnly, s.mcpReadObjectContent)
 	addMCPTool(srv, "track_delete_object", "Delete project storage object.", write, s.mcpDeleteObject)
-	addMCPTool(srv, "track_create_attachment", "Upload and attach file to issue from base64 content.", write, s.mcpCreateAttachment)
+	addMCPTool(srv, "track_create_attachment", "Upload and attach file to issue from base64 content.", add, s.mcpCreateAttachment)
 	addMCPTool(srv, "track_list_attachments", "List issue attachments.", readOnly, s.mcpListAttachments)
 	addMCPTool(srv, "track_read_attachment_content", "Read issue attachment content as base64.", readOnly, s.mcpReadAttachmentContent)
 	addMCPTool(srv, "track_delete_attachment", "Delete issue attachment and owned object.", write, s.mcpDeleteAttachment)
-	addMCPTool(srv, "track_create_project_attachment", "Upload and attach file to project description from base64 content.", write, s.mcpCreateProjectAttachment)
+	addMCPTool(srv, "track_create_project_attachment", "Upload and attach file to project description from base64 content.", add, s.mcpCreateProjectAttachment)
 	addMCPTool(srv, "track_list_project_attachments", "List project description attachments.", readOnly, s.mcpListProjectAttachments)
 	addMCPTool(srv, "track_read_project_attachment_content", "Read project description attachment content as base64.", readOnly, s.mcpReadProjectAttachmentContent)
 	addMCPTool(srv, "track_delete_project_attachment", "Delete project description attachment and owned object.", write, s.mcpDeleteProjectAttachment)
-	addMCPTool(srv, "track_create_sprint_attachment", "Upload and attach file to sprint from base64 content.", write, s.mcpCreateSprintAttachment)
+	addMCPTool(srv, "track_create_sprint_attachment", "Upload and attach file to sprint from base64 content.", add, s.mcpCreateSprintAttachment)
 	addMCPTool(srv, "track_list_sprint_attachments", "List sprint attachments.", readOnly, s.mcpListSprintAttachments)
 	addMCPTool(srv, "track_read_sprint_attachment_content", "Read sprint attachment content as base64.", readOnly, s.mcpReadSprintAttachmentContent)
 	addMCPTool(srv, "track_delete_sprint_attachment", "Delete sprint attachment and owned object.", write, s.mcpDeleteSprintAttachment)
 
-	addMCPTool(srv, "track_create_user", "Create user profile. Admin only.", write, s.mcpCreateUser)
+	addMCPTool(srv, "track_create_user", "Create user profile. Admin only.", add, s.mcpCreateUser)
 	addMCPTool(srv, "track_list_users", "List users. Admin only.", readOnly, s.mcpListUsers)
 	addMCPTool(srv, "track_get_user", "Get user. Admin only.", readOnly, s.mcpGetUser)
 	addMCPTool(srv, "track_delete_user", "Delete user. Admin only.", write, s.mcpDeleteUser)
-	addMCPTool(srv, "track_create_my_token", "Create API token for current user.", write, s.mcpCreateMyToken)
+	addMCPTool(srv, "track_create_my_token", "Create API token for current user.", add, s.mcpCreateMyToken)
 	addMCPTool(srv, "track_list_my_tokens", "List auth tokens for current user.", readOnly, s.mcpListMyTokens)
 	addMCPTool(srv, "track_revoke_my_token", "Revoke current user's token.", write, s.mcpRevokeMyToken)
-	addMCPTool(srv, "track_create_user_token", "Create auth token for user. Admin only.", write, s.mcpCreateUserToken)
+	addMCPTool(srv, "track_create_user_token", "Create auth token for user. Admin only.", add, s.mcpCreateUserToken)
 	addMCPTool(srv, "track_list_user_tokens", "List auth tokens for user. Admin only.", readOnly, s.mcpListUserTokens)
 	addMCPTool(srv, "track_revoke_token", "Revoke any auth token. Admin only.", write, s.mcpRevokeToken)
 
@@ -641,20 +641,69 @@ func (s *Server) newMCPServer() *mcp.Server {
 // mcpSchemaOptions corrects the JSON schema reflection would give a type.
 // model.Date is a time.Time underneath, so reflection describes it as an
 // object, and the SDK, which validates arguments against the schema before a
-// handler runs, would refuse the YYYY-MM-DD string it travels as.
+// handler runs, would refuse the YYYY-MM-DD string it travels as. The string
+// types with a fixed set of values list them, so the SDK refuses any other.
 var mcpSchemaOptions = &jsonschema.ForOptions{TypeSchemas: map[reflect.Type]*jsonschema.Schema{
 	reflect.TypeFor[model.Date](): {Type: "string", Format: "date"},
+	reflect.TypeFor[mcpDate]():    {Type: "string", Format: "date"},
+	reflect.TypeFor[model.Status](): mcpEnumSchema(
+		model.StatusTodo, model.StatusInProgress, model.StatusDone, model.StatusClosed),
+	reflect.TypeFor[model.IssuePriority](): mcpEnumSchema(
+		model.PriorityP0, model.PriorityP1, model.PriorityP2, model.PriorityP3, model.PriorityP4),
+	reflect.TypeFor[model.IssueCloseReason](): mcpEnumSchema(
+		model.CloseReasonDuplicate, model.CloseReasonWontDo, model.CloseReasonInvalid),
+	reflect.TypeFor[model.LinkType](): mcpEnumSchema(
+		model.LinkTypeBlocks, model.LinkTypeDuplicates, model.LinkTypeRelatesTo, model.LinkTypeClones),
+	reflect.TypeFor[model.SprintStatus](): mcpEnumSchema(
+		model.SprintStatusPlanned, model.SprintStatusActive, model.SprintStatusCompleted),
 }}
 
-func addMCPTool[In any](srv *mcp.Server, name, description string, readOnly bool, handler func(context.Context, *mcp.CallToolRequest, In) (mcpToolOutput, error)) {
+// mcpDate is a YYYY-MM-DD date a tool parses itself, so a malformed one gets
+// the tool's own validation error. Its schema says it is a date.
+type mcpDate string
+
+func mcpEnumSchema[T ~string](values ...T) *jsonschema.Schema {
+	enum := make([]any, len(values))
+	for i, v := range values {
+		enum[i] = string(v)
+	}
+	return &jsonschema.Schema{Type: "string", Enum: enum}
+}
+
+// mcpAllowNullEnums lets an optional enum field take the null its type
+// allows. Reflection adds null to the type of a pointer field, but not to
+// its enum, which would refuse it.
+func mcpAllowNullEnums(schema *jsonschema.Schema) {
+	for _, prop := range schema.Properties {
+		if len(prop.Enum) > 0 && slices.Contains(prop.Types, "null") {
+			prop.Enum = append(slices.Clip(prop.Enum), nil)
+		}
+	}
+}
+
+// mcpToolEffect is what a tool does to the data, which its annotations tell
+// clients.
+type mcpToolEffect int
+
+const (
+	mcpReadOnly mcpToolEffect = iota
+	// mcpAdditive tools add things without changing or removing any.
+	mcpAdditive
+	// mcpDestructive tools may change or remove what is there.
+	mcpDestructive
+)
+
+func addMCPTool[In any](srv *mcp.Server, name, description string, effect mcpToolEffect, handler func(context.Context, *mcp.CallToolRequest, In) (mcpToolOutput, error)) {
 	inputSchema, err := jsonschema.For[In](mcpSchemaOptions)
 	if err != nil {
 		// Defensive: the input types are fixed at compile time and covered by
 		// the tool-list tests.
 		panic(fmt.Sprintf("%s input schema: %v", name, err))
 	}
+	mcpAllowNullEnums(inputSchema)
 	openWorld := false
-	destructive := !readOnly
+	readOnly := effect == mcpReadOnly
+	destructive := effect == mcpDestructive
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        name,
 		Title:       strings.TrimPrefix(name, "track_"),
@@ -2332,8 +2381,8 @@ func (s *Server) mcpDeleteComment(ctx context.Context, req *mcp.CallToolRequest,
 	return mcpOK(), nil
 }
 
-func parseMCPDate(raw, field string) (time.Time, error) {
-	d, err := time.Parse(dateLayout, raw)
+func parseMCPDate(raw mcpDate, field string) (time.Time, error) {
+	d, err := time.Parse(dateLayout, string(raw))
 	if err != nil {
 		return time.Time{}, validationError(field + " must be YYYY-MM-DD")
 	}
@@ -2386,7 +2435,7 @@ func (s *Server) mcpCreateSprint(ctx context.Context, req *mcp.CallToolRequest, 
 	return mcpToolOutput{"sprint": sprint}, nil
 }
 
-func parseMCPCreateSprintDateRange(startInput, endInput *string) (*time.Time, *time.Time, error) {
+func parseMCPCreateSprintDateRange(startInput, endInput *mcpDate) (*time.Time, *time.Time, error) {
 	if startInput == nil && endInput == nil {
 		return nil, nil, nil
 	}
@@ -4170,6 +4219,10 @@ func (s *Server) mcpCreateMyToken(ctx context.Context, req *mcp.CallToolRequest,
 	if err != nil {
 		return nil, err
 	}
+	// A session token is a browser sign-in; an agent has no use for one.
+	if kind == model.AuthTokenKindSession {
+		return nil, validationError("kind must be api")
+	}
 	created, err := s.store.CreateAuthToken(ctx, store.CreateAuthTokenParams{UserID: auth.User.ID, Kind: kind, Name: name, ExpiresAt: s.authTokenExpiry(kind, input.ExpiresAt)})
 	if err != nil {
 		return nil, err
@@ -4539,7 +4592,7 @@ func (s *Server) addMCPPrompts(srv *mcp.Server) {
 			{Name: "key", Required: true},
 			{Name: "sprint", Required: false},
 		},
-	}, staticMCPPrompt("Plan sprint={{sprint}} for trackslash project owner={{owner}} key={{key}}. Use backlog issues, current sprints, tags, priorities, and due dates. Suggest scoped sprint contents and risks."))
+	}, planSprintMCPPrompt)
 	srv.AddPrompt(&mcp.Prompt{
 		Name:        "draft_changelog",
 		Title:       "draft changelog",
@@ -4549,6 +4602,16 @@ func (s *Server) addMCPPrompts(srv *mcp.Server) {
 			{Name: "key", Required: true},
 		},
 	}, staticMCPPrompt("Draft a concise changelog for trackslash project owner={{owner}} key={{key}}. Use track_list_project_changelog and inspect linked issues when needed."))
+}
+
+// planSprintMCPPrompt plans the sprint it is given, or the next one when its
+// optional sprint is left out.
+func planSprintMCPPrompt(ctx context.Context, req *mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+	target := "the next sprint"
+	if req.Params.Arguments["sprint"] != "" {
+		target = "sprint={{sprint}}"
+	}
+	return staticMCPPrompt("Plan "+target+" for trackslash project owner={{owner}} key={{key}}. Use backlog issues, current sprints, tags, priorities, and due dates. Suggest scoped sprint contents and risks.")(ctx, req)
 }
 
 func staticMCPPrompt(template string) mcp.PromptHandler {

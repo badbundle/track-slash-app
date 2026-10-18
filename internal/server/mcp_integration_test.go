@@ -1077,12 +1077,19 @@ func TestMCPListIssuesFiltersSortAndCursor(t *testing.T) {
 		t.Fatalf("page 2 next_cursor = %q, want nil", *next)
 	}
 
-	out = mcpCallExpectError(t, e, session, "track_list_issues", map[string]any{
+	// The schema lists the priorities, so the SDK refuses P9 before the tool
+	// runs.
+	res, err := session.CallTool(e.ctx, &mcp.CallToolParams{Name: "track_list_issues", Arguments: map[string]any{
 		"owner":    e.ownerUsername,
 		"key":      e.projKey,
 		"priority": "P9",
-	})
-	requireMCPErrorCode(t, out, "validation_error")
+	}})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if content, _ := json.Marshal(res.Content); !res.IsError || !strings.Contains(string(content), "enum") {
+		t.Fatalf("list with priority P9 = %s, want refused", content)
+	}
 }
 
 func TestMCPIssueLinksRejectCrossProjectRefsBeforeLookup(t *testing.T) {
