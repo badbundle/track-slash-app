@@ -282,6 +282,149 @@ func TestSoftDeleteSprint(t *testing.T) {
 	}
 }
 
+func TestDeleteSprintReturnsIssuesToBacklog(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	planned := mustCreateSprint(t, env, "planned", date(2026, 6, 1), date(2026, 6, 14))
+	other := mustCreateSprint(t, env, "other", date(2026, 6, 15), date(2026, 6, 30))
+	open := mustCreateIssue(t, env, "open in planned")
+	done := mustCreateIssue(t, env, "done in planned")
+	gone := mustCreateIssue(t, env, "deleted in planned")
+	kept := mustCreateIssue(t, env, "in other sprint")
+	for _, iss := range []model.Issue{open, done, gone} {
+		assignIssueToSprint(t, env, iss.ID, planned.ID)
+	}
+	assignIssueToSprint(t, env, kept.ID, other.ID)
+	setIssueStatus(t, env, done.ID, model.StatusDone)
+	if err := env.store.DeleteIssue(env.ctx, gone.ID); err != nil {
+		t.Fatalf("DeleteIssue: %v", err)
+	}
+
+	if err := env.store.DeleteSprint(env.ctx, planned.ID); err != nil {
+		t.Fatalf("DeleteSprint: %v", err)
+	}
+
+	backlog, _, err := env.store.ListIssues(env.ctx, store.ListIssuesParams{
+		ProjectID: env.projectID, Backlog: true, Limit: 100,
+	})
+	if err != nil {
+		t.Fatalf("ListIssues backlog: %v", err)
+	}
+	gotIDs := map[uuid.UUID]bool{}
+	for _, iss := range backlog {
+		gotIDs[iss.ID] = true
+	}
+	if len(backlog) != 2 || !gotIDs[open.ID] || !gotIDs[done.ID] {
+		t.Fatalf("backlog = %+v, want open and done issues", backlog)
+	}
+	restored, err := env.store.RestoreIssue(env.ctx, gone.ID)
+	if err != nil {
+		t.Fatalf("RestoreIssue: %v", err)
+	}
+	if restored.SprintID != nil {
+		t.Fatalf("restored issue sprint = %v, want backlog", restored.SprintID)
+	}
+	stillThere, err := env.store.GetIssue(env.ctx, kept.ID)
+	if err != nil {
+		t.Fatalf("GetIssue kept: %v", err)
+	}
+	if stillThere.SprintID == nil || *stillThere.SprintID != other.ID {
+		t.Fatalf("other sprint issue sprint = %v, want %s", stillThere.SprintID, other.ID)
+	}
+}
+
+func TestRestoreIssueLeavesFinishedSprints(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	active := mustCreateSprint(t, env, "active", date(2026, 6, 1), date(2026, 6, 14))
+	mustActivate(t, env, active.ID)
+	next := mustCreateSprint(t, env, "next", date(2026, 6, 15), date(2026, 6, 30))
+	unfinished := mustCreateIssue(t, env, "unfinished deleted")
+	finished := mustCreateIssue(t, env, "finished deleted")
+	parent := mustCreateIssue(t, env, "unfinished parent")
+	child, err := env.store.CreateSubIssue(env.ctx, store.CreateSubIssueParams{
+		ParentIssueID: parent.ID,
+		Title:         "child of unfinished parent",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubIssue: %v", err)
+	}
+	waiting := mustCreateIssue(t, env, "deleted in planned")
+	for _, iss := range []model.Issue{unfinished, finished, parent} {
+		assignIssueToSprint(t, env, iss.ID, active.ID)
+	}
+	assignIssueToSprint(t, env, waiting.ID, next.ID)
+	setIssueStatus(t, env, finished.ID, model.StatusDone)
+	for _, iss := range []model.Issue{unfinished, finished, parent, waiting} {
+		if err := env.store.DeleteIssue(env.ctx, iss.ID); err != nil {
+			t.Fatalf("DeleteIssue %s: %v", iss.Title, err)
+		}
+	}
+	// Completing the sprint rolls live unfinished issues over, but not the
+	// deleted ones.
+	if _, err := env.store.CompleteSprint(env.ctx, active.ID); err != nil {
+		t.Fatalf("CompleteSprint: %v", err)
+	}
+
+	restored, err := env.store.RestoreIssue(env.ctx, unfinished.ID)
+	if err != nil {
+		t.Fatalf("RestoreIssue unfinished: %v", err)
+	}
+	if restored.SprintID != nil {
+		t.Fatalf("unfinished issue sprint = %v, want backlog", restored.SprintID)
+	}
+	restored, err = env.store.RestoreIssue(env.ctx, finished.ID)
+	if err != nil {
+		t.Fatalf("RestoreIssue finished: %v", err)
+	}
+	if restored.SprintID == nil || *restored.SprintID != active.ID {
+		t.Fatalf("finished issue sprint = %v, want completed sprint %s", restored.SprintID, active.ID)
+	}
+	// Restoring a sub-issue brings its parent back too, and the parent leaves
+	// the completed sprint the same way.
+	if _, err := env.store.RestoreIssue(env.ctx, child.ID); err != nil {
+		t.Fatalf("RestoreIssue child: %v", err)
+	}
+	gotParent, err := env.store.GetIssue(env.ctx, parent.ID)
+	if err != nil {
+		t.Fatalf("GetIssue parent: %v", err)
+	}
+	if gotParent.SprintID != nil {
+		t.Fatalf("restored parent sprint = %v, want backlog", gotParent.SprintID)
+	}
+	restored, err = env.store.RestoreIssue(env.ctx, waiting.ID)
+	if err != nil {
+		t.Fatalf("RestoreIssue planned: %v", err)
+	}
+	if restored.SprintID == nil || *restored.SprintID != next.ID {
+		t.Fatalf("planned sprint issue sprint = %v, want %s", restored.SprintID, next.ID)
+	}
+}
+
+// TestRestoreIssueLeavesDeletedSprint covers issues stranded in a sprint
+// deleted before DeleteSprint returned its issues to the backlog.
+func TestRestoreIssueLeavesDeletedSprint(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	planned := mustCreateSprint(t, env, "planned", date(2026, 6, 1), date(2026, 6, 14))
+	iss := mustCreateIssue(t, env, "stranded")
+	assignIssueToSprint(t, env, iss.ID, planned.ID)
+	if err := env.store.DeleteIssue(env.ctx, iss.ID); err != nil {
+		t.Fatalf("DeleteIssue: %v", err)
+	}
+	if _, err := env.pool.Exec(env.ctx, `UPDATE sprints SET deleted_at = now() WHERE id = $1`, planned.ID); err != nil {
+		t.Fatalf("delete sprint directly: %v", err)
+	}
+
+	restored, err := env.store.RestoreIssue(env.ctx, iss.ID)
+	if err != nil {
+		t.Fatalf("RestoreIssue: %v", err)
+	}
+	if restored.SprintID != nil {
+		t.Fatalf("restored issue sprint = %v, want backlog", restored.SprintID)
+	}
+}
+
 func TestSoftDeleteProjectCascades(t *testing.T) {
 	t.Parallel()
 	env := newSprintsEnv(t)

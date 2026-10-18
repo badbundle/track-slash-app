@@ -709,6 +709,14 @@ func (s *Store) DeleteSprint(ctx context.Context, id uuid.UUID) error {
 		if tag.RowsAffected() == 0 {
 			return ErrNotFound
 		}
+		// Its issues go back to the backlog, deleted ones included, so none
+		// is left in a sprint that no list or board shows.
+		if _, err := tx.Exec(ctx, `
+			UPDATE issues SET sprint_id = NULL, updated_at = now()
+			WHERE sprint_id = $1
+		`, id); err != nil {
+			return err // defensive: clearing a nullable column has no FK/check mapping
+		}
 		return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
 			ProjectID:   before.ProjectID,
 			Entity:      "sprint",

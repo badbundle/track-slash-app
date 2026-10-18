@@ -1395,6 +1395,9 @@ func (s *Store) RestoreIssue(ctx context.Context, id uuid.UUID) (model.Issue, er
 			}
 			return err
 		}
+		// An unfinished issue whose sprint was deleted or completed while it
+		// was gone comes back to the backlog, as it would have gone there or
+		// rolled over had it been live.
 		tag, err := tx.Exec(ctx, `
 			WITH target AS (
 				SELECT id, parent_issue_id
@@ -1410,8 +1413,16 @@ func (s *Store) RestoreIssue(ctx context.Context, id uuid.UUID) (model.Issue, er
 				FROM issues i
 				JOIN target t ON i.parent_issue_id = t.id
 			)
-			UPDATE issues SET deleted_at = NULL, updated_at = now()
-			WHERE id IN (SELECT id FROM restore_ids) AND deleted_at IS NOT NULL
+			UPDATE issues i
+			SET deleted_at = NULL, updated_at = now(),
+			    sprint_id = CASE
+			        WHEN i.status NOT IN ('done', 'closed') AND EXISTS (
+			            SELECT 1 FROM sprints s
+			            WHERE s.id = i.sprint_id AND (s.deleted_at IS NOT NULL OR s.status = 'completed')
+			        ) THEN NULL
+			        ELSE i.sprint_id
+			    END
+			WHERE i.id IN (SELECT id FROM restore_ids) AND i.deleted_at IS NOT NULL
 		`, id)
 		if err != nil {
 			// Defensive: restore has no expected FK/check mapping.
