@@ -3,7 +3,6 @@ package realtime
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math/rand/v2"
@@ -40,52 +39,68 @@ func NewListener(dbURL string, hub *Hub) *Listener {
 // subscribed clients to refetch because events may have been lost while the
 // listener was disconnected.
 func (l *Listener) Run(ctx context.Context) {
-	const (
-		minBackoff = 250 * time.Millisecond
-		maxBackoff = 30 * time.Second
-	)
-	backoff := minBackoff
+	var backoff reconnectBackoff
 
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		err := l.runOnce(ctx)
+		listened, err := l.runOnce(ctx)
 		if ctx.Err() != nil {
 			return
 		}
+		delay := backoff.next(listened)
 		if err != nil {
-			log.Printf("realtime listener: %v (reconnect in %s)", err, backoff)
+			log.Printf("realtime listener: %v (reconnect in %s)", err, delay)
 		}
 
-		jitter := time.Duration(rand.Int64N(int64(backoff)))
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff/2 + jitter):
-		}
-
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
+		case <-time.After(delay):
 		}
 	}
 }
 
-func (l *Listener) runOnce(ctx context.Context) error {
+const (
+	minReconnectBackoff = 250 * time.Millisecond
+	maxReconnectBackoff = 30 * time.Second
+)
+
+// reconnectBackoff spaces out the listener's reconnect attempts.
+type reconnectBackoff struct {
+	current time.Duration
+}
+
+// next returns a jittered delay before the next reconnect attempt. Each
+// attempt that fails before LISTEN doubles the delay, up to the maximum. An
+// attempt that reached LISTEN held a working connection, so its drop starts
+// over from the minimum instead of inheriting earlier failures' delay.
+func (b *reconnectBackoff) next(listened bool) time.Duration {
+	if listened || b.current == 0 {
+		b.current = minReconnectBackoff
+	}
+	delay := b.current/2 + time.Duration(rand.Int64N(int64(b.current)))
+	b.current = min(b.current*2, maxReconnectBackoff)
+	return delay
+}
+
+// runOnce holds one listening connection until it fails. listened reports
+// whether it got as far as LISTEN.
+func (l *Listener) runOnce(ctx context.Context) (listened bool, err error) {
 	config, err := pgx.ParseConfig(l.dbURL)
 	if err != nil {
-		return err
+		return false, err
 	}
 	config.RuntimeParams["application_name"] = l.applicationName
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = conn.Close(context.Background()) }()
 
 	if _, err := conn.Exec(ctx, "LISTEN "+pgChannel); err != nil {
-		return err
+		return false, err
 	}
 	log.Printf("realtime listener: connected, LISTEN %s", pgChannel)
 	l.hub.ResyncAll(resyncListener)
@@ -93,10 +108,7 @@ func (l *Listener) runOnce(ctx context.Context) error {
 	for {
 		n, err := conn.WaitForNotification(ctx)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
-			return err
+			return true, err
 		}
 		var ev Event
 		if err := json.Unmarshal([]byte(n.Payload), &ev); err != nil {

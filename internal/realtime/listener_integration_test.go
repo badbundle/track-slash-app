@@ -66,20 +66,7 @@ func TestListenerReconnectSignalsResyncAndResumesEvents(t *testing.T) {
 	runListener(t, ctx, listener)
 	requireListenerResync(t, client)
 
-	var terminated bool
-	if err := pool.QueryRow(ctx, `
-		SELECT COALESCE(bool_or(pg_terminate_backend(pid)), false)
-		FROM pg_stat_activity
-		WHERE application_name = $1
-		  AND datname = current_database()
-		  AND pid <> pg_backend_pid()
-	`, listener.applicationName).Scan(&terminated); err != nil {
-		t.Fatalf("terminate listener connection: %v", err)
-	}
-	if !terminated {
-		t.Fatal("listener connection was not found for forced outage")
-	}
-
+	terminateListenerConnection(t, ctx, pool, listener)
 	requireListenerResync(t, client)
 
 	projectID := insertRealtimeProject(ctx, t, pool, "rt-reconnect")
@@ -104,6 +91,43 @@ func TestListenerReconnectSignalsResyncAndResumesEvents(t *testing.T) {
 		case <-deadline:
 			t.Fatal("listener did not resume events after reconnect")
 		}
+	}
+}
+
+// TestListenerReconnectsPromptlyAfterRepeatedDrops drops a healthy listener
+// connection more times than the backoff takes to pass the 3s resync wait if
+// it kept doubling across sessions that reached LISTEN.
+func TestListenerReconnectsPromptlyAfterRepeatedDrops(t *testing.T) {
+	t.Parallel()
+	ctx, pool, dbURL := newRealtimeDB(t)
+	hub := NewHub()
+	client := newTestClient(sendBuffer)
+	hub.Subscribe(client, "project:00000000-0000-0000-0000-000000000001")
+
+	listener := NewListener(dbURL, hub)
+	runListener(t, ctx, listener)
+	requireListenerResync(t, client)
+
+	for range 6 {
+		terminateListenerConnection(t, ctx, pool, listener)
+		requireListenerResync(t, client)
+	}
+}
+
+func terminateListenerConnection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, listener *Listener) {
+	t.Helper()
+	var terminated bool
+	if err := pool.QueryRow(ctx, `
+		SELECT COALESCE(bool_or(pg_terminate_backend(pid)), false)
+		FROM pg_stat_activity
+		WHERE application_name = $1
+		  AND datname = current_database()
+		  AND pid <> pg_backend_pid()
+	`, listener.applicationName).Scan(&terminated); err != nil {
+		t.Fatalf("terminate listener connection: %v", err)
+	}
+	if !terminated {
+		t.Fatal("listener connection was not found for forced outage")
 	}
 }
 
