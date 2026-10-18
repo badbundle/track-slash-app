@@ -609,8 +609,11 @@ func uiChangelogIcon(entry model.ProjectChangelogEntry) string {
 	}
 }
 
+// uiChangelogTargetHref links an entry's ref badge to the issue it names. A
+// link entry names the link itself (link-N), which has no page, so its badge
+// stays plain; its summary already names both issues.
 func uiChangelogTargetHref(project model.Project, entry model.ProjectChangelogEntry) string {
-	if entry.IssueID == nil || strings.TrimSpace(entry.TargetRef) == "" {
+	if entry.IssueID == nil || strings.TrimSpace(entry.TargetRef) == "" || entry.Entity == "issue_link" {
 		return ""
 	}
 	return "/" + project.OwnerUsername + "/issues/" + entry.TargetRef

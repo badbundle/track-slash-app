@@ -138,6 +138,29 @@ func TestUIIssueContextBreadcrumbLinksIssueAndPreservesParent(t *testing.T) {
 	}
 }
 
+func TestUIChangelogTargetHref(t *testing.T) {
+	t.Parallel()
+
+	project := model.Project{OwnerUsername: "bradley", Key: "TRACK"}
+	issueID := uuid.New()
+	for _, tt := range []struct {
+		name  string
+		entry model.ProjectChangelogEntry
+		want  string
+	}{
+		{name: "issue", entry: model.ProjectChangelogEntry{Entity: "issue", IssueID: &issueID, TargetRef: "TRACK-12"}, want: "/bradley/issues/TRACK-12"},
+		{name: "comment names its issue", entry: model.ProjectChangelogEntry{Entity: "comment", IssueID: &issueID, TargetRef: "TRACK-12"}, want: "/bradley/issues/TRACK-12"},
+		// A link entry's ref is the link's own, which no issue page answers.
+		{name: "issue link", entry: model.ProjectChangelogEntry{Entity: "issue_link", IssueID: &issueID, TargetRef: "link-3"}},
+		{name: "no issue", entry: model.ProjectChangelogEntry{Entity: "sprint", TargetRef: "sprint-1"}},
+		{name: "blank ref", entry: model.ProjectChangelogEntry{Entity: "issue", IssueID: &issueID, TargetRef: "  "}},
+	} {
+		if got := uiChangelogTargetHref(project, tt.entry); got != tt.want {
+			t.Errorf("%s: uiChangelogTargetHref = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestUIStatusClass(t *testing.T) {
 	t.Parallel()
 
