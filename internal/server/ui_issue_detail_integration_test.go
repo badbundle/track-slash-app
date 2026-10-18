@@ -289,6 +289,9 @@ func TestUIRendersSubIssueDetailWithParentBacklinkAndNoSprintControls(t *testing
 		`href="` + e.issuePath(parent) + `"`,
 		`hx-get="` + e.issuePath(parent) + `/panel"`,
 		`data-lucide="corner-up-left"`,
+		// The link is inline-flex, so it needs a max width for a long parent
+		// title to truncate instead of running past the card on a phone.
+		`class="mt-1 inline-flex min-w-0 max-w-full items-center gap-2`,
 		user.Name,
 	} {
 		if !strings.Contains(body, want) {
