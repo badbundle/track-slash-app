@@ -169,9 +169,9 @@ Saving a token accepts `{"name":"Personal","token":"..."}`; updating accepts eit
 
 ### Email
 
-Email is optional. With none of the variables below set it is off: the app runs without it, the Profile page shows no email UI, and the email field there saves an address unverified, as it always has. With email on, people confirm their address through a link sent to it.
+Email is optional. With none of the variables below set it is off: the app runs without it, the Profile page shows no email UI, the email field there saves an address unverified, as it always has, and the sign-in page has no **Forgot password?** link. With email on, people confirm their address through a link sent to it, and someone who has forgotten their password can have a reset link sent to their verified address.
 
-trackslash talks to an SMTP provider directly and sends each message while the request waits, so there is no mail server, relay, queue or outbox to run. Any provider with authenticated SMTP works. Configure the frontend app:
+trackslash talks to an SMTP provider directly, so there is no mail server, relay, queue or outbox to run. A confirmation is sent while the request waits. A password reset email is sent just after the page answers, so how long the page takes can't show whether one went. Any provider with authenticated SMTP works. Configure the frontend app:
 
 ```bash
 TRACK_SLASH_SMTP_HOST=smtp.example.com
@@ -187,7 +187,8 @@ TRACK_SLASH_PUBLIC_ORIGIN=https://track.example.com
 - `TRACK_SLASH_PUBLIC_ORIGIN` is required. Every link in a message is built from it, never from the request's `Host`.
 - The connection always uses TLS. `starttls`, the default, upgrades the connection before anything else is sent and gives up if the server does not offer STARTTLS; `implicit` opens it over TLS, as port 465 expects. Credentials are only ever sent over TLS.
 - A delivery gives up after 10 seconds, inside the 15-second request deadline. If the provider is unreachable or refuses the message, for example because it is over quota, the page says "Couldn't send the email. Try again." and nothing is marked as sent.
-- Each account may send, and each address may receive, 3 confirmation emails an hour. Like the other rate limits these are per process.
+- A password reset email that the provider refuses is logged and not retried; the person asks again. The reset page gives the same answer either way.
+- Each account may send, and each address may receive, 3 confirmation emails an hour, and each account may be sent 3 password reset emails an hour. Like the other rate limits these are per process.
 - For local development, `TRACK_SLASH_SMTP_HOST=log` prints each message, link included, to the server log instead of sending it. It needs only `TRACK_SLASH_PUBLIC_ORIGIN`, such as `http://localhost:8080`; the sender is optional.
 - The migration job still needs only `DATABASE_URL`.
 
@@ -237,7 +238,7 @@ The accepted Preview Terms version and timestamp are stored transactionally with
 
 Self-signup cannot be turned off. Anyone who can reach the app can create an account through `/signup` or `POST /api/v1/accounts`. To keep an instance private, restrict who can reach it at the network or proxy.
 
-Password, passkey, signup, and reauthentication endpoints are limited to 30 requests per resolved client IP per minute and 10 requests per normalized username or account identifier per five minutes. Exhausted limits return `429 Too Many Requests` with `Retry-After`.
+Password, passkey, signup, and reauthentication endpoints are limited to 30 requests per resolved client IP per minute and 10 requests per normalized username or account identifier per five minutes. The forgotten-password and reset forms share the per-IP limit; their per-account limit is the 3 reset emails an hour described under [Email](#email). Exhausted limits return `429 Too Many Requests` with `Retry-After`.
 
 Forwarded client IPs are ignored by default, so an unconfigured deployment behind a reverse proxy shares one application-level IP bucket. Configure the exact internal source ranges used by trusted proxies when requests normally arrive through a proxy:
 

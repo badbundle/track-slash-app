@@ -74,10 +74,10 @@ source of a user's rights in a project.
   or change tokens, email, password, password login, passkeys, saved GitHub
   tokens, or site-admin account administration. See [OAUTH.md](OAUTH.md).
 - **A deleted account has no way back in.** Deleting a user revokes its API
-  tokens, sessions, connector grants and codes, password and passkeys in the
-  same transaction (`DeleteUser`), so none of them rests on the `deleted_at`
-  filter alone. `trackd -create-admin-token` refuses an email that belongs to a
-  deleted account rather than restoring it.
+  tokens, sessions, connector grants and codes, password, passkeys and
+  password reset links in the same transaction (`DeleteUser`), so none of them
+  rests on the `deleted_at` filter alone. `trackd -create-admin-token` refuses
+  an email that belongs to a deleted account rather than restoring it.
 - **Guesses are budgeted.** Password sign-in, password changes, reauthentication,
   sign-up and OAuth client authentication have per-address and per-identifier
   budgets (`auth_rate_limit.go`). Each purpose keys its identifier budgets
@@ -115,7 +115,8 @@ rules.
 - **What it grants.** A verified address is the account's alone: no other live
   account can verify the same address, in any case. When it is replaced or
   removed it is told, so a takeover that changes the email is noticed.
-  Forgot password (TRACK-100) is to send resets only to a verified address.
+  A password reset is sent only to a verified address (see
+  [Password reset](#password-reset)).
 - **What it doesn't.** It is not a sign-in method and grants no role, project
   access or admin rights. It proves that the account's holder read that
   mailbox when they confirmed, not that they still do. It is shown to nobody
@@ -135,6 +136,45 @@ rules.
   `Host`.
 - **Sends are budgeted.** Each account may send, and each address may receive,
   3 confirmation emails an hour, so the form cannot fill someone's inbox.
+
+## Password reset
+
+With email on, someone who has forgotten their password can have a link sent
+from the sign-in page. `ui_password_reset.go` and `store/password_resets.go`
+hold the rules.
+
+- **It goes to a verified address only.** The form takes a username or an
+  email address, either in any case. Only a live account with a verified email
+  is sent anything, and only to that address. An unknown name, an unverified
+  address and a deleted account get nothing.
+- **Every request gets the same answer.** The page always says "If that
+  account has a verified email, we've sent a reset link." Finding the account,
+  spending its budget, making the link and sending the email all happen after
+  the response, so neither the page nor how long it takes says whether an
+  account exists, has a verified email, signs in with a passkey or has asked
+  too often.
+- **A link works once, for 30 minutes.** It is 32 random bytes, stored only as
+  a SHA-256 hash. Asking again, changing the password any other way, turning
+  password sign-in off and deleting the account cancel it. It is bound to the
+  account and to the verified address it was sent to: once that address is
+  changed, removed or verified again, or the account no longer signs in with a
+  password, it stops working.
+- **Opening the link changes nothing.** Mail scanners open links first, so the
+  link's page only shows the form, and only that form's POST uses the link.
+- **A reset ends web sessions, not API tokens or connected apps.** Setting the
+  password ends every web session and browser push subscription of the
+  account, and any reauthentication still open, in the same transaction, then
+  sends the browser to sign in; it never signs anyone in. A notice goes to the
+  same address and points to Settings → Tokens, where API tokens and connected
+  apps are revoked.
+- **An account that signs in with a passkey keeps that choice.** An account
+  with no password, or with password sign-in turned off, is sent a note that
+  it signs in with a passkey and a link to `/login`, never a reset link, so a
+  reset can't bring back a password it turned off.
+- **It is budgeted and browser-only.** Both forms use the sign-in page's
+  pre-auth CSRF check and per-address budget, and each account may be sent 3
+  reset emails an hour; past that, requests are dropped without a word. There
+  is no API or MCP route for a reset, and an admin can't start one.
 
 ## Accepted trade-offs
 
@@ -163,8 +203,8 @@ These are known and left as they are. Change one only with that in mind.
   SameSite=Lax, Secure over https and have no Domain. Renaming them would sign
   everyone out.
 - **Ending sessions leaves API tokens and connectors alive.** "Sign out
-  everywhere" and a password change end web sessions and disable push
-  subscriptions, nothing more. API tokens and connected apps are listed on
+  everywhere", a password change and a password reset end web sessions and
+  disable push subscriptions, nothing more. API tokens and connected apps are listed on
   Tokens and ended there.
 - **A sign-out without script can't name its push subscription,** and nothing
   records which session made one, so the server keeps sending to it.
@@ -183,10 +223,16 @@ These are known and left as they are. Change one only with that in mind.
   `-promote-existing` is passed, and refuses when several accounts hold it.
 - **Confirming an address another account has verified says so.** Only
   someone who opened a link sent to that mailbox can learn it this way.
-- **Email is sent while the request waits.** A failed send leaves an unsent
-  link behind, which nobody has and which expires within the hour. The notice
-  to a replaced address is best effort: if it can't be sent, the change stands
-  and the failure is logged.
+- **Confirmation email is sent while the request waits.** A failed send
+  leaves an unsent link behind, which nobody has and which expires within the
+  hour. The notice to a replaced address is best effort: if it can't be sent,
+  the change stands and the failure is logged.
+- **Password reset email is sent after the answer, once.** There is no queue
+  or retry: a send that fails is logged, and the person asks again. The notice
+  that a password was reset is best effort in the same way.
+- **Recovery needs a passkey or a verified email.** An account with neither
+  that forgets its password has no way back in, since there is no
+  admin-started reset.
 - **Storage object JSON names its backend, bucket and key.** These are
   locations, not credentials.
 - **Realtime access is checked once, on subscribe.** Events carry only IDs, and
@@ -199,7 +245,9 @@ These are known and left as they are. Change one only with that in mind.
 - **Anyone can spend a username's sign-in budget.** Ten failed password
   attempts in five minutes hold up that account's password sign-in for the rest
   of the window, though passkey sign-in still works. This is the cost of a
-  per-account budget against distributed guessing.
+  per-account budget against distributed guessing. In the same way, three
+  reset requests in an hour use up an account's reset emails for the rest of
+  the hour, though a link already sent still works.
 - **The changelog keeps edit history.** The before and after previews of an
   edited issue or comment stay visible to whoever can read the changelog.
 - **Blocks do not apply to site admins.**
