@@ -40,6 +40,8 @@ func TestRequestTimeoutFor(t *testing.T) {
 		{path: "/api/v1/session", contentType: "application/json", want: 15 * time.Second},
 		{path: "/api/v1/session/passkey", contentType: "application/json", want: 30 * time.Second},
 		{path: "/api/v1/projects/objects", contentType: " Multipart/Form-Data; boundary=test ", want: 2 * time.Minute},
+		{path: "/mcp", contentType: "application/json", want: 2 * time.Minute},
+		{path: "/mcp/other", contentType: "application/json", want: 15 * time.Second},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequest(http.MethodPost, tt.path, nil)
@@ -52,13 +54,17 @@ func TestRequestTimeoutFor(t *testing.T) {
 
 func TestLongLivedRequestPaths(t *testing.T) {
 	t.Parallel()
-	for _, path := range []string{"/api/v1/ws", "/realtime", "/mcp", devReloadPath} {
+	for _, path := range []string{"/api/v1/ws", "/realtime", devReloadPath} {
 		if !isLongLivedRequest(path) {
 			t.Fatalf("isLongLivedRequest(%q) = false, want true", path)
 		}
 	}
-	if isLongLivedRequest("/api/v1/session") {
-		t.Fatal("ordinary request marked long-lived")
+	// MCP here is stateless JSON: every request is one response, never a
+	// stream, so it keeps a deadline.
+	for _, path := range []string{"/api/v1/session", "/mcp"} {
+		if isLongLivedRequest(path) {
+			t.Fatalf("isLongLivedRequest(%q) = true, want false", path)
+		}
 	}
 }
 
@@ -78,6 +84,26 @@ func TestRequestDeadlineSkipsLongLivedConnections(t *testing.T) {
 	handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("code = %d, want 204", recorder.Code)
+	}
+}
+
+func TestRequestDeadlineAppliesUploadTimeoutToMCP(t *testing.T) {
+	t.Parallel()
+	srv := NewWithOptions(nil, nil, Options{RequestTimeout: time.Second, UploadTimeout: time.Hour})
+	handler := srv.requestDeadline(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deadline, ok := r.Context().Deadline()
+		if !ok || time.Until(deadline) < 59*time.Minute {
+			http.Error(w, "missing upload deadline", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	req.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("code = %d body = %s, want 204", recorder.Code, recorder.Body.String())
 	}
 }
 

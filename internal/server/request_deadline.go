@@ -32,6 +32,11 @@ func (s *Server) requestTimeoutFor(r *http.Request) time.Duration {
 	if strings.HasPrefix(contentType, "multipart/form-data") {
 		return s.uploadTimeout
 	}
+	// MCP is stateless JSON with no stream, but a tool call can carry an
+	// attachment as base64, so it gets as long as a multipart upload.
+	if r.URL.Path == mcpPath {
+		return s.uploadTimeout
+	}
 	if strings.Contains(r.URL.Path, "passkey") {
 		return s.authRequestTimeout
 	}
@@ -40,7 +45,7 @@ func (s *Server) requestTimeoutFor(r *http.Request) time.Duration {
 
 func isLongLivedRequest(path string) bool {
 	switch path {
-	case "/api/v1/ws", "/realtime", "/mcp", devReloadPath:
+	case "/api/v1/ws", "/realtime", devReloadPath:
 		return true
 	default:
 		return false

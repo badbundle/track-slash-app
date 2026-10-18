@@ -197,9 +197,9 @@ Request contexts and body reads use these deadlines:
 
 - 15 seconds for ordinary form and JSON requests;
 - 30 seconds for passkey/WebAuthn requests;
-- 2 minutes for multipart uploads.
+- 2 minutes for multipart uploads and MCP requests, which can carry an attachment as base64.
 
-HTTP headers retain a separate five-second read deadline. WebSocket, MCP, and development reload streams are explicitly excluded from request deadlines; idle keep-alive HTTP connections are closed after 60 seconds.
+HTTP headers retain a separate five-second read deadline. WebSocket and development reload streams are explicitly excluded from request deadlines; idle keep-alive HTTP connections are closed after 60 seconds.
 
 ### OAuth connectors
 
