@@ -86,9 +86,11 @@ Set the public browser origin for passkeys and browser WebSocket checks in deplo
 TRACK_SLASH_PUBLIC_ORIGIN=https://track.example.com
 ```
 
-The value must be an origin only: scheme, host, and optional port. Production passkeys require HTTPS. The cookie-authenticated UI WebSocket accepts this origin only; it does not depend on `CORS_ALLOWED_ORIGINS`. Browser connections to the bearer-authenticated API WebSocket may also use an explicitly configured CORS origin. Non-browser API WebSocket clients must omit `Origin` and authenticate with a bearer token.
+The value must be an origin only: scheme, host, and optional port. Production passkeys require HTTPS. The cookie-authenticated UI WebSocket accepts this origin only; it does not depend on `CORS_ALLOWED_ORIGINS`. The API WebSocket at `/api/v1/ws` accepts no credential but a bearer token in the `Authorization` header, which browsers cannot set on a WebSocket handshake, so it serves non-browser clients only; listing an origin in `CORS_ALLOWED_ORIGINS` does not open it to pages on that origin. Non-browser API WebSocket clients must omit `Origin` and authenticate with a bearer token.
 
 When `TRACK_SLASH_PUBLIC_ORIGIN` is omitted for local development, browser WebSockets accept only `localhost` and loopback origins. Other non-empty browser origins fail closed.
+
+`trackd` logs a warning at startup while `TRACK_SLASH_PUBLIC_ORIGIN` is unset. Without it, `trackd` can tell a request arrived over HTTPS only from a direct TLS connection. Behind a proxy that terminates TLS, it then sets session and CSRF cookies without `Secure`, and it expects a browser's stated `Origin` to be the `http://` origin of the request's `Host`, so UI changes sent through htmx from the real `https://` origin fail the CSRF origin check. Set it in every deployment other than local development.
 
 The same setting gates HTTP Strict Transport Security. trackslash emits `Strict-Transport-Security: max-age=31536000` only when `TRACK_SLASH_PUBLIC_ORIGIN` explicitly uses HTTPS; direct TLS and forwarded-protocol headers do not opt a deployment into HSTS. Validate HTTPS redirects, certificates, and rollback procedures on staging before enabling the HTTPS origin in production because browsers retain the policy for one year. The header deliberately omits `includeSubDomains` and `preload`, so sibling services keep independent rollout and recovery paths.
 
@@ -178,6 +180,8 @@ TRACK_SLASH_PREVIEW_TERMS_REQUIRED=true
 The accepted Preview Terms version and timestamp are stored transactionally with the new account. Independent operators should leave this setting false or unset unless they have replaced the canonical documents with policies appropriate to their own deployment and users.
 
 ## Authentication and request limits
+
+Self-signup cannot be turned off. Anyone who can reach the app can create an account through `/signup` or `POST /api/v1/accounts`. To keep an instance private, restrict who can reach it at the network or proxy.
 
 Password, passkey, signup, and reauthentication endpoints are limited to 30 requests per resolved client IP per minute and 10 requests per normalized username or account identifier per five minutes. Exhausted limits return `429 Too Many Requests` with `Retry-After`.
 

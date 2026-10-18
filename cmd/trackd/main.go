@@ -99,6 +99,10 @@ func main() {
 		return
 	}
 
+	if cfg.PublicOrigin == "" {
+		log.Println("warning: TRACK_SLASH_PUBLIC_ORIGIN is unset; behind a TLS-terminating proxy, cookies are set without Secure and UI changes sent through htmx fail the CSRF origin check. Set it outside local development.")
+	}
+
 	hub := realtime.NewHub()
 	listener := realtime.NewListener(cfg.DatabaseURL, hub)
 	go listener.Run(ctx)
