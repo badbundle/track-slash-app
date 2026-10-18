@@ -70,7 +70,7 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	if body := readBody(t, res); res.StatusCode != http.StatusCreated || !strings.Contains(body, `"subscribed":true`) {
 		t.Fatalf("subscription create code=%d body=%s", res.StatusCode, body)
 	}
-	stateBody := e.uiGet(t, "/settings/push/subscription?endpoint="+url.QueryEscape(endpoint), token)
+	stateBody := e.uiPushSubscriptionState(t, token, endpoint)
 	if !strings.Contains(stateBody, `"subscribed":true`) {
 		t.Fatalf("subscription state = %s", stateBody)
 	}
@@ -84,7 +84,7 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	if res.StatusCode != http.StatusNoContent {
 		t.Fatalf("subscription delete code=%d body=%s", res.StatusCode, readBody(t, res))
 	}
-	stateBody = e.uiGet(t, "/settings/push/subscription?endpoint="+url.QueryEscape(endpoint), token)
+	stateBody = e.uiPushSubscriptionState(t, token, endpoint)
 	if !strings.Contains(stateBody, `"subscribed":false`) {
 		t.Fatalf("disabled subscription state = %s", stateBody)
 	}
@@ -115,6 +115,13 @@ func TestUIPushNotificationValidationConfigurationAndServiceWorker(t *testing.T)
 	if res.StatusCode != http.StatusBadRequest {
 		t.Fatalf("missing endpoint state code=%d body=%s", res.StatusCode, readBody(t, res))
 	}
+	// The endpoint is a capability URL, so it is not read from a query string,
+	// where access logs would record it.
+	res = e.uiDoNoRedirect(t, http.MethodGet, "/settings/push/subscription?endpoint="+url.QueryEscape("https://push.example.test/x"), token, nil)
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("query endpoint state code=%d body=%s", res.StatusCode, readBody(t, res))
+	}
 	res = e.uiDoNoRedirectWithHeaders(t, http.MethodDelete, "/settings/push/subscription", token, strings.NewReader(`{}`), map[string]string{"Content-Type": "application/json"})
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusBadRequest {
@@ -132,4 +139,15 @@ func TestUIPushNotificationValidationConfigurationAndServiceWorker(t *testing.T)
 	if !strings.Contains(res.Header.Get("Content-Security-Policy"), "worker-src 'self'") {
 		t.Fatalf("service worker CSP = %q", res.Header.Get("Content-Security-Policy"))
 	}
+}
+
+func (e *httpEnv) uiPushSubscriptionState(t *testing.T, token, endpoint string) string {
+	t.Helper()
+	res := e.uiDoNoRedirectWithHeaders(t, http.MethodGet, "/settings/push/subscription", token, nil, map[string]string{"X-Push-Endpoint": endpoint})
+	defer res.Body.Close()
+	body := readBody(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("push subscription state code=%d body=%s", res.StatusCode, body)
+	}
+	return body
 }

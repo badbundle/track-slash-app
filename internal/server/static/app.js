@@ -587,10 +587,12 @@
     }
     return "";
   };
+  // The endpoint is a capability URL, so it goes in a header: a query string
+  // would leave it in access logs.
   const serverPushSubscriptionActive = async (endpoint) => {
-    const res = await fetch(`/settings/push/subscription?endpoint=${encodeURIComponent(endpoint)}`, {
+    const res = await fetch("/settings/push/subscription", {
       credentials: "same-origin",
-      headers: { "Accept": "application/json" },
+      headers: { "Accept": "application/json", "X-Push-Endpoint": endpoint },
     });
     if (!res.ok) throw new Error("Unable to check this browser subscription.");
     const body = await res.json();

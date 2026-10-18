@@ -48,8 +48,13 @@ func (s *Server) uiUpdatePushNotificationPreferences(w http.ResponseWriter, r *h
 	http.Redirect(w, r, uiNotificationsPath, http.StatusSeeOther)
 }
 
+// uiPushEndpointHeader carries the browser's push endpoint when the settings
+// page asks whether it is linked. The endpoint is a capability URL, so it stays
+// out of the query string, which access logs and proxies record.
+const uiPushEndpointHeader = "X-Push-Endpoint"
+
 func (s *Server) uiPushSubscriptionState(w http.ResponseWriter, r *http.Request) {
-	endpoint := r.URL.Query().Get("endpoint")
+	endpoint := r.Header.Get(uiPushEndpointHeader)
 	if endpoint == "" {
 		writeError(w, http.StatusBadRequest, "endpoint required")
 		return

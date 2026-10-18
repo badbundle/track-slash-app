@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -132,7 +133,7 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
-	r.Use(middleware.Logger)
+	r.Use(newAccessLogger(os.Stdout))
 	r.Use(middleware.Recoverer)
 	r.Use(exposeRequestID)
 	r.Use(s.securityHeaders)

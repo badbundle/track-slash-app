@@ -52,6 +52,9 @@ source of a user's rights in a project.
 - **Emails are never shown outside the account itself.** Member lists, pickers,
   comment authors and the reporter view name people by display name or
   username. Member search matches emails only for someone who manages members.
+  The access log records each request's path without its query string, so a
+  searched email stays out of it, and the settings page sends a browser's push
+  endpoint, a capability URL, in a header rather than the URL.
 
 ## Rules every surface follows
 
