@@ -3,6 +3,7 @@ package server_test
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +172,67 @@ func TestHTTPListDeletedIssues(t *testing.T) {
 		if code != http.StatusBadRequest {
 			t.Fatalf("GET %s code = %d body = %s", path, code, body)
 		}
+	}
+}
+
+// A sub-issue deleted on its own, while its parent stays live, is listed
+// with the deleted issues. One deleted with its parent is not, since
+// restoring the parent brings it back.
+func TestListDeletedIssuesIncludesSubIssuesOfLiveParents(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, token := e.mustProjectMemberToken(t, "deleted-sub-issues")
+	liveParent := mustHTTPIssue(t, e)
+	orphan, err := e.store.CreateSubIssue(e.ctx, store.CreateSubIssueParams{
+		ParentIssueID: liveParent.ID,
+		Title:         "deleted child of live parent",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubIssue orphan: %v", err)
+	}
+	deletedParent, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "deleted parent"})
+	if err != nil {
+		t.Fatalf("CreateIssue parent: %v", err)
+	}
+	hidden, err := e.store.CreateSubIssue(e.ctx, store.CreateSubIssueParams{
+		ParentIssueID: deletedParent.ID,
+		Title:         "deleted child of deleted parent",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubIssue hidden: %v", err)
+	}
+	if err := e.store.DeleteIssue(e.ctx, orphan.ID); err != nil {
+		t.Fatalf("DeleteIssue orphan: %v", err)
+	}
+	if err := e.store.DeleteIssue(e.ctx, deletedParent.ID); err != nil {
+		t.Fatalf("DeleteIssue parent: %v", err)
+	}
+	wantIDs := []uuid.UUID{orphan.ID, deletedParent.ID}
+
+	code, body := e.do(t, http.MethodGet, e.projectIssuesPath()+"/deleted", nil)
+	if code != http.StatusOK {
+		t.Fatalf("list deleted code = %d body = %s", code, body)
+	}
+	page := decodePage[model.Issue](t, body)
+	if len(page.Items) != len(wantIDs) || page.Items[0].ID != wantIDs[0] || page.Items[1].ID != wantIDs[1] {
+		t.Fatalf("REST deleted = %+v, want orphan then deleted parent", page.Items)
+	}
+
+	session := mcpConnect(t, e, e.authToken)
+	out := mcpCall(t, e, session, "track_list_deleted_issues", map[string]any{"owner": e.ownerUsername, "key": e.projKey})
+	items := decodeMCPField[[]model.Issue](t, out, "items")
+	if len(items) != len(wantIDs) || items[0].ID != wantIDs[0] || items[1].ID != wantIDs[1] {
+		t.Fatalf("MCP deleted = %+v, want orphan then deleted parent", items)
+	}
+
+	ui := e.uiGet(t, e.projectPath()+"/deleted", token)
+	for _, want := range []string{orphan.Title, ">Sub-issue</div>", `hx-post="` + e.issuePath(orphan) + `/restore"`, deletedParent.Title} {
+		if !strings.Contains(ui, want) {
+			t.Fatalf("deleted page missing %q: %s", want, ui)
+		}
+	}
+	if strings.Contains(ui, hidden.Title) {
+		t.Fatalf("deleted page listed the deleted parent's child: %s", ui)
 	}
 }
 

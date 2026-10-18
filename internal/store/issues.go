@@ -791,6 +791,9 @@ type ListDeletedIssuesParams struct {
 	Limit     int
 }
 
+// ListDeletedIssues lists a project's deleted issues. A sub-issue is listed
+// only while its parent is live: one whose parent is deleted too comes back
+// when the parent is restored.
 func (s *Store) ListDeletedIssues(ctx context.Context, p ListDeletedIssuesParams) ([]model.Issue, bool, error) {
 	args := []any{p.ProjectID}
 	q := `
@@ -799,7 +802,9 @@ func (s *Store) ListDeletedIssues(ctx context.Context, p ListDeletedIssuesParams
 		FROM issues i
 		JOIN projects pr ON pr.id = i.project_id
 		JOIN users u ON u.id = pr.owner_id
-		WHERE i.project_id = $1 AND i.deleted_at IS NOT NULL AND i.parent_issue_id IS NULL
+		LEFT JOIN issues parent ON parent.id = i.parent_issue_id
+		WHERE i.project_id = $1 AND i.deleted_at IS NOT NULL
+		  AND (i.parent_issue_id IS NULL OR parent.deleted_at IS NULL)
 		  AND pr.deleted_at IS NULL AND u.deleted_at IS NULL
 	`
 	if p.Cursor != nil {

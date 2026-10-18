@@ -197,6 +197,51 @@ func TestListDeletedIssues(t *testing.T) {
 	}
 }
 
+func TestListDeletedIssuesIncludesSubIssuesOfLiveParents(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	liveParent := mustCreateIssue(t, env, "live parent")
+	orphan, err := env.store.CreateSubIssue(env.ctx, store.CreateSubIssueParams{
+		ParentIssueID: liveParent.ID,
+		Title:         "deleted child of live parent",
+	})
+	if err != nil {
+		t.Fatalf("CreateSubIssue orphan: %v", err)
+	}
+	if _, err := env.store.CreateSubIssue(env.ctx, store.CreateSubIssueParams{
+		ParentIssueID: liveParent.ID,
+		Title:         "live child",
+	}); err != nil {
+		t.Fatalf("CreateSubIssue live: %v", err)
+	}
+	deletedParent := mustCreateIssue(t, env, "deleted parent")
+	if _, err := env.store.CreateSubIssue(env.ctx, store.CreateSubIssueParams{
+		ParentIssueID: deletedParent.ID,
+		Title:         "deleted child of deleted parent",
+	}); err != nil {
+		t.Fatalf("CreateSubIssue hidden: %v", err)
+	}
+	if err := env.store.DeleteIssue(env.ctx, orphan.ID); err != nil {
+		t.Fatalf("DeleteIssue orphan: %v", err)
+	}
+	if err := env.store.DeleteIssue(env.ctx, deletedParent.ID); err != nil {
+		t.Fatalf("DeleteIssue parent: %v", err)
+	}
+
+	got, hasMore, err := env.store.ListDeletedIssues(env.ctx, store.ListDeletedIssuesParams{
+		ProjectID: env.projectID,
+		Limit:     10,
+	})
+	if err != nil {
+		t.Fatalf("ListDeletedIssues: %v", err)
+	}
+	// The deleted parent's child comes back with it, so only the parent is
+	// listed for it.
+	if hasMore || len(got) != 2 || got[0].ID != orphan.ID || got[1].ID != deletedParent.ID {
+		t.Fatalf("ListDeletedIssues = %+v hasMore=%v, want orphan then deleted parent", got, hasMore)
+	}
+}
+
 func TestSoftDeleteUser(t *testing.T) {
 	t.Parallel()
 	env := newSprintsEnv(t)
