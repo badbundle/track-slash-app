@@ -202,7 +202,7 @@ func (s *Store) GetGitHubConnectionSecret(ctx context.Context, id uuid.UUID) (Gi
 		      OR EXISTS (
 		          SELECT 1
 		          FROM users u
-		          JOIN projects p ON p.id = c.project_id
+		          JOIN projects p ON p.id = c.project_id AND p.deleted_at IS NULL
 		          WHERE u.id = g.user_id AND u.deleted_at IS NULL
 		            AND (
 		                u.is_admin OR p.owner_id = u.id
@@ -460,6 +460,10 @@ func (s *Store) ClaimGitHubIssueLinks(ctx context.Context, limit int, lease time
 			SELECT l.id
 			FROM issue_github_links l
 			JOIN github_repository_connections c ON c.id = l.connection_id
+			-- A deleted issue's links wait until it is restored, and a
+			-- deleted project's are left alone.
+			JOIN issues i ON i.id = l.issue_id AND i.deleted_at IS NULL
+			JOIN projects p ON p.id = l.project_id AND p.deleted_at IS NULL
 			WHERE l.deleted_at IS NULL AND c.disabled_at IS NULL
 			  AND l.next_refresh_at <= now()
 			  AND (l.refresh_locked_at IS NULL OR l.refresh_locked_at < now() - $2::interval)

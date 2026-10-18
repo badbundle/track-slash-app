@@ -185,6 +185,113 @@ func TestGitHubStoreRejectsCrossProjectAndMissingResources(t *testing.T) {
 	}
 }
 
+// The refresh worker leaves alone the links of a deleted issue or project, a
+// saved token isn't lent to a deleted project, and deleting a project
+// disconnects its repositories.
+func TestGitHubRefreshStopsWithDeletedIssuesAndProjects(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	project, err := env.store.GetProject(env.ctx, env.projectID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	ctx := store.WithActor(env.ctx, project.OwnerID)
+	credentialID := uuid.New()
+	if _, err := env.store.CreateGitHubCredential(env.ctx, store.CreateGitHubCredentialParams{
+		ID: credentialID, UserID: project.OwnerID, Name: "Personal", GitHubLogin: "owner",
+		TokenCiphertext: bytes.Repeat([]byte{3}, 24), TokenNonce: bytes.Repeat([]byte{4}, 12),
+	}); err != nil {
+		t.Fatalf("CreateGitHubCredential: %v", err)
+	}
+	connection, err := env.store.UpsertGitHubConnection(ctx, store.UpsertGitHubConnectionParams{
+		ProjectID: env.projectID, RepositoryID: 701, RepositoryOwner: "acme", RepositoryName: "refresh",
+		RepositoryURL: "https://github.com/acme/refresh", CredentialID: &credentialID, CreatedByID: project.OwnerID,
+	})
+	if err != nil {
+		t.Fatalf("UpsertGitHubConnection: %v", err)
+	}
+	issue := mustCreateIssue(t, env, "Linked to a branch")
+	branch := "feature/refresh"
+	now := time.Now().UTC()
+	link, err := env.store.CreateGitHubIssueLink(ctx, store.CreateGitHubIssueLinkParams{
+		IssueID: issue.ID, ConnectionID: connection.ID, RepositoryID: 701, RepositoryOwner: "acme", RepositoryName: "refresh",
+		ResourceType: model.GitHubResourceBranch, BranchName: &branch, Title: branch,
+		HTMLURL: "https://github.com/acme/refresh/tree/feature/refresh", State: model.GitHubLinkStateBranch,
+		RefreshedAt: now, NextRefreshAt: now.Add(-time.Minute), CreatedByID: project.OwnerID,
+	})
+	if err != nil {
+		t.Fatalf("CreateGitHubIssueLink: %v", err)
+	}
+	claims := func(want bool) {
+		t.Helper()
+		claimed, err := env.store.ClaimGitHubIssueLinks(env.ctx, 10, time.Minute)
+		if err != nil || (len(claimed) == 1) != want {
+			t.Fatalf("ClaimGitHubIssueLinks = %+v, %v; want a claim %v", claimed, err, want)
+		}
+		if want {
+			// Let it go again, due straight away.
+			if _, err := env.store.FailGitHubIssueLinkRefresh(env.ctx, link.ID, "try again", now.Add(-time.Minute)); err != nil {
+				t.Fatalf("FailGitHubIssueLinkRefresh: %v", err)
+			}
+		}
+	}
+	lent := func(want bool) {
+		t.Helper()
+		_, err := env.store.GetGitHubConnectionSecret(env.ctx, connection.ID)
+		if want && err != nil {
+			t.Fatalf("GetGitHubConnectionSecret = %v, want the lent token", err)
+		}
+		if !want && !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("GetGitHubConnectionSecret = %v, want ErrNotFound", err)
+		}
+	}
+	claims(true)
+	lent(true)
+
+	// A deleted issue's links wait until it is restored.
+	if err := env.store.DeleteIssue(env.ctx, issue.ID); err != nil {
+		t.Fatalf("DeleteIssue: %v", err)
+	}
+	claims(false)
+	if _, err := env.store.RestoreIssue(env.ctx, issue.ID); err != nil {
+		t.Fatalf("RestoreIssue: %v", err)
+	}
+	claims(true)
+
+	// A project marked deleted gets neither refreshes nor the token, even
+	// before its connections are disconnected.
+	if _, err := env.pool.Exec(env.ctx, `UPDATE projects SET deleted_at = now() WHERE id = $1`, env.projectID); err != nil {
+		t.Fatalf("mark project deleted: %v", err)
+	}
+	claims(false)
+	lent(false)
+	if _, err := env.pool.Exec(env.ctx, `UPDATE projects SET deleted_at = NULL WHERE id = $1`, env.projectID); err != nil {
+		t.Fatalf("unmark project deleted: %v", err)
+	}
+	claims(true)
+	lent(true)
+
+	// Deleting the project disconnects its repositories and drops their tokens.
+	if err := env.store.DeleteProject(env.ctx, env.projectID); err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	var disabled bool
+	var credential *uuid.UUID
+	var ciphertext []byte
+	if err := env.pool.QueryRow(env.ctx, `
+		SELECT disabled_at IS NOT NULL, credential_id, token_ciphertext FROM github_repository_connections WHERE id = $1
+	`, connection.ID).Scan(&disabled, &credential, &ciphertext); err != nil {
+		t.Fatalf("read connection: %v", err)
+	}
+	if !disabled || credential != nil || ciphertext != nil {
+		t.Fatalf("connection after deleting the project: disabled %v credential %v token %x", disabled, credential, ciphertext)
+	}
+	if _, err := env.pool.Exec(env.ctx, `UPDATE projects SET deleted_at = NULL WHERE id = $1`, env.projectID); err != nil {
+		t.Fatalf("unmark project deleted: %v", err)
+	}
+	lent(false)
+}
+
 func stringsOfLength(length int) string {
 	return string(bytes.Repeat([]byte{'x'}, length))
 }

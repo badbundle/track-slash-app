@@ -486,6 +486,15 @@ func (s *Store) DeleteProject(ctx context.Context, id uuid.UUID) error {
 		if err != nil {
 			return err
 		}
+		// Its repositories are disconnected, so no saved token is used for
+		// it again.
+		if _, err := tx.Exec(ctx, `
+			UPDATE github_repository_connections SET `+githubConnectionDisconnect+`
+			WHERE project_id = $1 AND disabled_at IS NULL
+		`, id); err != nil {
+			// Defensive: disconnecting has no expected FK/check mapping.
+			return err
+		}
 		return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
 			ProjectID:   project.ID,
 			Entity:      "project",
