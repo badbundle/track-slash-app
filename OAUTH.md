@@ -157,7 +157,9 @@ who registered the client, because anyone can register one under any name.
 
 **A client dies with the account that registered it.** Deleting a user disables
 every client they registered, for everyone who approved it, and client lookups
-also refuse a client whose registrant no longer exists.
+also refuse a client whose registrant no longer exists. Deleting a user also
+ends every grant they approved: their approvals and codes are dropped and their
+access and refresh tokens revoked.
 
 **No dynamic client registration, and no client credentials grant.** Omitting
 `registration_endpoint` from the metadata is what tells a client to ask the

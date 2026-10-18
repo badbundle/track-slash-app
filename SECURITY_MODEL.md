@@ -69,6 +69,11 @@ source of a user's rights in a project.
 - **Credentials are the account's own.** A connector (OAuth) token cannot read
   or change tokens, email, password, password login, passkeys, saved GitHub
   tokens, or site-admin account administration. See [OAUTH.md](OAUTH.md).
+- **A deleted account has no way back in.** Deleting a user revokes its API
+  tokens, sessions, connector grants and codes, password and passkeys in the
+  same transaction (`DeleteUser`), so none of them rests on the `deleted_at`
+  filter alone. `trackd -create-admin-token` refuses an email that belongs to a
+  deleted account rather than restoring it.
 - **Guesses are budgeted.** Password sign-in, password changes, reauthentication,
   sign-up and OAuth client authentication have per-address and per-identifier
   budgets (`auth_rate_limit.go`). Each purpose keys its identifier budgets

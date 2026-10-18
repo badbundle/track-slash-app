@@ -196,6 +196,9 @@ func createAdminToken(ctx context.Context, st *store.Store, email, name, tokenNa
 		return errors.New("-token-name is required with -create-admin-token")
 	}
 	u, err := st.CreateOrUpdateAdminUser(ctx, email, name)
+	if errors.Is(err, store.ErrEmailBelongsToDeletedUser) {
+		return fmt.Errorf("%w; rerun with a different -email to create a new admin", err)
+	}
 	if errors.Is(err, store.ErrEmailBelongsToNonAdmin) {
 		if !promoteExisting {
 			return fmt.Errorf("%w; emails are not verified, so check who holds it, then rerun with -promote-existing to make that account an admin", err)

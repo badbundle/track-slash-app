@@ -95,23 +95,36 @@ func (s *Store) GetUserByUsername(ctx context.Context, username string) (model.U
 // who had claimed it first.
 var ErrEmailBelongsToNonAdmin = fmt.Errorf("that email belongs to an existing account that is not an admin: %w", ErrConflict)
 
+// ErrEmailBelongsToDeletedUser refuses to bring a deleted account back by
+// bootstrapping an admin with its email. Deleting an account is final: the
+// row keeps its email, so the bootstrap needs a different one.
+var ErrEmailBelongsToDeletedUser = fmt.Errorf("that email belongs to a deleted account, which cannot be restored: %w", ErrConflict)
+
 // CreateOrUpdateAdminUser creates an admin with this email, or refreshes the
-// admin who already has it. An existing non-admin with the email is refused
-// with ErrEmailBelongsToNonAdmin; PromoteUserToAdminByEmail does that on
-// purpose.
+// live admin who already has it. An existing non-admin with the email is
+// refused with ErrEmailBelongsToNonAdmin; PromoteUserToAdminByEmail does that
+// on purpose. A deleted account with the email is refused with
+// ErrEmailBelongsToDeletedUser.
 func (s *Store) CreateOrUpdateAdminUser(ctx context.Context, email, name string) (model.User, error) {
 	username := UsernameFromEmail(email)
 	const q = `
 		INSERT INTO users (username, email, name, is_admin)
 		VALUES ($1, $2, $3, true)
 		ON CONFLICT (email) DO UPDATE
-		SET username = EXCLUDED.username, name = EXCLUDED.name, is_admin = true, deleted_at = NULL
-		WHERE users.is_admin
+		SET username = EXCLUDED.username, name = EXCLUDED.name, is_admin = true
+		WHERE users.is_admin AND users.deleted_at IS NULL
 		RETURNING id, username, COALESCE(email, ''), name, is_admin, created_at, profile_image_object_id, profile_image_thumbnail_object_id
 	`
 	u, err := scanUser(s.db.QueryRow(ctx, q, username, email, name))
 	if err != nil {
 		if isNoRows(err) {
+			var deleted bool
+			if err := s.db.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM users WHERE email = $1`, email).Scan(&deleted); err != nil {
+				return model.User{}, err // defensive: the conflicting row was just found
+			}
+			if deleted {
+				return model.User{}, ErrEmailBelongsToDeletedUser
+			}
 			return model.User{}, ErrEmailBelongsToNonAdmin
 		}
 		return model.User{}, err
@@ -215,9 +228,12 @@ func (s *Store) ListUserProfilesByID(ctx context.Context, ids []uuid.UUID) ([]mo
 	return users, nil
 }
 
-// DeleteUser soft-deletes a user. The connectors they registered go with them,
-// for everyone who approved one: their secrets are scrubbed and every token
-// they hold stops working at once.
+// DeleteUser soft-deletes a user and ends every way into the account in the
+// same transaction: its tokens, sessions, connector grants, codes, password and
+// passkeys are all revoked, so none of them rests on a deleted_at filter to
+// stay dead. The connectors they registered go with them, for everyone who
+// approved one: their secrets are scrubbed and every token they hold stops
+// working at once.
 func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
@@ -230,6 +246,17 @@ func (s *Store) DeleteUser(ctx context.Context, id uuid.UUID) error {
 		}
 		if tag.RowsAffected() == 0 {
 			return ErrNotFound
+		}
+		for _, q := range []string{
+			`DELETE FROM oauth_client_consents WHERE user_id = $1`,
+			`DELETE FROM oauth_authorization_codes WHERE user_id = $1`,
+			`UPDATE oauth_refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+			`UPDATE auth_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+			`UPDATE auth_credentials SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`,
+		} {
+			if _, err := tx.Exec(ctx, q, id); err != nil {
+				return err // defensive: DB outage mid-transaction
+			}
 		}
 		rows, err := tx.Query(ctx, `SELECT id FROM oauth_clients WHERE created_by_id = $1 AND disabled_at IS NULL`, id)
 		if err != nil {
