@@ -184,6 +184,10 @@ func main() {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
 	}
+	// Let emails still being sent after their responses finish.
+	if err := srv.WaitBackground(shutdownCtx); err != nil {
+		log.Printf("shutdown: background work: %v", err)
+	}
 	log.Println("bye")
 }
 

@@ -61,6 +61,9 @@ type Server struct {
 	// mailer is nil when email is off; see emailEnabled.
 	mailer       mailer.Mailer
 	emailLimiter *fixedWindowLimiter
+	// background is work left running after a response, such as a password
+	// reset email; see goBackground.
+	background backgroundTasks
 }
 
 type Options struct {
