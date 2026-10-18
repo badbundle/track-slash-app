@@ -25,7 +25,7 @@ func TestUIEditStatusUpdatesIssuePanel(t *testing.T) {
 	edit := e.uiGet(t, e.issuePath(issue)+"/status/edit", token)
 	for _, want := range []string{
 		"status target issue",
-		`aria-label="Change status"`,
+		`aria-label="Change status: To do"`,
 		`aria-expanded="true"`,
 		`data-option-dropdown-toggle`,
 		`data-option-dropdown-list`,
@@ -219,7 +219,7 @@ func TestUIEditCloseReasonUpdatesAndReopenHidesReason(t *testing.T) {
 		`value="duplicate"`,
 		`value="wont_do" role="option" aria-selected="true"`,
 		`value="invalid"`,
-		`aria-label="Choose close reason"`,
+		`aria-label="Choose close reason: Won&#39;t Do"`,
 		`data-lucide="check"`,
 	} {
 		if !strings.Contains(edit, want) {

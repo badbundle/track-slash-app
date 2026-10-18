@@ -51,9 +51,9 @@
       <div data-new-issue-fields class="mt-4 space-y-4 sm:max-w-xs">
         <div>
           <span class="block text-xs font-medium text-slate-500 dark:text-slate-400" id="issue-priority-label">Priority</span>
-          <div class="mt-1 flex flex-wrap items-center gap-1" role="listbox" aria-labelledby="issue-priority-label" data-priority-picker>
+          <div class="mt-1 flex flex-wrap items-center gap-1" role="radiogroup" aria-labelledby="issue-priority-label" data-priority-picker>
             {{range priorityOptions}}
-            <label role="option" aria-selected="{{if eq (newIssueSelectedPriority $) .Priority}}true{{else}}false{{end}}" class="rounded-full p-0.5 transition hover:opacity-80">
+            <label class="rounded-full p-0.5 transition hover:opacity-80">
               <input class="peer sr-only" type="radio" name="priority" value="{{.Priority}}" {{if eq (newIssueSelectedPriority $) .Priority}}checked{{end}}>
               <span class="block rounded-full opacity-40 transition peer-checked:opacity-100 peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-indigo-500 peer-focus-visible:ring-offset-2 dark:peer-focus-visible:ring-offset-slate-900">
                 {{template "priority-badge" .Priority}}

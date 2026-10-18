@@ -54,7 +54,7 @@ func TestUIIssuePanelRendersStatusDropdown(t *testing.T) {
 
 	body := buf.String()
 	for _, want := range []string{
-		`aria-label="Change status"`,
+		`aria-label="Change status: In progress"`,
 		`aria-expanded="true"`,
 		`data-option-dropdown-toggle`,
 		`data-option-dropdown-list`,

@@ -366,13 +366,13 @@ func TestUIPriorityClassAndLabel(t *testing.T) {
 		wantClass string
 		wantLabel string
 	}{
-		{priority: model.PriorityP0, wantClass: "bg-red-600", wantLabel: "P0"},
-		{priority: model.PriorityP1, wantClass: "bg-orange-500", wantLabel: "P1"},
-		{priority: model.PriorityP2, wantClass: "bg-amber-500", wantLabel: "P2"},
-		{priority: model.PriorityP3, wantClass: "bg-yellow-500", wantLabel: "P3"},
-		{priority: model.PriorityP4, wantClass: "bg-gray-500", wantLabel: "P4"},
-		{priority: "", wantClass: "bg-amber-500", wantLabel: "P2"},
-		{priority: model.IssuePriority("PX"), wantClass: "bg-gray-500", wantLabel: "PX"},
+		{priority: model.PriorityP0, wantClass: "bg-red-600 text-white", wantLabel: "P0"},
+		{priority: model.PriorityP1, wantClass: "bg-orange-500 text-orange-950", wantLabel: "P1"},
+		{priority: model.PriorityP2, wantClass: "bg-amber-500 text-amber-950", wantLabel: "P2"},
+		{priority: model.PriorityP3, wantClass: "bg-yellow-500 text-yellow-950", wantLabel: "P3"},
+		{priority: model.PriorityP4, wantClass: "bg-gray-500 text-white", wantLabel: "P4"},
+		{priority: "", wantClass: "bg-amber-500 text-amber-950", wantLabel: "P2"},
+		{priority: model.IssuePriority("PX"), wantClass: "bg-gray-500 text-white", wantLabel: "PX"},
 	}
 
 	for _, tt := range tests {

@@ -133,7 +133,7 @@ func TestUIIssuePanelRendersReadonlyDetail(t *testing.T) {
 		`hx-get="/bradley/issues/TRACK-7/links/link-4/edit"`,
 		`aria-label="Edit comment"`,
 		`hx-get="/bradley/issues/TRACK-7/comments/comment-2/edit"`,
-		`aria-label="Change status"`,
+		`aria-label="Change status: In progress"`,
 		`aria-expanded="false"`,
 		`hx-get="/bradley/issues/TRACK-7/status/edit"`,
 		`aria-label="Edit assignee"`,
@@ -233,7 +233,7 @@ func TestUIIssuePanelRendersReadonlyDetail(t *testing.T) {
 	if strings.Contains(detailsBlock, ">Tags</dt>") {
 		t.Fatalf("issue panel should render tags in the title header, not details: %s", body)
 	}
-	statusIndex := strings.Index(detailsBlock, `aria-label="Change status"`)
+	statusIndex := strings.Index(detailsBlock, `aria-label="Change status: In progress"`)
 	projectIndex := strings.Index(detailsBlock, ">Project</dt>")
 	if statusIndex < 0 || projectIndex < 0 {
 		t.Fatalf("issue panel missing status control or project details row: %s", body)
@@ -241,7 +241,8 @@ func TestUIIssuePanelRendersReadonlyDetail(t *testing.T) {
 	if statusIndex > projectIndex {
 		t.Fatalf("status control should render before project detail: %s", body)
 	}
-	if strings.Contains(detailsBlock, ">Status</dt>") || strings.Contains(body, `aria-label="Edit status"`) {
+	// The status row's dt is for screen readers only, so the control has no visible title.
+	if !strings.Contains(detailsBlock, `<dt class="sr-only">Status</dt>`) || strings.Contains(detailsBlock, `dark:text-slate-400">Status</dt>`) || strings.Contains(body, `aria-label="Edit status"`) {
 		t.Fatalf("status control should not render a separate title or edit button: %s", body)
 	}
 	for _, notWant := range []string{`/archive`, `Archive issue`, `data-lucide="archive"`, `data-lucide="settings"`} {

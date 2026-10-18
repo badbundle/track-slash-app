@@ -206,7 +206,7 @@ func TestUIIssueWorker(t *testing.T) {
 	for _, want := range []string{
 		`role="listbox" aria-label="Issue worker"`,
 		`method="post" action="` + e.issuePath(issue) + `/worker"`,
-		`aria-label="Change worker"`,
+		`aria-label="Change worker: None"`,
 		`name="worker" value="" role="option" aria-selected="true"`,
 		`name="worker" value="agent" role="option" aria-selected="false"`,
 		`name="worker" value="human" role="option" aria-selected="false"`,

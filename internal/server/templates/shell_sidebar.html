@@ -57,10 +57,11 @@
 
       {{if not .Anonymous}}
       <details data-close-on-outside class="relative border-t border-slate-200 p-2 dark:border-slate-800">
-        <summary data-member-summary aria-label="Account menu" class="flex cursor-pointer list-none items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-800">
+        <summary data-member-summary data-tooltip="Account menu" class="flex cursor-pointer list-none items-center gap-3 rounded-lg px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-800">
           <span aria-hidden="true" class="pointer-events-none">
             {{template "user-avatar" (userAvatar .User "grid h-9 w-9 shrink-0 place-items-center bg-indigo-600 text-xs font-bold text-white")}}
           </span>
+          <span class="sr-only">Account menu:</span>
           <span data-member-label class="wide-only min-w-0">
             <span class="block truncate text-sm font-medium">{{.User.Name}}</span>
             <span class="block truncate text-xs text-slate-500 dark:text-slate-400">{{.User.Email}}</span>
@@ -90,7 +91,7 @@
 
 {{define "sidebar-favorites"}}
 <div id="sidebar-favorites" {{if .OOB}}hx-swap-oob="true"{{end}} class="{{if .Projects}}mb-2 mt-2 space-y-1 border-t border-slate-200 pt-2 dark:border-slate-800{{else}}hidden{{end}}">
-  {{if .Projects}}<h2 class="wide-only px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Favorites</h2>{{end}}
+  {{if .Projects}}<h2 class="wide-only px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Favorites</h2>{{end}}
   {{range .Projects}}
   <a data-sidebar-favorite data-sidebar-link data-sidebar-view="project" data-sidebar-project-id="{{.ID}}" href="{{projectHome .}}" hx-get="{{projectHomePanel .}}" hx-target="#main" hx-push-url="{{projectHome .}}" aria-label="{{.Name}}" {{if eq $.ActiveProjectID .ID}}aria-current="page"{{end}} class="flex items-center gap-3 rounded-lg px-2 py-1.5 text-xs transition hover:bg-slate-100 dark:hover:bg-slate-800 {{if eq $.ActiveProjectID .ID}}bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-200 dark:ring-indigo-900{{else}}text-slate-600 dark:text-slate-300{{end}}">
     <span aria-hidden="true" class="pointer-events-none">
@@ -108,7 +109,7 @@
 {{define "sidebar-recents"}}
 <div id="sidebar-recents" {{if .OOB}}hx-swap-oob="true"{{end}} class="{{if .Issues}}wide-only mb-2 mt-2 space-y-1 border-t border-slate-200 pt-2 dark:border-slate-800{{else}}hidden{{end}}">
   {{if .Issues}}
-  <h2 class="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Recents</h2>
+  <h2 class="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Recents</h2>
   {{range .Issues}}
   <a data-sidebar-recent data-sidebar-link data-sidebar-view="issue" data-sidebar-issue-id="{{.ID}}" href="{{issueHref .}}" hx-get="{{issuePanel .}}" hx-target="#main" hx-push-url="{{issueHref .}}" data-tooltip="{{.Identifier}}: {{.Title}}" data-tooltip-when-truncated {{if eq $.ActiveIssueID .ID}}aria-current="page"{{end}} class="flex min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition hover:bg-slate-100 dark:hover:bg-slate-800 {{if eq $.ActiveIssueID .ID}}bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-200 dark:ring-indigo-900{{else}}text-slate-600 dark:text-slate-300{{end}}">
     {{template "issue-key" .Identifier}}

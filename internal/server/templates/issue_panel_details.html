@@ -4,14 +4,17 @@
         <h2 class="text-sm font-semibold uppercase text-slate-500 dark:text-slate-400">Details</h2>
         <dl class="mt-4 space-y-4 text-sm">
           <div>
+            <dt class="sr-only">Status</dt>
+            <dd>
             {{if .EditStatus}}
             {{template "option-dropdown" (issueStatusDropdown .)}}
             {{else}}
-            {{if .CanWrite}}<button type="button" aria-label="Change status" aria-haspopup="listbox" aria-expanded="false" hx-get="{{issueStatusEdit .Issue}}" hx-target="#main" hx-push-url="false" data-option-dropdown-toggle class="inline-flex w-full items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 {{statusClass .Issue.Status}}">
+            {{if .CanWrite}}<button type="button" aria-label="Change status: {{statusLabel .Issue.Status}}" aria-haspopup="listbox" aria-expanded="false" hx-get="{{issueStatusEdit .Issue}}" hx-target="#main" hx-push-url="false" data-option-dropdown-toggle class="inline-flex w-full items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-sm font-semibold hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 {{statusClass .Issue.Status}}">
               <span>{{statusLabel .Issue.Status}}</span>
               <i data-lucide="chevron-down" class="h-4 w-4" aria-hidden="true"></i>
             </button>{{else}}{{template "status-badge" .Issue.Status}}{{end}}
             {{end}}
+            </dd>
           </div>
           {{if or .EditCloseReason (eq .Issue.Status "closed")}}
           <div>
@@ -51,7 +54,7 @@
               </form>
               {{else}}
               {{if .CanWrite}}
-              <button type="button" aria-label="Change priority" hx-get="{{issuePriorityEdit .Issue}}" hx-target="#main" hx-push-url="false" class="-ml-1 inline-flex items-center rounded-full p-1 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900">
+              <button type="button" aria-label="Change priority: {{priorityLabel .Issue.Priority}}" hx-get="{{issuePriorityEdit .Issue}}" hx-target="#main" hx-push-url="false" class="-ml-1 inline-flex items-center rounded-full p-1 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900">
                 {{template "priority-badge" .Issue.Priority}}
               </button>
               {{else}}{{template "priority-badge" .Issue.Priority}}{{end}}

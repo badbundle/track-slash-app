@@ -1176,22 +1176,24 @@ func uiPercent(part, total int) string {
 	return fmt.Sprintf("%.2f%%", (float64(part)/float64(total))*100)
 }
 
+// uiPriorityClass colours a priority badge. White text fails contrast on the
+// orange, amber and yellow badges, so those take a dark text of their own hue.
 func uiPriorityClass(priority model.IssuePriority) string {
 	switch priority {
 	case model.PriorityP0:
-		return "bg-red-600"
+		return "bg-red-600 text-white"
 	case model.PriorityP1:
-		return "bg-orange-500"
+		return "bg-orange-500 text-orange-950"
 	case model.PriorityP2:
-		return "bg-amber-500"
+		return "bg-amber-500 text-amber-950"
 	case model.PriorityP3:
-		return "bg-yellow-500"
+		return "bg-yellow-500 text-yellow-950"
 	case model.PriorityP4:
-		return "bg-gray-500"
+		return "bg-gray-500 text-white"
 	case "":
-		return "bg-amber-500"
+		return "bg-amber-500 text-amber-950"
 	default:
-		return "bg-gray-500"
+		return "bg-gray-500 text-white"
 	}
 }
 

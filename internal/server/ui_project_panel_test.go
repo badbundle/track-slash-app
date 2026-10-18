@@ -699,7 +699,7 @@ func TestUINewIssuePanelRendersAllCreateFields(t *testing.T) {
 		`id="issue-description" name="description"`,
 		"Draft body",
 		`id="issue-priority-label">Priority</span>`,
-		`role="listbox" aria-labelledby="issue-priority-label" data-priority-picker`,
+		`role="radiogroup" aria-labelledby="issue-priority-label" data-priority-picker`,
 		`type="radio" name="priority" value="P0"`,
 		`type="radio" name="priority" value="P1" checked`,
 		`type="radio" name="priority" value="P2"`,

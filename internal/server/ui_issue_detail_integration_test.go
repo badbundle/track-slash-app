@@ -107,7 +107,7 @@ func TestUIRendersIssueDetailPage(t *testing.T) {
 		`hx-get="` + e.issuePath(issue) + `/description/edit"`,
 		`aria-label="Edit link"`,
 		`aria-label="Edit comment"`,
-		`aria-label="Change status"`,
+		`aria-label="Change status: To do"`,
 		`aria-expanded="false"`,
 		`hx-get="` + e.issuePath(issue) + `/status/edit"`,
 		`aria-label="Edit assignee"`,
@@ -202,10 +202,14 @@ func TestUIRendersIssueDetailPage(t *testing.T) {
 	if strings.Contains(body, `>Tags</dt>`) {
 		t.Fatalf("issue body included stale tag detail row: %s", body)
 	}
-	for _, notWant := range []string{`aria-label="Edit status"`, ">Status</dt>"} {
+	// The status control needs no visible title; its row's dt is for screen readers only.
+	for _, notWant := range []string{`aria-label="Edit status"`, `dark:text-slate-400">Status</dt>`} {
 		if strings.Contains(body, notWant) {
 			t.Fatalf("issue body still renders separate status edit affordance %q: %s", notWant, body)
 		}
+	}
+	if !strings.Contains(body, `<dt class="sr-only">Status</dt>`) {
+		t.Fatalf("issue body status row has no screen-reader label: %s", body)
 	}
 	for _, notWant := range []string{`/archive`, `Archive issue`, `data-lucide="archive"`, `data-lucide="settings"`} {
 		if strings.Contains(body, notWant) {

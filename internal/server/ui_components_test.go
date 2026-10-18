@@ -24,7 +24,6 @@ func TestUIPriorityBadgeRendersFilledCircle(t *testing.T) {
 			"h-5 w-5",
 			"rounded-full",
 			"font-bold",
-			"text-white",
 			uiPriorityClass(priority),
 			string(priority),
 		} {
@@ -711,7 +710,8 @@ func TestUIShellProvidesAccessibleIconTooltips(t *testing.T) {
 		`aria-label="Collapse sidebar"`,
 		`aria-label="Me"`,
 		`aria-label="Projects"`,
-		`aria-label="Account menu"`,
+		`data-member-summary data-tooltip="Account menu"`,
+		`<span class="sr-only">Account menu:</span>`,
 		`aria-label="Track Slash"`,
 		`const tooltipSelector = "[data-tooltip], button[aria-label], a[aria-label], summary[aria-label], label[aria-label]`,
 		`appTooltip.setAttribute("role", "tooltip")`,
@@ -780,7 +780,7 @@ func TestUIShellRendersSidebarFavoritesAndRecents(t *testing.T) {
 	project := model.Project{ID: projectID, OwnerUsername: "bradley", Key: "TRACK", Name: "Track Slash"}
 	first := model.Issue{ID: uuid.MustParse("9480828a-47f3-4661-bb64-b21b4f02f27b"), ProjectID: projectID, OwnerUsername: "bradley", ProjectKey: "TRACK", Number: 85, Identifier: "TRACK-85", Title: "Show a small sprint badge"}
 	second := model.Issue{ID: uuid.MustParse("1f2e7c1a-5a47-4bd3-8a4c-1b9b0fd3d2a1"), ProjectID: projectID, OwnerUsername: "bradley", ProjectKey: "TRACK", Number: 12, Identifier: "TRACK-12", Title: "Older work"}
-	heading := `text-[11px] font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">`
+	heading := `text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">`
 
 	var buf bytes.Buffer
 	if err := uiTemplates.ExecuteTemplate(&buf, "shell", uiShellData{

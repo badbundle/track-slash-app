@@ -95,7 +95,7 @@ func TestUINewIssueCreatesIssueWithAllFieldsAndDefaultReporter(t *testing.T) {
 		`type="hidden" name="project_id" value="` + e.projectID.String() + `"`,
 		`id="issue-title"`,
 		`id="issue-description"`,
-		`role="listbox" aria-labelledby="issue-priority-label" data-priority-picker`,
+		`role="radiogroup" aria-labelledby="issue-priority-label" data-priority-picker`,
 		`type="radio" name="priority" value="P2" checked`,
 		`aria-label="Priority P2"`,
 		`data-checkbox-reveal`,
