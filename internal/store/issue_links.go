@@ -234,11 +234,12 @@ func (s *Store) UpdateIssueLink(ctx context.Context, id uuid.UUID, p UpdateIssue
 		if err != nil {
 			return err
 		}
-		beforeSourceIssue, err := getIssueForChangelog(ctx, tx, before.SourceID, false)
+		// The link may still point at an issue deleted since it was made.
+		beforeSourceIssue, err := getIssueForChangelog(ctx, tx, before.SourceID, true)
 		if err != nil {
 			return err
 		}
-		beforeTargetIssue, err := getIssueForChangelog(ctx, tx, before.TargetID, false)
+		beforeTargetIssue, err := getIssueForChangelog(ctx, tx, before.TargetID, true)
 		if err != nil {
 			return err
 		}
@@ -454,7 +455,8 @@ func (s *Store) DeleteIssueLink(ctx context.Context, id uuid.UUID) error {
 			}
 			return err
 		}
-		sourceIssue, err := getIssueForChangelog(ctx, tx, before.SourceID, false)
+		// The source may have been deleted since the link was made.
+		sourceIssue, err := getIssueForChangelog(ctx, tx, before.SourceID, true)
 		if err != nil {
 			return err
 		}

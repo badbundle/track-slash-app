@@ -175,6 +175,40 @@ func TestUIAddEditAndRemoveIssueLinks(t *testing.T) {
 	}
 }
 
+func TestUIRemoveLinkFromDeletedIssue(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	_, token := e.mustProjectMemberToken(t, "ui-deleted-link")
+	issue, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "link ui live"})
+	if err != nil {
+		t.Fatalf("CreateIssue live: %v", err)
+	}
+	gone, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: "link ui gone"})
+	if err != nil {
+		t.Fatalf("CreateIssue gone: %v", err)
+	}
+	link, err := e.store.CreateIssueLink(e.ctx, store.CreateIssueLinkParams{SourceID: gone.ID, TargetID: issue.ID, LinkType: model.LinkTypeBlocks})
+	if err != nil {
+		t.Fatalf("CreateIssueLink: %v", err)
+	}
+	if err := e.store.DeleteIssue(e.ctx, gone.ID); err != nil {
+		t.Fatalf("DeleteIssue: %v", err)
+	}
+
+	res := e.uiDoNoRedirect(t, http.MethodPost, e.issueLinksPath(issue)+"/"+link.Ref+"/delete", token, nil)
+	defer res.Body.Close()
+	body := readBody(t, res)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("delete link code = %d body = %s", res.StatusCode, body)
+	}
+	if !strings.Contains(body, `aria-label="Linked issue progress: no linked issues"`) {
+		t.Fatalf("delete link response missing empty link state: %s", body)
+	}
+	if _, err := e.store.GetIssueLink(e.ctx, link.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetIssueLink after delete err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestUICreateCommentPostsAndRerendersIssuePanel(t *testing.T) {
 	t.Parallel()
 	e := newHTTPEnv(t)

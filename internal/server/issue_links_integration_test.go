@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -570,6 +571,45 @@ func TestHTTPDeleteIssueLink(t *testing.T) {
 	code, _ = e.do(t, http.MethodDelete, e.projectLinkPath(link), nil)
 	if code != http.StatusNotFound {
 		t.Fatalf("second delete code = %d", code)
+	}
+}
+
+func TestHTTPIssueLinkToDeletedIssueCanBeEditedAndRemoved(t *testing.T) {
+	t.Parallel()
+	e := newHTTPEnv(t)
+	a := e.mustCreateIssue(t, "A")
+	b := e.mustCreateIssue(t, "B")
+	c := e.mustCreateIssue(t, "C")
+	_, createBody := e.do(t, http.MethodPost, e.issueLinksPath(a),
+		map[string]any{"target_issue": b.Identifier, "link_type": "blocks"})
+	edited := decode[model.IssueLink](t, createBody)
+	_, createBody = e.do(t, http.MethodPost, e.issueLinksPath(c),
+		map[string]any{"target_issue": a.Identifier, "link_type": "relates_to"})
+	removed := decode[model.IssueLink](t, createBody)
+	if err := e.store.DeleteIssue(e.ctx, b.ID); err != nil {
+		t.Fatalf("DeleteIssue target: %v", err)
+	}
+	if err := e.store.DeleteIssue(e.ctx, c.ID); err != nil {
+		t.Fatalf("DeleteIssue source: %v", err)
+	}
+	d := e.mustCreateIssue(t, "D")
+
+	code, body := e.do(t, http.MethodPatch, e.projectLinkPath(edited),
+		map[string]any{"source_issue": a.Identifier, "target_issue": d.Identifier, "link_type": "blocks"})
+	if code != http.StatusOK {
+		t.Fatalf("update code = %d body = %s", code, body)
+	}
+	got := decode[model.IssueLink](t, body)
+	if got.SourceID != a.ID || got.TargetID != d.ID {
+		t.Fatalf("updated link = %+v, want A blocks D", got)
+	}
+
+	code, body = e.do(t, http.MethodDelete, e.projectLinkPath(removed), nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("delete code = %d body = %s", code, body)
+	}
+	if _, err := e.store.GetIssueLink(e.ctx, removed.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetIssueLink after delete err = %v, want ErrNotFound", err)
 	}
 }
 

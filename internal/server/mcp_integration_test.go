@@ -1135,6 +1135,54 @@ func TestMCPIssueLinksRejectCrossProjectRefsBeforeLookup(t *testing.T) {
 	requireMCPErrorCode(t, errOut, "conflict")
 }
 
+func TestMCPLinkToDeletedIssueCanBeEditedAndRemoved(t *testing.T) {
+	t.Parallel()
+	e := newMCPHTTPEnv(t, nil)
+	session := mcpConnect(t, e, e.authToken)
+	var issues []model.Issue
+	for _, title := range []string{"MCP live", "MCP deleted target", "MCP deleted source", "MCP replacement"} {
+		iss, err := e.store.CreateIssue(e.ctx, store.CreateIssueParams{ProjectID: e.projectID, Title: title})
+		if err != nil {
+			t.Fatalf("CreateIssue %s: %v", title, err)
+		}
+		issues = append(issues, iss)
+	}
+	live, deletedTarget, deletedSource, replacement := issues[0], issues[1], issues[2], issues[3]
+	edited, err := e.store.CreateIssueLink(e.ctx, store.CreateIssueLinkParams{SourceID: live.ID, TargetID: deletedTarget.ID, LinkType: model.LinkTypeBlocks})
+	if err != nil {
+		t.Fatalf("CreateIssueLink edited: %v", err)
+	}
+	removed, err := e.store.CreateIssueLink(e.ctx, store.CreateIssueLinkParams{SourceID: deletedSource.ID, TargetID: live.ID, LinkType: model.LinkTypeRelatesTo})
+	if err != nil {
+		t.Fatalf("CreateIssueLink removed: %v", err)
+	}
+	for _, iss := range []model.Issue{deletedTarget, deletedSource} {
+		if err := e.store.DeleteIssue(e.ctx, iss.ID); err != nil {
+			t.Fatalf("DeleteIssue %s: %v", iss.Title, err)
+		}
+	}
+
+	out := mcpCall(t, e, session, "track_update_link", map[string]any{
+		"owner":        e.ownerUsername,
+		"key":          e.projKey,
+		"link":         edited.Ref,
+		"source_issue": live.Identifier,
+		"target_issue": replacement.Identifier,
+		"link_type":    "blocks",
+	})
+	if got := decodeMCPField[model.IssueLink](t, out, "link"); got.TargetID != replacement.ID {
+		t.Fatalf("updated link = %+v, want target %s", got, replacement.ID)
+	}
+	mcpCall(t, e, session, "track_delete_link", map[string]any{
+		"owner": e.ownerUsername,
+		"key":   e.projKey,
+		"link":  removed.Ref,
+	})
+	if _, err := e.store.GetIssueLink(e.ctx, removed.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("GetIssueLink after delete err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestMCPAttachmentAndResourceRoundTrip(t *testing.T) {
 	t.Parallel()
 	storageSvc, _ := newLocalStorageService(t, 1024*1024)
