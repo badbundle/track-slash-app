@@ -182,6 +182,40 @@ func TestSafeMarkdownImageURLAllowsOnlySameOriginAbsolutePaths(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownAutolinksFollowLinkSchemeAllowlist(t *testing.T) {
+	t.Parallel()
+	for _, tt := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "https autolink", source: "<https://example.com/docs>", want: `<a href="https://example.com/docs">https://example.com/docs</a>`},
+		{name: "mailto autolink", source: "<mailto:ops@example.com>", want: `<a href="mailto:ops@example.com">mailto:ops@example.com</a>`},
+		{name: "email autolink", source: "<ops@example.com>", want: `<a href="mailto:ops@example.com">ops@example.com</a>`},
+		{name: "bare https", source: "see https://example.com/bare now", want: `<a href="https://example.com/bare">https://example.com/bare</a>`},
+		{name: "bare www", source: "see www.example.com now", want: `<a href="http://www.example.com">www.example.com</a>`},
+		{name: "bare email", source: "mail ops@example.com now", want: `<a href="mailto:ops@example.com">ops@example.com</a>`},
+		{name: "smb autolink", source: "<smb://host/share>", want: "<p>smb://host/share</p>"},
+		{name: "search-ms autolink", source: "<search-ms:query=report>", want: "<p>search-ms:query=report</p>"},
+		{name: "ms-word autolink", source: "<ms-word:ofe|u|https://example.com/a.docx>", want: "<p>ms-word:ofe|u|https://example.com/a.docx</p>"},
+		{name: "data image autolink", source: "<data:image/png;base64,AAAA>", want: "<p>data:image/png;base64,AAAA</p>"},
+		{name: "javascript autolink", source: "<javascript:alert(1)>", want: "<p>javascript:alert(1)</p>"},
+		{name: "bare ftp", source: "get ftp://files.example.com/a.txt now", want: "<p>get ftp://files.example.com/a.txt now</p>"},
+		{name: "label escaped", source: "<smb://host/a&b>", want: "<p>smb://host/a&amp;b</p>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			out := string(renderWhiteboardMarkdown(model.WhiteboardPage{Body: tt.source}))
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("markdown output missing %q: %s", tt.want, out)
+			}
+			if strings.Count(out, "<a ") > 1 {
+				t.Fatalf("markdown output has more than one link: %s", out)
+			}
+		})
+	}
+}
+
 func TestRenderIssueDescriptionMarkdownHeadingsAndTables(t *testing.T) {
 	t.Parallel()
 	issue := model.Issue{

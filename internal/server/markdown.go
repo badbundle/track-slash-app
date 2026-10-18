@@ -117,6 +117,32 @@ func renderMarkdown(source string, targets map[string]markdownTarget) template.H
 func (r markdownRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindLink, r.renderLink)
 	reg.Register(ast.KindImage, r.renderImage)
+	reg.Register(ast.KindAutoLink, r.renderAutoLink)
+}
+
+// renderAutoLink covers both <scheme:...> autolinks and the bare URLs and
+// emails GFM linkifies, so they follow the same scheme allowlist as links.
+func (r markdownRenderer) renderAutoLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	n := node.(*ast.AutoLink)
+	label := string(n.Label(source))
+	raw := string(util.URLEscape(n.URL(source), false))
+	if n.AutoLinkType == ast.AutoLinkEmail {
+		raw = "mailto:" + raw
+	}
+	href, ok := safeMarkdownURL(raw)
+	if !ok {
+		_, _ = w.WriteString(html.EscapeString(label))
+		return ast.WalkContinue, nil
+	}
+	_, _ = w.WriteString(`<a href="`)
+	_, _ = w.WriteString(html.EscapeString(href))
+	_, _ = w.WriteString(`">`)
+	_, _ = w.WriteString(html.EscapeString(label))
+	_, _ = w.WriteString("</a>")
+	return ast.WalkContinue, nil
 }
 
 func (r markdownRenderer) renderLink(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {

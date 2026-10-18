@@ -119,7 +119,7 @@ Content responses stream bytes from the backend with stored content type, conten
 ## Security Constraints
 
 - Raw HTML in Markdown remains disabled.
-- Markdown links allow safe external URL schemes only, plus same-origin absolute paths and fragments.
+- Markdown links allow safe external URL schemes only, plus same-origin absolute paths and fragments. Autolinks such as `<https://...>` and bare URLs or emails follow the same rule; one with any other scheme renders as plain text.
 - Markdown images render inline only for attached safe images or single-slash same-origin absolute paths. External `http`/`https` and protocol-relative destinations render as no-referrer links instead of images. Unsafe schemes such as `javascript:` and `data:` remain inert.
 - `object-N` refs never cross project, issue, or sprint description boundaries.
 - Context-page `object-N` refs resolve only against attachments on that context page, including when the page is viewed from an issue.
