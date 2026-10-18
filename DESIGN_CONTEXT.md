@@ -52,6 +52,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Every account page uses the Tokens page frame and header so moving between them does not shift the column, and ends with the shared `account-footer` legal links.
 - Account page cards stack in one column, each spanning the page, so their edges line up; do not put them in a side-by-side grid. Inside a card, short paired fields (display name and email, current and new password) share a row from `sm` up and stack below it, with the submit button beneath them.
 - Password and passkeys stay together on Login: the password login toggle reauthenticates through the passkeys panel, and changing a passkey can ask for the current password.
+- When email is configured, the email leaves the profile form for its own `Email` card below `Profile`: the address in effect with a `Verified` or `Not verified` badge, a change still waiting for its link with `Resend`, and a `Change email` form that asks for the password or a passkey first. A new address takes effect only once confirmed from the link it was sent. With email off there is no card and the profile form keeps its email field.
 - Web sessions stay on Tokens for now; moving them to Login is an open question.
 - The Tokens page lists only live API tokens. A revoked token leaves the list as soon as it is revoked; its row stays in `auth_tokens`, and the API and MCP token listings still return it.
 

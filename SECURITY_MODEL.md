@@ -105,6 +105,37 @@ source of a user's rights in a project.
   `Cache-Control: private, no-store`. Assets under `/static` are shared and
   keep their own caching.
 
+## Verified email
+
+Email is optional (see [DEPLOYMENT.md](DEPLOYMENT.md#email)). With it on, an
+address is verified when someone signed in to the account opens a link sent to
+it and confirms. `ui_email.go` and `store/email_verifications.go` hold the
+rules.
+
+- **What it grants.** A verified address is the account's alone: no other live
+  account can verify the same address, in any case. When it is replaced or
+  removed it is told, so a takeover that changes the email is noticed.
+  Forgot password (TRACK-100) is to send resets only to a verified address.
+- **What it doesn't.** It is not a sign-in method and grants no role, project
+  access or admin rights. It proves that the account's holder read that
+  mailbox when they confirmed, not that they still do. It is shown to nobody
+  else, like any email. Unverified addresses, including every address that
+  existed before verification and every address an admin sets, are not unique
+  and receive nothing but a confirmation link their account asks for.
+- **Changing it takes the account's credentials.** Changing or removing the
+  address needs the same reauthentication as changing a passkey. The new
+  address takes effect only once confirmed; until then the previous one stays.
+  While email is on, the API and MCP refuse a new address.
+- **Opening a link verifies nothing.** Mail scanners open links first, so the
+  link's page only shows a button, and only that button's POST, from the
+  account the link was sent for, verifies the address. A link is random, stored
+  as a hash, works once and for an hour, and asking for another replaces it.
+- **Links point only at the public origin.** They are built from
+  `TRACK_SLASH_PUBLIC_ORIGIN`, which email requires, never from a request's
+  `Host`.
+- **Sends are budgeted.** Each account may send, and each address may receive,
+  3 confirmation emails an hour, so the form cannot fill someone's inbox.
+
 ## Accepted trade-offs
 
 These are known and left as they are. Change one only with that in mind.
@@ -144,10 +175,18 @@ These are known and left as they are. Change one only with that in mind.
   and the token can outlive the session that made it.
 - **Passkey sign-count regressions are recorded, not refused.** Synced passkeys
   report zero.
-- **Emails are not verified.** Setting an email another account holds fails
-  with a conflict, which tells the caller that the email is registered.
-  `trackd -create-admin-token` will not promote an existing non-admin who holds
-  the email unless `-promote-existing` is passed.
+- **Only verified emails are unique, and verification needs email on.**
+  Several accounts can hold the same unverified address, and with email off
+  every address is unverified. Nothing relies on an unverified address.
+  `trackd -create-admin-token` matches the exact address, verified or not: it
+  will not promote an existing non-admin who holds it unless
+  `-promote-existing` is passed, and refuses when several accounts hold it.
+- **Confirming an address another account has verified says so.** Only
+  someone who opened a link sent to that mailbox can learn it this way.
+- **Email is sent while the request waits.** A failed send leaves an unsent
+  link behind, which nobody has and which expires within the hour. The notice
+  to a replaced address is best effort: if it can't be sent, the change stands
+  and the failure is logged.
 - **Storage object JSON names its backend, bucket and key.** These are
   locations, not credentials.
 - **Realtime access is checked once, on subscribe.** Events carry only IDs, and

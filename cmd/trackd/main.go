@@ -35,7 +35,7 @@ func main() {
 	adminEmail := flag.String("email", "", "email for -create-admin-token")
 	adminName := flag.String("name", "", "name for -create-admin-token")
 	adminTokenName := flag.String("token-name", "bootstrap", "token name for -create-admin-token")
-	promoteExisting := flag.Bool("promote-existing", false, "with -create-admin-token, make the existing non-admin account that holds -email an admin (emails are not verified, so check who holds it first)")
+	promoteExisting := flag.Bool("promote-existing", false, "with -create-admin-token, make the existing non-admin account that holds -email an admin (the email may not be verified, so check who holds it first)")
 	generateVAPIDKeys := flag.Bool("generate-vapid-keys", false, "generate a Web Push VAPID key pair and exit")
 	healthcheck := flag.Bool("healthcheck", false, "check the health of the server listening on PORT, exit 0 if healthy and 1 otherwise")
 	flag.Parse()
@@ -206,7 +206,7 @@ func createAdminToken(ctx context.Context, st *store.Store, email, name, tokenNa
 	}
 	if errors.Is(err, store.ErrEmailBelongsToNonAdmin) {
 		if !promoteExisting {
-			return fmt.Errorf("%w; emails are not verified, so check who holds it, then rerun with -promote-existing to make that account an admin", err)
+			return fmt.Errorf("%w; the email may not be verified, so check who holds it, then rerun with -promote-existing to make that account an admin", err)
 		}
 		u, err = st.PromoteUserToAdminByEmail(ctx, email)
 	}

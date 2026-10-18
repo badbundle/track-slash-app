@@ -167,6 +167,60 @@ The bearer-authenticated JSON API exposes the same lifecycle:
 
 Saving a token accepts `{"name":"Personal","token":"..."}`; updating accepts either or both fields. Neither response ever contains the token. Connection creation accepts `{"repository":"owner/name","credential_id":"..."}` to use a saved token, or `{"repository":"owner/name","token":"..."}` for a token held by that connection alone. Tokens issued to OAuth connectors cannot manage saved GitHub tokens or connect a repository with one. Issue-link creation accepts `{"connection_id":"...","reference":"#123"}`; repository-relative `pull/123`, branch names, and matching `https://github.com/...` URLs are also accepted. Responses contain immutable GitHub repository and pull-request IDs separately from mutable names, titles, URLs, and states.
 
+### Email
+
+Email is optional. With none of the variables below set it is off: the app runs without it, the Profile page shows no email UI, and the email field there saves an address unverified, as it always has. With email on, people confirm their address through a link sent to it.
+
+trackslash talks to an SMTP provider directly and sends each message while the request waits, so there is no mail server, relay, queue or outbox to run. Any provider with authenticated SMTP works. Configure the frontend app:
+
+```bash
+TRACK_SLASH_SMTP_HOST=smtp.example.com
+TRACK_SLASH_SMTP_PORT=587
+TRACK_SLASH_SMTP_USERNAME=<smtp-username>
+TRACK_SLASH_SMTP_PASSWORD=<smtp-password>
+TRACK_SLASH_SMTP_TLS=starttls
+TRACK_SLASH_EMAIL_FROM="Trackslash <no-reply@example.com>"
+TRACK_SLASH_PUBLIC_ORIGIN=https://track.example.com
+```
+
+- Set the host, port, username, password and sender together, as with the VAPID keys. Startup fails on a partial set.
+- `TRACK_SLASH_PUBLIC_ORIGIN` is required. Every link in a message is built from it, never from the request's `Host`.
+- The connection always uses TLS. `starttls`, the default, upgrades the connection before anything else is sent and gives up if the server does not offer STARTTLS; `implicit` opens it over TLS, as port 465 expects. Credentials are only ever sent over TLS.
+- A delivery gives up after 10 seconds, inside the 15-second request deadline. If the provider is unreachable or refuses the message, for example because it is over quota, the page says "Couldn't send the email. Try again." and nothing is marked as sent.
+- Each account may send, and each address may receive, 3 confirmation emails an hour. Like the other rate limits these are per process.
+- For local development, `TRACK_SLASH_SMTP_HOST=log` prints each message, link included, to the server log instead of sending it. It needs only `TRACK_SLASH_PUBLIC_ORIGIN`, such as `http://localhost:8080`; the sender is optional.
+- The migration job still needs only `DATABASE_URL`.
+
+#### DNS for the sending domain
+
+Whichever provider sends the mail, the domain in `TRACK_SLASH_EMAIL_FROM` needs:
+
+- **SPF**: exactly one SPF `TXT` record on the domain. Many providers, SMTP2GO included, send from a return-path subdomain of their own that carries its own SPF; if nothing else sends mail as the bare domain, it can then say `v=spf1 -all`. Otherwise follow the provider's instructions, still in one record.
+- **DKIM**: the provider's DKIM record or records, so the messages are signed for your domain.
+- **DMARC**: a `TXT` record at `_dmarc.<domain>`. Start with `p=none` and reports, then move to `p=quarantine` once 2–4 weeks of reports show aligned, passing mail.
+
+#### Worked example: SMTP2GO's free plan
+
+The trackslash.com preview sends through SMTP2GO's free plan: 1,000 emails a month and 200 a day, and 25 an hour until the sender domain is verified. Over a limit SMTP2GO refuses mail rather than queuing it, which people see as the retryable error above.
+
+1. **SPF.** At trackslash.com, publish `v=spf1 -all` as the only SPF record. SMTP2GO's mail uses its own `em…` return-path subdomain, which the next step sets up.
+2. **SMTP2GO.** Add trackslash.com as a sender domain and publish the three `CNAME` records it lists (return path, DKIM and link tracking) in Cloudflare as DNS only, not proxied. Verify the domain, then turn off open and click tracking, since messages carry no tracking. Under **Sending → SMTP Users**, create an SMTP user for Trackslash.
+3. **DMARC.** Use Cloudflare's DMARC Management with `p=none`, then switch to `p=quarantine` after 2–4 weeks of aligned, passing reports.
+4. **Dokploy.** On the frontend app, set:
+
+   ```bash
+   TRACK_SLASH_SMTP_HOST=mail.smtp2go.com
+   TRACK_SLASH_SMTP_PORT=2525
+   TRACK_SLASH_SMTP_USERNAME=<SMTP2GO SMTP user>
+   TRACK_SLASH_SMTP_PASSWORD=<SMTP2GO SMTP password>
+   TRACK_SLASH_EMAIL_FROM="Trackslash <no-reply@trackslash.com>"
+   ```
+
+   and make sure `TRACK_SLASH_PUBLIC_ORIGIN=https://trackslash.com` is set. Port 2525 uses STARTTLS, as do 587, 8025, 80 and 25. For implicit TLS use 465, 8465 or 443 with `TRACK_SLASH_SMTP_TLS=implicit`.
+5. **Check.** Change your email on Profile, confirm it from the link, and look at the received message's headers for SPF, DKIM and DMARC passing and aligned.
+
+If trackslash outgrows the free plan, Resend's free plan is the fallback. Switching is a configuration change: point the same variables at Resend's SMTP service and publish the DNS records Resend lists.
+
 ### Development-preview terms
 
 The canonical `/terms`, `/privacy`, and `/security` pages describe the development preview operated by Bad Bundle Limited at `trackslash.com`. They do not govern independent self-hosted installations.
