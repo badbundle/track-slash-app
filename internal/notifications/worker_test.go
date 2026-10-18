@@ -15,23 +15,30 @@ import (
 func TestNewWorkerOptions(t *testing.T) {
 	t.Parallel()
 	defaults := NewWorker(nil, nil, WorkerOptions{})
+	// The default lease covers a full batch of 20 sends of up to 10s each.
 	if defaults.batchSize != 20 || defaults.maxAttempts != 8 || defaults.pollInterval != 2*time.Second ||
-		defaults.leaseTimeout != time.Minute || defaults.sendTimeout != 10*time.Second ||
+		defaults.leaseTimeout != 260*time.Second || defaults.sendTimeout != 10*time.Second ||
 		defaults.minBackoff != 5*time.Second || defaults.maxBackoff != 15*time.Minute ||
-		defaults.maxEventAge != 24*time.Hour || defaults.logger == nil {
+		defaults.maxEventAge != 24*time.Hour || defaults.retention != 7*24*time.Hour || defaults.logger == nil {
 		t.Fatalf("default worker = %+v", defaults)
 	}
 	logger := log.New(io.Discard, "", 0)
 	configured := NewWorker(nil, nil, WorkerOptions{
-		BatchSize: 2, MaxAttempts: 3, PollInterval: 4 * time.Second, LeaseTimeout: 5 * time.Second,
+		BatchSize: 2, MaxAttempts: 3, PollInterval: 4 * time.Second, LeaseTimeout: 10 * time.Minute,
 		SendTimeout: 6 * time.Second, MinBackoff: 7 * time.Second, MaxBackoff: time.Second,
-		MaxEventAge: 8 * time.Second, Logger: logger,
+		MaxEventAge: 8 * time.Second, Retention: 9 * time.Hour, Logger: logger,
 	})
 	if configured.batchSize != 2 || configured.maxAttempts != 3 || configured.pollInterval != 4*time.Second ||
-		configured.leaseTimeout != 5*time.Second || configured.sendTimeout != 6*time.Second ||
+		configured.leaseTimeout != 10*time.Minute || configured.sendTimeout != 6*time.Second ||
 		configured.minBackoff != 7*time.Second || configured.maxBackoff != 7*time.Second ||
-		configured.maxEventAge != 8*time.Second || configured.logger != logger {
+		configured.maxEventAge != 8*time.Second || configured.retention != 9*time.Hour || configured.logger != logger {
 		t.Fatalf("configured worker = %+v", configured)
+	}
+	// A lease shorter than a batch would let another worker reclaim deliveries
+	// still being sent, so it is raised to cover one.
+	short := NewWorker(nil, nil, WorkerOptions{BatchSize: 2, SendTimeout: 6 * time.Second, LeaseTimeout: 5 * time.Second})
+	if short.leaseTimeout != 72*time.Second {
+		t.Fatalf("short lease = %v, want 72s", short.leaseTimeout)
 	}
 }
 

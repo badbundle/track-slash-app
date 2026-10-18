@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"io"
+	"log"
 	"strings"
 	"testing"
 	"time"
@@ -178,5 +180,94 @@ func TestPushWorkerRecordsNonRetryableProviderFailure(t *testing.T) {
 	result, err := NewWorker(env.store, sender, WorkerOptions{}).RunOnce(env.ctx)
 	if err != nil || result.Failed != 1 || sender.calls != 1 {
 		t.Fatalf("RunOnce = %+v, sender calls=%d err=%v", result, sender.calls, err)
+	}
+}
+
+// Events queued while push was off are expired together before the queue is
+// worked, and then pruned, so a backlog never holds up a new notification.
+func TestPushWorkerExpiresAndPrunesBacklog(t *testing.T) {
+	t.Parallel()
+	env := newPushWorkerTestEnv(t)
+	if _, err := env.pool.Exec(env.ctx, `
+		UPDATE push_notification_events
+		SET created_at = now() - interval '30 days', next_attempt_at = now() - interval '30 days'
+	`); err != nil {
+		t.Fatalf("backdate events: %v", err)
+	}
+	if _, err := env.store.CreateIssue(store.WithActor(env.ctx, env.owner.ID), store.CreateIssueParams{
+		ProjectID: env.projectID, Title: "Fresh assignment", AssigneeID: &env.member.ID,
+	}); err != nil {
+		t.Fatalf("CreateIssue: %v", err)
+	}
+
+	sender := &recordingPushSender{status: 201}
+	worker := NewWorker(env.store, sender, WorkerOptions{BatchSize: 1})
+	result, err := worker.RunOnce(env.ctx)
+	want := RunResult{EventsExpired: 2, EventsClaimed: 1, DeliveriesCreated: 1, DeliveriesClaimed: 1, Delivered: 1, Pruned: 2}
+	if err != nil || result != want || sender.calls != 1 {
+		t.Fatalf("RunOnce = %+v, sender calls=%d err=%v; want %+v", result, sender.calls, err, want)
+	}
+	if len(sender.payloads) != 1 || !strings.Contains(sender.payloads[0].Body, "Fresh assignment") {
+		t.Fatalf("payloads = %+v", sender.payloads)
+	}
+
+	if _, err := env.pool.Exec(env.ctx, `UPDATE push_notification_events SET created_at = now() - interval '30 days'`); err != nil {
+		t.Fatalf("age events: %v", err)
+	}
+	if _, err := env.pool.Exec(env.ctx, `UPDATE push_notification_deliveries SET created_at = now() - interval '30 days'`); err != nil {
+		t.Fatalf("age deliveries: %v", err)
+	}
+	// Pruning runs at most hourly in each worker.
+	if result, err := worker.RunOnce(env.ctx); err != nil || result != (RunResult{}) {
+		t.Fatalf("RunOnce within the prune interval = %+v, %v", result, err)
+	}
+	if result, err := NewWorker(env.store, sender, WorkerOptions{}).RunOnce(env.ctx); err != nil || result != (RunResult{Pruned: 2}) {
+		t.Fatalf("RunOnce after the prune interval = %+v, %v", result, err)
+	}
+	var rows int
+	if err := env.pool.QueryRow(env.ctx, `
+		SELECT (SELECT count(*) FROM push_notification_events) + (SELECT count(*) FROM push_notification_deliveries)
+	`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("queue rows after pruning = %d, %v", rows, err)
+	}
+}
+
+type cancelingPushSender struct {
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (s *cancelingPushSender) Send(context.Context, store.PushNotificationDelivery, store.PushNotificationPayload) (int, error) {
+	s.calls++
+	s.cancel()
+	return 201, nil
+}
+
+// A full batch means more is waiting, so the worker goes straight on to the
+// next rather than waiting out the poll interval.
+func TestPushWorkerRunDrainsFullBatchesWithoutWaiting(t *testing.T) {
+	t.Parallel()
+	env := newPushWorkerTestEnv(t)
+	ctx, cancel := context.WithTimeout(env.ctx, 10*time.Second)
+	defer cancel()
+	sender := &cancelingPushSender{cancel: cancel}
+	// The first batch of one holds the issue's creation, which notifies nobody;
+	// only a second batch reaches the assignment.
+	NewWorker(env.store, sender, WorkerOptions{
+		BatchSize: 1, PollInterval: time.Hour, Logger: log.New(io.Discard, "", 0),
+	}).Run(ctx)
+	if sender.calls != 1 || !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("sender calls = %d, ctx err = %v; want one send before the deadline", sender.calls, ctx.Err())
+	}
+}
+
+func TestPushWorkerReportsExpiryFailure(t *testing.T) {
+	t.Parallel()
+	db := testutil.NewMigratedDatabase(t)
+	st := store.New(db.Pool)
+	db.Pool.Close()
+	if _, err := NewWorker(st, &recordingPushSender{}, WorkerOptions{}).RunOnce(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "expire events") {
+		t.Fatalf("RunOnce on a closed pool = %v", err)
 	}
 }

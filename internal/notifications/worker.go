@@ -14,19 +14,28 @@ import (
 
 const maxPushNotificationErrorLength = 2000
 
+// pushNotificationPruneInterval is how often finished queue rows are pruned.
+const pushNotificationPruneInterval = time.Hour
+
 type WorkerOptions struct {
 	BatchSize    int
 	MaxAttempts  int
 	PollInterval time.Duration
+	// LeaseTimeout is how long a claim is held. It is never shorter than a
+	// whole batch of sends plus a minute, or another worker could reclaim
+	// deliveries that are still being sent and send them twice.
 	LeaseTimeout time.Duration
 	SendTimeout  time.Duration
 	MinBackoff   time.Duration
 	MaxBackoff   time.Duration
 	MaxEventAge  time.Duration
-	Logger       *log.Logger
+	// Retention is how long finished events and deliveries are kept.
+	Retention time.Duration
+	Logger    *log.Logger
 }
 
 type RunResult struct {
+	EventsExpired     int
 	EventsClaimed     int
 	DeliveriesCreated int
 	DeliveriesClaimed int
@@ -35,6 +44,7 @@ type RunResult struct {
 	Suppressed        int
 	Disabled          int
 	Failed            int
+	Pruned            int
 }
 
 type Worker struct {
@@ -48,7 +58,9 @@ type Worker struct {
 	minBackoff   time.Duration
 	maxBackoff   time.Duration
 	maxEventAge  time.Duration
+	retention    time.Duration
 	logger       *log.Logger
+	prunedAt     time.Time
 }
 
 func NewWorker(st *store.Store, sender Sender, opts WorkerOptions) *Worker {
@@ -61,11 +73,11 @@ func NewWorker(st *store.Store, sender Sender, opts WorkerOptions) *Worker {
 	if opts.PollInterval <= 0 {
 		opts.PollInterval = 2 * time.Second
 	}
-	if opts.LeaseTimeout <= 0 {
-		opts.LeaseTimeout = time.Minute
-	}
 	if opts.SendTimeout <= 0 {
 		opts.SendTimeout = 10 * time.Second
+	}
+	if minimum := time.Duration(opts.BatchSize)*opts.SendTimeout + time.Minute; opts.LeaseTimeout < minimum {
+		opts.LeaseTimeout = minimum
 	}
 	if opts.MinBackoff <= 0 {
 		opts.MinBackoff = 5 * time.Second
@@ -79,6 +91,9 @@ func NewWorker(st *store.Store, sender Sender, opts WorkerOptions) *Worker {
 	if opts.MaxEventAge <= 0 {
 		opts.MaxEventAge = 24 * time.Hour
 	}
+	if opts.Retention <= 0 {
+		opts.Retention = 7 * 24 * time.Hour
+	}
 	if opts.Logger == nil {
 		opts.Logger = log.Default()
 	}
@@ -86,14 +101,19 @@ func NewWorker(st *store.Store, sender Sender, opts WorkerOptions) *Worker {
 		store: st, sender: sender, batchSize: opts.BatchSize, maxAttempts: opts.MaxAttempts,
 		pollInterval: opts.PollInterval, leaseTimeout: opts.LeaseTimeout, sendTimeout: opts.SendTimeout,
 		minBackoff: opts.MinBackoff, maxBackoff: opts.MaxBackoff, maxEventAge: opts.MaxEventAge,
-		logger: opts.Logger,
+		retention: opts.Retention, logger: opts.Logger,
 	}
 }
 
 func (w *Worker) Run(ctx context.Context) {
 	for {
-		if _, err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
+		result, err := w.RunOnce(ctx)
+		if err != nil && ctx.Err() == nil {
 			w.logger.Printf("push notification worker: %v", err)
+		}
+		// A full batch means more is waiting, so the next starts straight away.
+		if err == nil && (result.EventsClaimed >= w.batchSize || result.DeliveriesClaimed >= w.batchSize) {
+			continue
 		}
 		timer := time.NewTimer(w.pollInterval)
 		select {
@@ -112,6 +132,11 @@ func (w *Worker) RunOnce(ctx context.Context) (RunResult, error) {
 		return RunResult{}, errors.New("push notification worker requires store and sender")
 	}
 	result := RunResult{}
+	expired, err := w.store.ExpirePushNotificationEvents(ctx, w.maxEventAge)
+	if err != nil {
+		return result, fmt.Errorf("expire events: %w", err)
+	}
+	result.EventsExpired = int(expired)
 	events, err := w.store.ClaimPushNotificationEvents(ctx, w.batchSize, w.leaseTimeout)
 	if err != nil {
 		return result, fmt.Errorf("claim events: %w", err)
@@ -200,6 +225,17 @@ func (w *Worker) RunOnce(ctx context.Context) (RunResult, error) {
 		} else {
 			result.Retried++
 		}
+	}
+
+	if time.Since(w.prunedAt) >= pushNotificationPruneInterval {
+		pruned, err := w.store.PrunePushNotifications(ctx, w.retention)
+		if err != nil {
+			// Defensive: the retention is always positive, so only a DB outage
+			// reaches this.
+			return result, fmt.Errorf("prune: %w", err)
+		}
+		result.Pruned = int(pruned)
+		w.prunedAt = time.Now()
 	}
 	return result, nil
 }

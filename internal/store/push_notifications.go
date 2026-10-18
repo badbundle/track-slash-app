@@ -299,6 +299,55 @@ func disableUserPushSubscriptions(ctx context.Context, tx pgx.Tx, userID uuid.UU
 	return err
 }
 
+// ExpirePushNotificationEvents closes, in one statement, every queued event
+// older than maxAge and reports how many it closed. The trigger queues events
+// whether or not push is configured, so turning push on can find months of
+// them, and expiring those a claimed batch at a time would hold new
+// notifications up behind them.
+func (s *Store) ExpirePushNotificationEvents(ctx context.Context, maxAge time.Duration) (int64, error) {
+	if maxAge <= 0 {
+		return 0, ErrConflict
+	}
+	tag, err := s.db.Exec(ctx, `
+		UPDATE push_notification_events
+		SET processed_at = now(), locked_at = NULL, last_error = 'event expired before delivery'
+		WHERE processed_at IS NULL AND failed_at IS NULL
+		  AND created_at < now() - make_interval(secs => $1)
+	`, maxAge.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// PrunePushNotifications deletes finished events and deliveries queued more
+// than retention ago, and reports how many rows it deleted. Rows still waiting
+// or being retried are kept however old they are.
+func (s *Store) PrunePushNotifications(ctx context.Context, retention time.Duration) (int64, error) {
+	if retention <= 0 {
+		return 0, ErrConflict
+	}
+	var deleted int64
+	err := s.db.QueryRow(ctx, `
+		WITH events AS (
+			DELETE FROM push_notification_events
+			WHERE (processed_at IS NOT NULL OR failed_at IS NOT NULL)
+			  AND created_at < now() - make_interval(secs => $1)
+			RETURNING 1
+		), deliveries AS (
+			DELETE FROM push_notification_deliveries
+			WHERE (delivered_at IS NOT NULL OR suppressed_at IS NOT NULL OR failed_at IS NOT NULL)
+			  AND created_at < now() - make_interval(secs => $1)
+			RETURNING 1
+		)
+		SELECT (SELECT count(*) FROM events) + (SELECT count(*) FROM deliveries)
+	`, retention.Seconds()).Scan(&deleted)
+	if err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}
+
 func (s *Store) ClaimPushNotificationEvents(ctx context.Context, limit int, leaseTimeout time.Duration) ([]PushNotificationEvent, error) {
 	if limit <= 0 || leaseTimeout <= 0 {
 		return nil, ErrConflict
