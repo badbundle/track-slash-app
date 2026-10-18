@@ -12,7 +12,11 @@ import (
 	"github.com/bradleymackey/track-slash/internal/model"
 )
 
-const minPasswordLength = 12
+const (
+	minPasswordLength = 12
+	// maxPasswordBytes is the most bcrypt accepts.
+	maxPasswordBytes = 72
+)
 
 func NormalizeUsername(raw string) (string, error) {
 	username := strings.ToLower(strings.TrimSpace(raw))
@@ -34,6 +38,9 @@ func NormalizeUsername(raw string) (string, error) {
 func ValidatePassword(password string) error {
 	if len(password) < minPasswordLength {
 		return errors.New("password must be at least 12 chars")
+	}
+	if len(password) > maxPasswordBytes {
+		return errors.New("password must be at most 72 bytes")
 	}
 	return nil
 }
