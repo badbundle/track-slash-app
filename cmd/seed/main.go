@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -13,7 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/bradleymackey/track-slash/internal/config"
 	"github.com/bradleymackey/track-slash/internal/migrations"
@@ -68,10 +67,11 @@ func main() {
 }
 
 func migrate(dbURL string) error {
-	db, err := sql.Open("pgx", dbURL)
+	connConfig, err := config.DirectConnConfig(dbURL)
 	if err != nil {
 		return err
 	}
+	db := stdlib.OpenDB(*connConfig)
 	defer db.Close()
 	return migrations.Up(db)
 }

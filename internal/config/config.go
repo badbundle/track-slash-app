@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const (
@@ -154,6 +156,23 @@ func LoadDatabase() (DatabaseConfig, error) {
 		return cfg, errors.New("DATABASE_URL is required")
 	}
 	return cfg, nil
+}
+
+// DirectConnConfig parses databaseURL for a single connection made outside
+// the pgxpool, such as the realtime listener's or the migrator's. It drops
+// pgxpool's pool_* settings, which size the pool, because pgx would otherwise
+// send them to Postgres as runtime parameters and Postgres rejects them.
+func DirectConnConfig(databaseURL string) (*pgx.ConnConfig, error) {
+	connConfig, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	for name := range connConfig.RuntimeParams {
+		if strings.HasPrefix(name, "pool_") {
+			delete(connConfig.RuntimeParams, name)
+		}
+	}
+	return connConfig, nil
 }
 
 func envOr(key, fallback string) string {

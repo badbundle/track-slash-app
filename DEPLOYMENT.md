@@ -70,6 +70,14 @@ TRACK_SLASH_AUTO_MIGRATE=false
 
 Keep `TRACK_SLASH_AUTO_MIGRATE=true` or unset it for local development and single-container deployments.
 
+Size the Postgres connection pool with pgxpool's `pool_max_conns` setting on `DATABASE_URL`. Without it, the pool holds at most four connections, or one per CPU on hosts with more than four:
+
+```bash
+DATABASE_URL=postgres://track:<password>@db:5432/track?sslmode=require&pool_max_conns=20
+```
+
+Other pgxpool settings, such as `pool_max_conn_lifetime`, go on the URL the same way. trackd drops every `pool_*` setting from the connections it opens outside the pool, so the same URL works for the `-migrate-only` job. Each frontend process holds up to `pool_max_conns` pooled connections plus one for the realtime listener, and migrations use one connection of their own while they run.
+
 Set the public browser origin for passkeys and browser WebSocket checks in deployed environments:
 
 ```bash

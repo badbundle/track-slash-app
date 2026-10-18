@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	"net/url"
 	"strconv"
 	"testing"
 	"time"
@@ -112,6 +113,26 @@ func TestListenerReconnectsPromptlyAfterRepeatedDrops(t *testing.T) {
 		terminateListenerConnection(t, ctx, pool, listener)
 		requireListenerResync(t, client)
 	}
+}
+
+// TestListenerAcceptsPoolSettingsInDatabaseURL covers DATABASE_URL carrying
+// pgxpool's pool_* settings, which Postgres rejects as startup parameters.
+func TestListenerAcceptsPoolSettingsInDatabaseURL(t *testing.T) {
+	t.Parallel()
+	ctx, _, dbURL := newRealtimeDB(t)
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		t.Fatalf("parse database URL: %v", err)
+	}
+	q := u.Query()
+	q.Set("pool_max_conns", "4")
+	u.RawQuery = q.Encode()
+
+	hub := NewHub()
+	client := newTestClient(sendBuffer)
+	hub.Subscribe(client, "project:00000000-0000-0000-0000-000000000001")
+	runRealtimeListener(t, ctx, u.String(), hub)
+	requireListenerResync(t, client)
 }
 
 func terminateListenerConnection(t *testing.T, ctx context.Context, pool *pgxpool.Pool, listener *Listener) {

@@ -137,6 +137,37 @@ func TestLoadDatabaseRequiresDatabaseURL(t *testing.T) {
 	}
 }
 
+func TestDirectConnConfigDropsPoolSettings(t *testing.T) {
+	for _, databaseURL := range []string{
+		"postgres://track:track@localhost:5432/track?sslmode=disable&pool_max_conns=20&pool_min_conns=2&search_path=app",
+		"host=localhost port=5432 user=track dbname=track sslmode=disable pool_max_conns=20 pool_min_conns=2 search_path=app",
+	} {
+		connConfig, err := DirectConnConfig(databaseURL)
+		if err != nil {
+			t.Fatalf("DirectConnConfig(%q): %v", databaseURL, err)
+		}
+		params := connConfig.RuntimeParams
+		if _, ok := params["pool_max_conns"]; ok {
+			t.Fatalf("DirectConnConfig(%q) kept pool_max_conns: %v", databaseURL, params)
+		}
+		if _, ok := params["pool_min_conns"]; ok {
+			t.Fatalf("DirectConnConfig(%q) kept pool_min_conns: %v", databaseURL, params)
+		}
+		if params["search_path"] != "app" {
+			t.Fatalf("DirectConnConfig(%q) dropped search_path: %v", databaseURL, params)
+		}
+		if connConfig.Host != "localhost" || connConfig.Database != "track" {
+			t.Fatalf("DirectConnConfig(%q) = host %q database %q", databaseURL, connConfig.Host, connConfig.Database)
+		}
+	}
+}
+
+func TestDirectConnConfigRejectsInvalidURL(t *testing.T) {
+	if _, err := DirectConnConfig("postgres://track:track@localhost:notaport/track"); err == nil {
+		t.Fatal("DirectConnConfig err = nil, want error")
+	}
+}
+
 func TestLoadDevReload(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://track:track@localhost:5432/track?sslmode=disable")
 	t.Setenv("TRACK_SLASH_DEV_RELOAD", "true")

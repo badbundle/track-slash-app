@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/bradleymackey/track-slash/internal/config"
 )
 
 // pgChannel is the single Postgres NOTIFY channel all triggers emit on.
@@ -88,12 +90,12 @@ func (b *reconnectBackoff) next(listened bool) time.Duration {
 // runOnce holds one listening connection until it fails. listened reports
 // whether it got as far as LISTEN.
 func (l *Listener) runOnce(ctx context.Context) (listened bool, err error) {
-	config, err := pgx.ParseConfig(l.dbURL)
+	connConfig, err := config.DirectConnConfig(l.dbURL)
 	if err != nil {
 		return false, err
 	}
-	config.RuntimeParams["application_name"] = l.applicationName
-	conn, err := pgx.ConnectConfig(ctx, config)
+	connConfig.RuntimeParams["application_name"] = l.applicationName
+	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
 		return false, err
 	}
