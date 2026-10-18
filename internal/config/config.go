@@ -32,6 +32,7 @@ type Config struct {
 	Storage              StorageConfig
 	WebPush              WebPushConfig
 	GitHub               GitHubConfig
+	Email                EmailConfig
 }
 
 type DatabaseConfig struct {
@@ -93,6 +94,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	email, err := loadEmailConfig(publicOrigin)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
 		Port:                 LoadPort(),
 		DatabaseURL:          db.DatabaseURL,
@@ -106,6 +111,7 @@ func Load() (Config, error) {
 		Storage:              storage,
 		WebPush:              webPush,
 		GitHub:               github,
+		Email:                email,
 	}
 	return cfg, nil
 }
