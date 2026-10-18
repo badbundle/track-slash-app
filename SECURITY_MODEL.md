@@ -66,6 +66,10 @@ source of a user's rights in a project.
   a hidden comment, to another reporter's issue and to a private issue. A
   signed-out visitor is not sent to sign in for an issue ref on a public
   project, missing or private, so both get the same 404.
+- **A dead credential is refused, not ignored.** Over REST, only a request with
+  no `Authorization` header reads a public project as a signed-out visitor. An
+  expired, revoked or malformed token gets 401 with `WWW-Authenticate`, as it
+  does on MCP, so its client knows to sign in again or refresh.
 - **Credentials are the account's own.** A connector (OAuth) token cannot read
   or change tokens, email, password, password login, passkeys, saved GitHub
   tokens, or site-admin account administration. See [OAUTH.md](OAUTH.md).

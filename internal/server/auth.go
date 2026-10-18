@@ -36,7 +36,11 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		auth, err := s.authenticateRequest(r)
 		if err != nil {
 			if errors.Is(err, store.ErrUnauthorized) {
-				if s.anonymousProjectReadAllowed(r, true) {
+				// Only a request that sent no credential reads anonymously. An
+				// expired, revoked or malformed one gets 401, so its client
+				// learns to sign in again or refresh rather than quietly
+				// seeing the public subset.
+				if strings.TrimSpace(r.Header.Get("Authorization")) == "" && s.anonymousProjectReadAllowed(r, true) {
 					next.ServeHTTP(w, r)
 					return
 				}
