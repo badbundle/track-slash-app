@@ -164,6 +164,56 @@ func TestHTTPPublicProjectAccessIssueCreationAndBlocks(t *testing.T) {
 	}
 }
 
+// An access update has to name a mode, or at least one legacy flag. One that
+// names neither used to read as both flags off and made the project private.
+func TestProjectAccessUpdateRequiresAMode(t *testing.T) {
+	t.Parallel()
+	e := newMCPHTTPEnv(t, nil)
+	accessPath := e.projectPath() + "/access"
+	code, body := e.do(t, http.MethodPatch, accessPath, map[string]any{"access_mode": "public"})
+	if code != http.StatusOK {
+		t.Fatalf("make public code = %d body = %s", code, body)
+	}
+	for _, req := range []map[string]any{{}, {"is_public": nil, "public_issue_creation": nil}} {
+		code, body = e.do(t, http.MethodPatch, accessPath, req)
+		if code != http.StatusBadRequest {
+			t.Fatalf("PATCH %v code = %d body = %s", req, code, body)
+		}
+	}
+	session := mcpConnect(t, e, e.authToken)
+	for _, args := range []map[string]any{
+		{"owner": e.ownerUsername, "key": e.projKey},
+		{"owner": e.ownerUsername, "key": e.projKey, "access_mode": ""},
+	} {
+		requireMCPErrorCode(t, mcpCallExpectError(t, e, session, "track_update_project_access", args), "validation_error")
+	}
+	settings, err := e.store.GetProjectAccessSettings(e.ctx, e.projectID)
+	if err != nil {
+		t.Fatalf("GetProjectAccessSettings: %v", err)
+	}
+	if settings.AccessMode != model.ProjectAccessPublic {
+		t.Fatalf("access mode after refused updates = %q, want public", settings.AccessMode)
+	}
+
+	// A legacy flag on its own still sets the mode, the other read as off.
+	code, body = e.do(t, http.MethodPatch, accessPath, map[string]any{"is_public": false})
+	if code != http.StatusOK || decode[model.ProjectAccessSettings](t, body).AccessMode != model.ProjectAccessPrivate {
+		t.Fatalf("legacy is_public=false code = %d body = %s", code, body)
+	}
+	out := mcpCall(t, e, session, "track_update_project_access", map[string]any{
+		"owner": e.ownerUsername, "key": e.projKey, "access_mode": "", "is_public": true,
+	})
+	if got := decodeMCPField[model.ProjectAccessSettings](t, out, "access"); got.AccessMode != model.ProjectAccessPublic {
+		t.Fatalf("MCP legacy is_public=true access = %+v", got)
+	}
+	out = mcpCall(t, e, session, "track_update_project_access", map[string]any{
+		"owner": e.ownerUsername, "key": e.projKey, "public_issue_creation": false,
+	})
+	if got := decodeMCPField[model.ProjectAccessSettings](t, out, "access"); got.AccessMode != model.ProjectAccessPrivate {
+		t.Fatalf("MCP legacy public_issue_creation=false access = %+v", got)
+	}
+}
+
 func projectResponseInPage(projects []projectResponseDecoded, id string) bool {
 	for _, project := range projects {
 		if project.ID.String() == id {

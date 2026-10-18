@@ -374,9 +374,9 @@ type mcpMemberInput struct {
 
 type mcpUpdateProjectAccessInput struct {
 	mcpProjectInput
-	AccessMode          string `json:"access_mode,omitempty" jsonschema:"private (members only), public (anyone can read), public_issues (anyone can read, anyone signed in can file issues) or helpdesk (private, but anyone signed in can file issues and follow the ones they filed); takes precedence over is_public and public_issue_creation"`
-	IsPublic            bool   `json:"is_public,omitempty" jsonschema:"legacy: use access_mode"`
-	PublicIssueCreation bool   `json:"public_issue_creation,omitempty" jsonschema:"legacy: use access_mode"`
+	AccessMode          string `json:"access_mode,omitempty" jsonschema:"private (members only), public (anyone can read), public_issues (anyone can read, anyone signed in can file issues) or helpdesk (private, but anyone signed in can file issues and follow the ones they filed); required unless is_public or public_issue_creation is sent, and takes precedence over them"`
+	IsPublic            *bool  `json:"is_public,omitempty" jsonschema:"legacy: use access_mode"`
+	PublicIssueCreation *bool  `json:"public_issue_creation,omitempty" jsonschema:"legacy: use access_mode"`
 }
 
 type mcpUpdateProjectSprintModeInput struct {
@@ -1313,9 +1313,12 @@ func (s *Server) mcpUpdateProjectAccess(ctx context.Context, req *mcp.CallToolRe
 	if err := s.requireMCPProjectMemberManagement(ctx, auth, project.ID); err != nil {
 		return nil, err
 	}
-	mode := model.ProjectAccessModeFromFlags(input.IsPublic, input.PublicIssueCreation)
-	if input.AccessMode != "" {
-		mode = model.ProjectAccessMode(input.AccessMode)
+	mode := model.ProjectAccessMode(input.AccessMode)
+	if input.AccessMode == "" {
+		var ok bool
+		if mode, ok = legacyProjectAccessMode(input.IsPublic, input.PublicIssueCreation); !ok {
+			return nil, validationError(errProjectAccessModeRequired)
+		}
 	}
 	settings, err := s.store.UpdateProjectAccessMode(ctx, project.ID, mode)
 	if err != nil {

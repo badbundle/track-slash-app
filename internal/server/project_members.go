@@ -18,15 +18,28 @@ type projectMemberReq struct {
 // older clients; access_mode wins when both are sent.
 type projectAccessReq struct {
 	AccessMode          *model.ProjectAccessMode `json:"access_mode,omitempty"`
-	IsPublic            bool                     `json:"is_public"`
-	PublicIssueCreation bool                     `json:"public_issue_creation"`
+	IsPublic            *bool                    `json:"is_public,omitempty"`
+	PublicIssueCreation *bool                    `json:"public_issue_creation,omitempty"`
 }
 
-func (req projectAccessReq) mode() model.ProjectAccessMode {
+// mode is the requested access mode, or false when the request names none.
+func (req projectAccessReq) mode() (model.ProjectAccessMode, bool) {
 	if req.AccessMode != nil {
-		return *req.AccessMode
+		return *req.AccessMode, true
 	}
-	return model.ProjectAccessModeFromFlags(req.IsPublic, req.PublicIssueCreation)
+	return legacyProjectAccessMode(req.IsPublic, req.PublicIssueCreation)
+}
+
+const errProjectAccessModeRequired = "access_mode is required"
+
+// legacyProjectAccessMode maps the legacy flags onto a mode, a flag left out
+// reading as off. It reports false when both are left out, so a request that
+// names no mode at all is refused rather than making the project private.
+func legacyProjectAccessMode(isPublic, publicIssueCreation *bool) (model.ProjectAccessMode, bool) {
+	if isPublic == nil && publicIssueCreation == nil {
+		return "", false
+	}
+	return model.ProjectAccessModeFromFlags(isPublic != nil && *isPublic, publicIssueCreation != nil && *publicIssueCreation), true
 }
 
 func (s *Server) grantProjectMember(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +127,11 @@ func (s *Server) updateProjectAccess(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	mode := req.mode()
+	mode, ok := req.mode()
+	if !ok {
+		writeError(w, http.StatusBadRequest, errProjectAccessModeRequired)
+		return
+	}
 	if !mode.Valid() {
 		writeError(w, http.StatusBadRequest, store.ErrInvalidProjectAccessMode.Error())
 		return
