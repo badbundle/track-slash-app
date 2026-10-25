@@ -177,6 +177,11 @@ type mcpProjectInsightsInput struct {
 	Sprint string `json:"sprint,omitempty" jsonschema:"sprint ref for the sprint burn-up, for example sprint-3; defaults to the active sprint, then the latest completed sprint in range"`
 }
 
+type mcpProjectTimelineInput struct {
+	mcpProjectInput
+	Range string `json:"range,omitempty" jsonschema:"one of 2w, 30d, 90d, all; how far back completed work and completed sprints reach; defaults to 30d"`
+}
+
 type mcpProjectProgressInput struct {
 	mcpProjectInput
 	CompletedWithin string `json:"completed_within,omitempty" jsonschema:"how far back to list completed issues: one of 1d, 7d, 14d, 30d; defaults to 7d"`
@@ -539,6 +544,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_list_project_assignees", "List assignable users for project.", readOnly, s.mcpListProjectAssignees)
 	addMCPTool(srv, "track_get_project_stats", "Get project issue status stats.", readOnly, s.mcpGetProjectStats)
 	addMCPTool(srv, "track_get_project_insights", "Get project insight series built from history: burn-up and cumulative flow, created vs resolved, cycle time, sprint burn-up, and sprint velocity.", readOnly, s.mcpGetProjectInsights)
+	addMCPTool(srv, "track_get_project_timeline", "Get a project's work as a Gantt timeline: each top-level issue with the bar it is drawn as, from when work started (its first move to In progress, else its sprint's start, else when it was filed) to when it was completed, or while open to its due date or sprint end, and to today at least while in progress. With sprints on, issues are grouped by sprint: completed sprints in range, the active sprint, then planned sprints, then work in no sprint. Open To do issues with no due date and no sprint have no bar; unscheduled counts them.", readOnly, s.mcpGetProjectTimeline)
 	addMCPTool(srv, "track_get_project_progress", "Get what a project is working on now: top-level issues in progress, highest priority first, and issues completed within a window (Done or Closed, including won't-do and duplicates), most recently completed first, each with completed_at.", readOnly, s.mcpGetProjectProgress)
 	addMCPTool(srv, "track_list_project_changelog", "List project changelog entries.", readOnly, s.mcpListProjectChangelog)
 
@@ -1536,6 +1542,30 @@ func (s *Server) mcpGetProjectInsights(ctx context.Context, req *mcp.CallToolReq
 		return nil, err
 	}
 	return mcpToolOutput{"insights": insights}, nil
+}
+
+func (s *Server) mcpGetProjectTimeline(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectTimelineInput) (mcpToolOutput, error) {
+	ctx, auth, err := s.mcpAuth(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	project, err := s.mcpProject(ctx, auth, input.mcpProjectInput)
+	if err != nil {
+		return nil, err
+	}
+	rng, err := parseTimelineRange(input.Range)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	includePrivate, err := s.readsPrivateIssues(ctx, auth.User, project.ID)
+	if err != nil {
+		return nil, err
+	}
+	timeline, err := s.projectTimeline(ctx, project, rng, time.Now(), includePrivate)
+	if err != nil {
+		return nil, err
+	}
+	return mcpToolOutput{"timeline": timeline}, nil
 }
 
 func (s *Server) mcpGetProjectProgress(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectProgressInput) (mcpToolOutput, error) {

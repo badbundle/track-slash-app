@@ -153,7 +153,7 @@ func (s *Server) uiProjectAllIssuePage(w http.ResponseWriter, r *http.Request) {
 // falling back to the default view when the caller names one that does not exist.
 func uiProjectPanelView(raw string) string {
 	switch raw {
-	case "about", "sprint", "planned", "progress", "all", "context", "whiteboard", "sprints", "changelog", "insights", "members":
+	case "about", "sprint", "planned", "progress", "all", "context", "whiteboard", "sprints", "changelog", "insights", "timeline", "members":
 		return raw
 	default:
 		return "sprint"
@@ -764,6 +764,16 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 			return nil, err
 		}
 		panel.Insights = uiBuildProjectInsights(project, insights, query)
+	case "timeline":
+		rng, err := parseTimelineRange(r.URL.Query().Get("range"))
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", errUIBadRequest, err)
+		}
+		timeline, err := s.projectTimeline(ctx, project, rng, time.Now(), permissions.CanReadMembersOnly)
+		if err != nil {
+			return nil, err
+		}
+		panel.Timeline = uiBuildProjectTimeline(project, timeline)
 	case "context":
 		manager, err := s.uiBuildProjectContextManager(ctx, r, projectID)
 		if err != nil {

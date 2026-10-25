@@ -576,6 +576,7 @@ type uiProjectPanelData struct {
 	ChangelogPage                   uiProjectChangelogPageData
 	ProjectStats                    model.ProjectStats
 	Insights                        *uiProjectInsightsData
+	Timeline                        *uiProjectTimelineData
 	Progress                        *uiProjectProgressData
 	ProgressNotice                  string
 	Tags                            []model.IssueTag
