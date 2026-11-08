@@ -7,9 +7,9 @@
     "assets:check": "npm run assets && git diff --exit-code -- internal/server/static"
   },
   "devDependencies": {
-    "htmx.org": "2.0.4",
+    "htmx.org": "2.0.11",
     "lucide": "0.468.0",
-    "tailwindcss": "3.4.17"
+    "tailwindcss": "3.4.19"
   },
   "engines": {
     "node": ">=20"
