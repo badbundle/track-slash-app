@@ -4,6 +4,7 @@
   {{template "issue-panel-header" .}}
 
   {{template "issue-repeat-notice" .Issue}}
+  {{with .IssueForms}}{{template "issue-form-notice" .}}{{end}}
   {{template "issue-delete-notice" .DeleteNotice}}
 
   {{template "issue-panel-modals" .}}

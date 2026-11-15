@@ -592,16 +592,19 @@ type uiProjectPanelData struct {
 	ProjectStats                    model.ProjectStats
 	Insights                        *uiProjectInsightsData
 	Timeline                        *uiProjectTimelineData
-	Progress                        *uiProjectProgressData
-	ProgressNotice                  string
-	Tags                            []model.IssueTag
-	ContextItems                    []uiProjectContextItem
-	ContextHasMore                  bool
-	ContextManager                  *uiContextManagerData
-	Whiteboard                      *uiWhiteboardData
-	DeleteNotice                    *uiIssueDeleteNotice
-	SprintIssuesHasMore             bool
-	PlannedHasMore                  bool
+	Forms                           *uiProjectFormsData
+	// CanReadMembersOnly shows the Forms menu item, which is the members'.
+	CanReadMembersOnly  bool
+	Progress            *uiProjectProgressData
+	ProgressNotice      string
+	Tags                []model.IssueTag
+	ContextItems        []uiProjectContextItem
+	ContextHasMore      bool
+	ContextManager      *uiContextManagerData
+	Whiteboard          *uiWhiteboardData
+	DeleteNotice        *uiIssueDeleteNotice
+	SprintIssuesHasMore bool
+	PlannedHasMore      bool
 }
 
 const uiIssueListDefaultSort = store.ListIssuesSortUpdated
@@ -735,16 +738,18 @@ type uiIssuePanelData struct {
 	CommentVisibility       model.CommentVisibility
 	CommentEditVisibility   model.CommentVisibility
 	// HelpDesk names the reporter as the one a shared comment reaches.
-	HelpDesk          bool
-	Links             []uiIssueLinkItem
-	LinksHasMore      bool
-	AddLink           bool
-	EditLinkID        uuid.UUID
-	LinkTarget        string
-	LinkRelation      string
-	LinkError         string
-	Contexts          []model.ProjectContext
-	ContextsHasMore   bool
+	HelpDesk        bool
+	Links           []uiIssueLinkItem
+	LinksHasMore    bool
+	AddLink         bool
+	EditLinkID      uuid.UUID
+	LinkTarget      string
+	LinkRelation    string
+	LinkError       string
+	Contexts        []model.ProjectContext
+	ContextsHasMore bool
+	// IssueForms is set for members only, and only when the issue has forms.
+	IssueForms        *uiIssueFormsData
 	EditTags          bool
 	TagModalAttached  []model.IssueTag
 	TagModalAvailable []model.IssueTag
