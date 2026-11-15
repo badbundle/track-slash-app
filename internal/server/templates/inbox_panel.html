@@ -1,0 +1,35 @@
+{{/* The Inbox: every form addressed to the signed-in user, across projects. */}}
+{{define "inbox-panel"}}
+<section data-sidebar-view="inbox" class="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-6">
+  <header>
+    <div class="min-w-0">
+      <h1 class="truncate text-2xl font-semibold tracking-tight">Inbox</h1>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Forms waiting on your answers.</p>
+    </div>
+    {{template "tab-bar" .Tabs}}
+  </header>
+
+  <section class="pt-4 pb-6">
+    {{if .Rows}}
+    <div data-inbox-list class="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      {{template "inbox-rows" .}}
+    </div>
+    {{else}}
+    <div data-inbox-empty class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">{{if .Done}}No answered forms yet.{{else}}Nothing is waiting on you.{{end}}</div>
+    {{end}}
+  </section>
+</section>
+{{end}}
+
+{{/* A run of rows, then the button for the next run when there is one. "Load more" swaps this whole run in place. */}}
+{{define "inbox-rows"}}
+{{range .Rows}}{{template "form-summary-row" .}}{{end}}
+{{if .HasMore}}
+<div id="inbox-more" class="border-t border-slate-100 p-3 dark:border-slate-800">
+  <button type="button" hx-get="{{.MoreHref}}" hx-target="#inbox-more" hx-swap="outerHTML" class="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900">
+    <i data-lucide="chevron-down" class="h-4 w-4" aria-hidden="true"></i>
+    Load more
+  </button>
+</div>
+{{end}}
+{{end}}

@@ -22,6 +22,7 @@
             <span class="block truncate font-medium">Create issue</span>
           </span>
         </a>
+        {{template "sidebar-inbox" .SidebarInbox}}
         <a data-nav-link data-sidebar-link data-sidebar-view="me" href="/me" hx-get="/me/panel" hx-target="#main" hx-push-url="/me" aria-label="Me" {{if eq .SidebarActive.View "me"}}aria-current="page"{{end}} class="mb-1 flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800 {{if eq .SidebarActive.View "me"}}bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-200 dark:ring-indigo-900{{else}}text-slate-600 dark:text-slate-300{{end}}">
           <span class="grid h-6 w-6 shrink-0 place-items-center text-slate-500 dark:text-slate-400">
             <i data-lucide="user" class="h-3.5 w-3.5" aria-hidden="true"></i>
@@ -117,4 +118,18 @@
   {{end}}
   {{end}}
 </div>
+{{end}}
+
+{{/* The Inbox link and the count of forms waiting on the signed-in user. OOB marks the copy an htmx response sends to refresh it. */}}
+{{define "sidebar-inbox"}}
+<a id="sidebar-inbox" {{if .OOB}}hx-swap-oob="true"{{end}} data-nav-link data-sidebar-link data-sidebar-view="inbox" href="/inbox" hx-get="/inbox/panel" hx-target="#main" hx-push-url="/inbox" aria-label="Inbox{{if .Count}}, {{.Count}} waiting{{end}}" {{if .Active}}aria-current="page"{{end}} class="mb-1 flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition hover:bg-slate-100 dark:hover:bg-slate-800 {{if .Active}}bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100 dark:bg-indigo-950/50 dark:text-indigo-200 dark:ring-indigo-900{{else}}text-slate-600 dark:text-slate-300{{end}}">
+  <span class="relative grid h-6 w-6 shrink-0 place-items-center text-slate-500 dark:text-slate-400">
+    <i data-lucide="inbox" class="h-3.5 w-3.5" aria-hidden="true"></i>
+    {{if .Count}}<span data-sidebar-inbox-dot aria-hidden="true" class="collapsed-only absolute right-0 top-0 h-2 w-2 rounded-full bg-indigo-600 ring-2 ring-white dark:bg-indigo-400 dark:ring-slate-900"></span>{{end}}
+  </span>
+  <span class="wide-only flex min-w-0 flex-1 items-center justify-between gap-2">
+    <span class="block truncate font-medium">Inbox</span>
+    {{if .Count}}<span data-sidebar-inbox-count>{{template "count-badge" .Count}}</span>{{end}}
+  </span>
+</a>
 {{end}}

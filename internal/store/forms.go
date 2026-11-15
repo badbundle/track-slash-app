@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -304,6 +305,106 @@ func (s *Store) ListProjectForms(ctx context.Context, p ListProjectFormsParams) 
 		out = out[:p.Limit]
 	}
 	return out, hasMore, nil
+}
+
+// InboxState picks which half of a person's Inbox to list.
+type InboxState string
+
+const (
+	// InboxTodo is the open forms waiting on the person, longest-waiting first.
+	InboxTodo InboxState = "todo"
+	// InboxDone is the forms they have dealt with or that were withdrawn, most
+	// recently changed first.
+	InboxDone InboxState = "done"
+)
+
+// InboxCursor pages through the Inbox. At is the form's created_at for the todo
+// state and its updated_at for the done state.
+type InboxCursor struct {
+	At time.Time `json:"t"`
+	ID uuid.UUID `json:"i"`
+}
+
+// NextInboxCursor is the cursor that follows the last form of a page.
+func NextInboxCursor(state InboxState, last model.FormSummary) InboxCursor {
+	if state == InboxDone {
+		return InboxCursor{At: last.UpdatedAt, ID: last.ID}
+	}
+	return InboxCursor{At: last.CreatedAt, ID: last.ID}
+}
+
+type ListInboxFormsParams struct {
+	UserID uuid.UUID
+	State  InboxState
+	Cursor *InboxCursor
+	Limit  int
+}
+
+// inboxReadable keeps only forms in live projects where the person is still
+// the owner or a member and isn't blocked. $1 is the person.
+const inboxReadable = `
+	AND owner.deleted_at IS NULL
+	AND (
+	    p.owner_id = $1
+	    OR EXISTS (SELECT 1 FROM project_members pm WHERE pm.project_id = p.id AND pm.user_id = $1)
+	)
+	AND NOT EXISTS (SELECT 1 FROM project_user_blocks b WHERE b.project_id = p.id AND b.user_id = $1)
+`
+
+// ListInboxForms lists the forms addressed to a person across their projects,
+// without their questions and answers. Forms in projects the person can no
+// longer read as a member are left out. Site admins get no extra forms: a form
+// is only ever addressed to a member.
+func (s *Store) ListInboxForms(ctx context.Context, p ListInboxFormsParams) ([]model.FormSummary, bool, error) {
+	args := []any{p.UserID}
+	q := formSelect + " WHERE f.assignee_id = $1" + inboxReadable
+	col, order, cmp, status := "f.created_at", "ASC", ">", " AND f.status = 'open'"
+	if p.State == InboxDone {
+		col, order, cmp, status = "f.updated_at", "DESC", "<", " AND f.status <> 'open'"
+	}
+	q += status
+	if p.Cursor != nil {
+		args = append(args, p.Cursor.At, p.Cursor.ID)
+		q += fmt.Sprintf(" AND (%s, f.id) %s ($%d, $%d)", col, cmp, len(args)-1, len(args))
+	}
+	args = append(args, p.Limit+1)
+	q += fmt.Sprintf(" ORDER BY %s %s, f.id %s LIMIT $%d", col, order, order, len(args))
+
+	rows, err := s.db.Query(ctx, q, args...)
+	if err != nil {
+		return nil, false, err // defensive: DB outage
+	}
+	defer rows.Close()
+
+	out := make([]model.FormSummary, 0, p.Limit)
+	for rows.Next() {
+		form, err := scanForm(rows)
+		if err != nil {
+			return nil, false, err // defensive: columns match the fixed SELECT list
+		}
+		out = append(out, form.Summary())
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err // defensive: connection lost mid-read
+	}
+	hasMore := len(out) > p.Limit
+	if hasMore {
+		out = out[:p.Limit]
+	}
+	return out, hasMore, nil
+}
+
+// CountInboxForms counts the open forms waiting on a person: the number the
+// sidebar shows. It runs on every page render.
+func (s *Store) CountInboxForms(ctx context.Context, userID uuid.UUID) (int, error) {
+	var n int
+	err := s.db.QueryRow(ctx, `
+		SELECT count(*)
+		FROM forms f
+		JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
+		JOIN users owner ON owner.id = p.owner_id
+		WHERE f.assignee_id = $1 AND f.status = 'open'`+inboxReadable, userID).Scan(&n)
+	return n, err
 }
 
 // SaveFormAnswers saves the assignee's answers to an open form as they make

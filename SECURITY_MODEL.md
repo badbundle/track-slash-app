@@ -60,7 +60,11 @@ source of a user's rights in a project.
   up and cancelling one need write access. Only the form's assignee saves its
   answers, submits it or reopens it. The assignee must be a member; a
   read-only member can be asked, because answering their own form is not a
-  project write.
+  project write. The Inbox (`/inbox`, `GET /api/v1/me/inbox`, `track_list_inbox`)
+  lists only the forms addressed to the caller, and only those in live projects
+  where they are still the owner or a member and not blocked. A site admin gets
+  no extra forms there, and removing or blocking someone drops their forms from
+  the list and the count at once.
 - **Emails are never shown outside the account itself.** Member lists, pickers,
   comment authors and the reporter view name people by display name or
   username. Member search matches emails only for someone who manages members.

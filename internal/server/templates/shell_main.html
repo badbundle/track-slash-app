@@ -12,6 +12,8 @@
       {{template "error-panel" .ErrorPanel}}
       {{else if .WorkPanel}}
       {{template "work-panel" .WorkPanel}}
+      {{else if .InboxPanel}}
+      {{template "inbox-panel" .InboxPanel}}
       {{else if .ProjectsPanel}}
       {{template "projects-panel" .ProjectsPanel}}
       {{else if .NewProjectPanel}}

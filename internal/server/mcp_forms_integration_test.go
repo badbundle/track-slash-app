@@ -44,6 +44,7 @@ func TestMCPFormParity(t *testing.T) {
 		"track_create_form":      false,
 		"track_get_form":         true,
 		"track_list_forms":       true,
+		"track_list_inbox":       true,
 		"track_acknowledge_form": false,
 		"track_cancel_form":      false,
 	}

@@ -612,6 +612,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_create_form", mcpCreateFormDescription, write, s.mcpCreateForm)
 	addMCPTool(srv, "track_get_form", "Get a form: its status, and in responses each question paired with the person's answer, where changed_from_default marks an answer that differs from the one you suggested. Once you have used a submitted form's answers, call track_acknowledge_form so the person can see they were picked up. Set include_definition to also get the questions as they were defined and the raw answers by question id.", readOnly, s.mcpGetForm)
 	addMCPTool(srv, "track_list_forms", "List a project's forms, newest first, without their questions. Filter by statuses (open, submitted, acknowledged, cancelled), by issue, or by assignee_id. Forms are for project members only.", readOnly, s.mcpListForms)
+	addMCPTool(srv, "track_list_inbox", "List the forms addressed to you across your projects: state todo (open, longest-waiting first, the default) or done (submitted, picked up or cancelled, most recently changed first).", readOnly, s.mcpListInbox)
 	addMCPTool(srv, "track_acknowledge_form", "Mark a submitted form picked up, once its answers have been read and used. Its answers can no longer change after that.", write, s.mcpAcknowledgeForm)
 	addMCPTool(srv, "track_cancel_form", "Withdraw a form that is open or submitted and not yet picked up, for example when its questions no longer need an answer. A form's questions can't be edited: to change them, cancel it and create another.", write, s.mcpCancelForm)
 

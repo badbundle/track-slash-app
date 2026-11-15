@@ -20,6 +20,7 @@
     <a href="{{.Href}}" {{if .HXGet}}hx-get="{{.HXGet}}"{{end}} {{if .HXTarget}}hx-target="{{.HXTarget}}"{{end}} {{if .HXPushURL}}hx-push-url="{{.HXPushURL}}"{{end}} {{if .HXSelect}}hx-select="{{.HXSelect}}"{{end}} {{if .HXSelectOOB}}hx-select-oob="{{.HXSelectOOB}}"{{end}} {{if .HXSwap}}hx-swap="{{.HXSwap}}"{{end}} {{if .Active}}aria-current="page"{{end}} class="{{if .MobileOverflow}}hidden lg:inline-flex{{else}}inline-flex{{end}} items-center gap-2 border-b-4 px-1 py-3 text-sm font-medium {{if .Active}}border-indigo-600 text-indigo-700 dark:border-indigo-400 dark:text-indigo-200{{else}}border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:text-slate-100{{end}}">
       {{if .Icon}}<i data-lucide="{{.Icon}}" class="h-4 w-4" aria-hidden="true"></i>{{end}}
       {{.Label}}
+      {{if .Count}}{{template "count-badge" .Count}}{{end}}
     </a>
     {{end}}
   </div>
