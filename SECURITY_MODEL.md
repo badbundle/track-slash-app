@@ -77,6 +77,20 @@ source of a user's rights in a project.
   member who is not blocked, or nothing is sent. The payload is the form's
   reference, its project, its title and a link, and nothing from the questions
   or answers.
+  Creating a form returns a wait URL (`/api/v1/form-waits/{key}`), so the
+  agent that asked can learn the form was answered without the person telling
+  it. The key in it is the only credential the URL takes, because an agent's
+  background command holds no account token, and all it buys is the form's
+  status: `open`, `submitted`, `acknowledged` or `cancelled`. It shows no
+  title, question, answer or project, and it changes nothing. The agent reads
+  the answers through `track_get_form` or the REST route as before, which check
+  membership. The key stands for the member who created the form, and that is
+  checked on every read: once they are no longer a member, are blocked or are
+  deleted, or the project is gone, the URL answers 404 exactly as for a key
+  that was never issued. The server keeps only the key's SHA-256 and shows the
+  key once, in the response that creates the form. `track_get_form` with
+  `wait_seconds` waits the same way with the caller's own credentials, and
+  checks their membership again on each read.
 - **Emails are never shown outside the account itself.** Member lists, pickers,
   comment authors and the reporter view name people by display name or
   username. Member search matches emails only for someone who manages members.
@@ -99,6 +113,11 @@ source of a user's rights in a project.
   one, even for its own user, and MCP has no tool for any of the three. A
   session or an API token is the person's own, so REST accepts those. The
   form records how it was submitted (`web` or `api`). See [OAUTH.md](OAUTH.md).
+- **A wait is bounded.** A wait URL and `track_get_form` hold a request for 50
+  seconds at most, read the form again every 2 seconds and keep no database
+  connection in between. At most 4 requests wait on one form and 256 in all;
+  one more is refused with 429 (MCP `rate_limited`). A plain status check never
+  waits, so it is never refused (`form_wait.go`).
 - **Guesses are budgeted.** Password sign-in, password changes, reauthentication
   and OAuth client authentication share per-address and per-identifier failure
   budgets (`auth_rate_limit.go`).
@@ -134,6 +153,12 @@ These are known and left as they are. Change one only with that in mind.
 - **A form's origin link is its creator's word.** `origin_url` must be an
   `https` link with no credentials in it, but nothing checks where it leads.
   Only members with write access create forms, and only members see them.
+- **A form's wait URL is a secret in a URL.** Whoever holds it can see the
+  form's status, and nothing else, until its creator loses the project. It
+  outlives the token that created the form, and it can't be revoked on its
+  own: cancelling the form leaves it answering `cancelled`. The server's own
+  request log leaves the key out, but a proxy in front of it may log the full
+  path. A status is all it gives away, so that is accepted.
 - **Images are stored as uploaded,** metadata included.
 - **Session cookies do not use the `__Host-` prefix.** They are HttpOnly,
   SameSite=Lax, Secure over https and have no Domain. Renaming them would sign

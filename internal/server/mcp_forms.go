@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -17,6 +18,7 @@ const mcpCreateFormDescription = "Ask a person for decisions through a form they
 	"Give each question a default with the answer you suggest, so the person only has to confirm it. " +
 	"Name the thread or session that is asking in origin_label, and set origin_url when it has a link, so the person knows where to return. " +
 	"Give the person the url from the result, and read the answers later with track_get_form. " +
+	"You don't need the person to tell you they have answered. The result's wait_url says when the form is no longer open: GET it with ?wait=50 from a background command, and again while its status is still open. It needs no credentials and returns only {\"status\"}. Keep wait_url, because it is shown only once. Without a way to run a command, call track_get_form with wait_seconds instead. " +
 	"Never ask for a password, key or token: every member of the project can read a form's answers. " +
 	"Question types: single_choice and multi_choice (each with options, and allow_other for a free-text Other), confirm (one checkbox, for \"I've done this\" or \"Go ahead\") and text. " +
 	"A form's questions can't be edited after it is created."
@@ -29,6 +31,7 @@ type mcpFormInput struct {
 type mcpGetFormInput struct {
 	mcpFormInput
 	IncludeDefinition bool `json:"include_definition,omitempty" jsonschema:"also return the questions as they were defined and the raw answers by question id"`
+	WaitSeconds       int  `json:"wait_seconds,omitempty" jsonschema:"hold the call for up to this many seconds (50 at most) while the form is still open, and return as soon as it is submitted or cancelled; call again to keep waiting"`
 }
 
 type mcpCreateFormInput struct {
@@ -64,23 +67,32 @@ type mcpFormBrief struct {
 	Comment      string                   `json:"comment"`
 	SubmittedVia *model.FormSubmitSurface `json:"submitted_via"`
 	URL          string                   `json:"url"`
+	WaitURL      string                   `json:"wait_url,omitempty"`
 	Responses    []model.FormAnswerView   `json:"responses"`
 }
 
-func (s *Server) mcpFormOutput(form model.Form, includeDefinition bool) mcpToolOutput {
+func (s *Server) mcpFormBrief(form model.Form) mcpFormBrief {
 	full := s.formResponse(form)
-	if includeDefinition {
-		return mcpToolOutput{"form": full}
-	}
-	return mcpToolOutput{"form": mcpFormBrief{
+	return mcpFormBrief{
 		FormSummary:  form.Summary(),
 		Description:  form.Description,
 		Comment:      form.Comment,
 		SubmittedVia: form.SubmittedVia,
 		URL:          full.URL,
 		Responses:    full.Responses,
-	}}
+	}
 }
+
+func (s *Server) mcpFormOutput(form model.Form, includeDefinition bool) mcpToolOutput {
+	if includeDefinition {
+		return mcpToolOutput{"form": s.formResponse(form)}
+	}
+	return mcpToolOutput{"form": s.mcpFormBrief(form)}
+}
+
+// errMCPFormWaitsFull refuses a wait when too many calls already wait on the
+// form.
+var errMCPFormWaitsFull = mcpAppError{Code: "rate_limited", Message: errFormWaitsFull.Error()}
 
 // mcpFormError reports a problem the caller should fix as a validation
 // error, and passes every other error through.
@@ -171,6 +183,7 @@ func (s *Server) mcpCreateForm(ctx context.Context, req *mcp.CallToolRequest, in
 	} else if given != nil {
 		assigneeID = *given
 	}
+	waitKey, waitKeyHash := newFormWaitKey()
 	form, err := s.store.CreateForm(ctx, store.CreateFormParams{
 		ProjectID:   project.ID,
 		IssueID:     issueID,
@@ -181,11 +194,14 @@ func (s *Server) mcpCreateForm(ctx context.Context, req *mcp.CallToolRequest, in
 		CreatedByID: auth.User.ID,
 		OriginLabel: input.OriginLabel,
 		OriginURL:   input.OriginURL,
+		WaitKeyHash: waitKeyHash,
 	})
 	if err != nil {
 		return nil, mcpFormError(err)
 	}
-	return s.mcpFormOutput(form, false), nil
+	created := s.mcpFormBrief(form)
+	created.WaitURL = s.formWaitURL(waitKey)
+	return mcpToolOutput{"form": created}, nil
 }
 
 func (s *Server) mcpGetForm(ctx context.Context, req *mcp.CallToolRequest, input mcpGetFormInput) (mcpToolOutput, error) {
@@ -193,9 +209,31 @@ func (s *Server) mcpGetForm(ctx context.Context, req *mcp.CallToolRequest, input
 	if err != nil {
 		return nil, err
 	}
+	wait, err := s.formWaitDuration(input.WaitSeconds)
+	if err != nil {
+		return nil, validationError("wait_seconds must be a whole number of seconds, 0 or more")
+	}
 	form, _, err := s.mcpForm(ctx, auth, input.mcpFormInput)
 	if err != nil {
 		return nil, err
+	}
+	if wait > 0 && form.Status == model.FormStatusOpen {
+		// Each read goes back through mcpForm, so someone who stops being a
+		// member while they wait is refused exactly as on a call without a wait.
+		_, err := s.waitWhileFormOpen(ctx, form.ID, wait, func(ctx context.Context) (model.FormStatus, error) {
+			latest, _, err := s.mcpForm(ctx, auth, input.mcpFormInput)
+			if err != nil {
+				return "", err
+			}
+			form = latest
+			return form.Status, nil
+		})
+		if errors.Is(err, errFormWaitsFull) {
+			return nil, errMCPFormWaitsFull
+		}
+		if err != nil {
+			return nil, err
+		}
 	}
 	return s.mcpFormOutput(form, input.IncludeDefinition), nil
 }

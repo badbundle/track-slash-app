@@ -52,25 +52,39 @@ type Server struct {
 	requestTimeout       time.Duration
 	authRequestTimeout   time.Duration
 	uploadTimeout        time.Duration
+	formWaitMax          time.Duration
+	formWaitPoll         time.Duration
+	formWaits            *formWaitLimiter
 	previewTermsRequired bool
 	webPushPublicKey     string
 	githubIntegration    *githubintegration.Service
 }
 
 type Options struct {
-	CORSAllowedOrigins   []string
-	PublicOrigin         string
-	SessionTTL           time.Duration
-	AuthRateLimit        AuthRateLimitOptions
-	TrustedProxyCIDRs    []net.IPNet
-	RequestTimeout       time.Duration
-	AuthRequestTimeout   time.Duration
-	UploadTimeout        time.Duration
+	CORSAllowedOrigins []string
+	PublicOrigin       string
+	SessionTTL         time.Duration
+	AuthRateLimit      AuthRateLimitOptions
+	TrustedProxyCIDRs  []net.IPNet
+	RequestTimeout     time.Duration
+	AuthRequestTimeout time.Duration
+	UploadTimeout      time.Duration
+	// FormWait bounds waiting for a form to be answered: the longest one
+	// request waits, how often it reads the form again, and how many requests
+	// may wait at once on one form and in total. Zero values use the defaults.
+	FormWait             FormWaitOptions
 	PreviewTermsRequired bool
 	DevReload            bool
 	ObjectStorage        *objectstorage.Service
 	WebPushPublicKey     string
 	GitHubIntegration    *githubintegration.Service
+}
+
+type FormWaitOptions struct {
+	Max     time.Duration
+	Poll    time.Duration
+	PerForm int
+	Total   int
 }
 
 // New constructs a Server. corsAllowedOrigins is a list of exact browser
@@ -103,6 +117,14 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 	if uploadTimeout <= 0 {
 		uploadTimeout = 2 * time.Minute
 	}
+	formWaitMax := opts.FormWait.Max
+	if formWaitMax <= 0 {
+		formWaitMax = defaultFormWaitMax
+	}
+	formWaitPoll := opts.FormWait.Poll
+	if formWaitPoll <= 0 {
+		formWaitPoll = defaultFormWaitPoll
+	}
 	return &Server{
 		store:                s,
 		hub:                  hub,
@@ -122,6 +144,9 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 		requestTimeout:       requestTimeout,
 		authRequestTimeout:   authRequestTimeout,
 		uploadTimeout:        uploadTimeout,
+		formWaitMax:          formWaitMax,
+		formWaitPoll:         formWaitPoll,
+		formWaits:            newFormWaitLimiter(opts.FormWait.PerForm, opts.FormWait.Total),
 		previewTermsRequired: opts.PreviewTermsRequired,
 		webPushPublicKey:     opts.WebPushPublicKey,
 		githubIntegration:    opts.GitHubIntegration,
@@ -132,7 +157,7 @@ func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
-	r.Use(middleware.Logger)
+	r.Use(logRequests)
 	r.Use(middleware.Recoverer)
 	r.Use(exposeRequestID)
 	r.Use(s.securityHeaders)
@@ -182,6 +207,10 @@ func (s *Server) Router() http.Handler {
 		r.Post("/session", s.authIPRateLimited(s.createSession))
 		r.Post("/session/passkey/options", s.authIPRateLimited(s.createPasskeySessionOptions))
 		r.Post("/session/passkey", s.authIPRateLimited(s.createPasskeySession))
+
+		// A wait URL carries its own secret instead of an account's credentials,
+		// and the request-deadline middleware gives it longer than other requests.
+		r.Get("/form-waits/{waitKey}", s.getFormWait)
 
 		// The request-deadline middleware exempts this long-lived connection.
 		if s.hub != nil {

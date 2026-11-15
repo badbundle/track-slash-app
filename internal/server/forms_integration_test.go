@@ -17,6 +17,7 @@ import (
 type formJSON struct {
 	Ref          string                 `json:"ref"`
 	URL          string                 `json:"url"`
+	WaitURL      string                 `json:"wait_url"`
 	Title        string                 `json:"title"`
 	Description  string                 `json:"description"`
 	Status       model.FormStatus       `json:"status"`

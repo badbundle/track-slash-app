@@ -35,6 +35,11 @@ func (s *Server) requestTimeoutFor(r *http.Request) time.Duration {
 	if strings.Contains(r.URL.Path, "passkey") {
 		return s.authRequestTimeout
 	}
+	if isFormWaitRequest(r) {
+		// A wait URL may hold the request for its whole wait, then answers
+		// like any other request.
+		return s.formWaitMax + s.requestTimeout
+	}
 	return s.requestTimeout
 }
 

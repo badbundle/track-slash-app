@@ -103,7 +103,9 @@ decision, so the answer has to come from the person. `answerableFormFromRoute`
 refuses a token whose kind is `oauth` on the routes that save a form's answers,
 submit it and reopen it, even when the connector acts for the form's assignee,
 and MCP has no tool for any of the three. A connector can still create a form,
-read its answers and mark it picked up. See "A person answers a form" in
+read its answers and mark it picked up. Creating one gives it the form's wait
+URL, which tells it when the person has answered and shows only the form's
+status. See "A person answers a form" in
 [SECURITY_MODEL.md](SECURITY_MODEL.md).
 
 **A connector's token is not a browser session.** `uiAuthMiddleware` rejects the
