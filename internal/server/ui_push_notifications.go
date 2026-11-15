@@ -40,6 +40,7 @@ func (s *Server) uiUpdatePushNotificationPreferences(w http.ResponseWriter, r *h
 		Comments:       r.Form.Has("comments"),
 		StatusChanges:  r.Form.Has("status_changes"),
 		DueDateChanges: r.Form.Has("due_date_changes"),
+		Forms:          r.Form.Has("forms"),
 	})
 	if err != nil {
 		writeUIStoreError(w, err)

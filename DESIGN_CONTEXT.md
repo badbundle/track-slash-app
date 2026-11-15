@@ -11,7 +11,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 ## Sidebar
 
-- `Inbox` is the first link, above `Me` and `Projects`: the forms waiting on the signed-in user. When any are open it shows their count as a badge, and in the collapsed icon rail a small indigo dot on the icon instead (a number would not fit). At zero it shows neither.
+- `Inbox` is the first link, above `Me` and `Projects`: the forms waiting on the signed-in user. When any are open it shows their count as a badge, and in the collapsed icon rail a small indigo dot on the icon instead (a number would not fit). At zero it shows neither. While the page is visible the count refreshes by itself once a minute, and when the tab is shown again, without a reload.
 - Below the links, the sidebar has two titled sections, each behind a divider: `Favorites` (favorited projects) and `Recents` (the ten issues the user opened most recently, newest first). Each has a small uppercase heading, and an empty section is not shown at all.
 - Recents rows are the issue key badge plus a one-line title. Opening an issue moves it to the top without duplicating it, and the list refreshes out of band on htmx navigation. The full title shows in the app tooltip only when it is cut off.
 - Recents history is stored per user on the server (the store keeps the 50 newest views), so it follows the user across devices. It never lists an issue the user can no longer read, and signed-out visitors have none.
@@ -46,7 +46,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 ## Account Pages
 
-- A signed-in user's own settings live on four focused account pages, not one general Settings page: `Profile` (`/settings/profile`: profile image, display name, email), `Login` (`/settings/login`: password and passkeys), `Notifications` (`/settings/notifications`: browser push), and `Tokens` (`/tokens`: API tokens, connectors, GitHub tokens, web sessions). `/settings` redirects to Profile and keeps its query string.
+- A signed-in user's own settings live on four focused account pages, not one general Settings page: `Profile` (`/settings/profile`: profile image, display name, email), `Login` (`/settings/login`: password and passkeys), `Notifications` (`/settings/notifications`: browser push, with a row for each category: Mentions, New assignments, Forms (on by default, "A form is waiting on your answers."), Relevant comments, Status changes, Due-date changes), and `Tokens` (`/tokens`: API tokens, connectors, GitHub tokens, web sessions). `/settings` redirects to Profile and keeps its query string.
 - The `Login` account page manages credentials for a signed-in user. It is a normal in-app page, separate from the signed-out `/login` sign-in page described under "Login page" above, so it gets the in-app ambient brand rather than the sign-in card.
 - The four pages live only in the account menu that opens from the avatar at the bottom of the sidebar; the sidebar itself does not list them. Each menu item pairs its Lucide icon with its label, loads into `#main` like other navigation, and is highlighted while it is the current page. The menu renders from `uiAccountPages`, so add or reorder pages there.
 - `Sign out` sits alone at the bottom of the account menu, below a divider, in bold rose (destructive) text with a `log-out` icon.

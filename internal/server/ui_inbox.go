@@ -145,6 +145,19 @@ func (s *Server) uiInboxPanel(w http.ResponseWriter, r *http.Request, done bool)
 	renderUITemplate(w, http.StatusOK, "inbox-panel", panel)
 }
 
+// uiInboxCount answers the sidebar's periodic refresh with the Inbox link and
+// the number of forms waiting on the signed-in user. The page that asked
+// restores the link's current-page state after swapping it in.
+func (s *Server) uiInboxCount(w http.ResponseWriter, r *http.Request) {
+	count, err := s.store.CountInboxForms(r.Context(), currentUser(r).ID)
+	if err != nil {
+		writeUIStoreError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	renderUITemplate(w, http.StatusOK, "sidebar-inbox", uiSidebarInboxData{Count: count})
+}
+
 // uiInboxMore answers "Load more": the next run of rows.
 func (s *Server) uiInboxMore(w http.ResponseWriter, r *http.Request, done bool) {
 	rows, err := s.uiBuildInboxRows(r, done)

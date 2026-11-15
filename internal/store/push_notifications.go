@@ -27,6 +27,7 @@ const (
 	PushNotificationComments       PushNotificationCategory = "comments"
 	PushNotificationStatusChanges  PushNotificationCategory = "status_changes"
 	PushNotificationDueDateChanges PushNotificationCategory = "due_date_changes"
+	PushNotificationForms          PushNotificationCategory = "forms"
 )
 
 var pushMentionPattern = regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])@([A-Za-z0-9][A-Za-z0-9_-]{2,31})`)
@@ -51,12 +52,15 @@ type PushNotificationDelivery struct {
 	SubscriptionID uuid.UUID
 	UserID         uuid.UUID
 	ProjectID      uuid.UUID
-	IssueID        uuid.UUID
-	Category       PushNotificationCategory
-	Endpoint       string
-	P256DH         string
-	AuthSecret     string
-	AttemptCount   int
+	// IssueID is zero for a form's delivery, and FormID is nil for an
+	// issue's: a delivery is about one or the other.
+	IssueID      uuid.UUID
+	FormID       *uuid.UUID
+	Category     PushNotificationCategory
+	Endpoint     string
+	P256DH       string
+	AuthSecret   string
+	AttemptCount int
 }
 
 type PushNotificationPayload struct {
@@ -67,7 +71,7 @@ type PushNotificationPayload struct {
 }
 
 func DefaultPushNotificationPreferences() model.PushNotificationPreferences {
-	return model.PushNotificationPreferences{Mentions: true, Assignments: true}
+	return model.PushNotificationPreferences{Mentions: true, Assignments: true, Forms: true}
 }
 
 func (s *Store) GetPushNotificationPreferences(ctx context.Context, userID uuid.UUID) (model.PushNotificationPreferences, error) {
@@ -75,11 +79,11 @@ func (s *Store) GetPushNotificationPreferences(ctx context.Context, userID uuid.
 	err := s.db.QueryRow(ctx, `
 		SELECT COALESCE(p.mentions, true), COALESCE(p.assignments, true),
 		       COALESCE(p.comments, false), COALESCE(p.status_changes, false),
-		       COALESCE(p.due_date_changes, false)
+		       COALESCE(p.due_date_changes, false), COALESCE(p.forms, true)
 		FROM users u
 		LEFT JOIN user_push_notification_preferences p ON p.user_id = u.id
 		WHERE u.id = $1 AND u.deleted_at IS NULL
-	`, userID).Scan(&out.Mentions, &out.Assignments, &out.Comments, &out.StatusChanges, &out.DueDateChanges)
+	`, userID).Scan(&out.Mentions, &out.Assignments, &out.Comments, &out.StatusChanges, &out.DueDateChanges, &out.Forms)
 	if err != nil {
 		if isNoRows(err) {
 			return model.PushNotificationPreferences{}, ErrNotFound
@@ -93,9 +97,9 @@ func (s *Store) UpdatePushNotificationPreferences(ctx context.Context, userID uu
 	var out model.PushNotificationPreferences
 	err := s.db.QueryRow(ctx, `
 		INSERT INTO user_push_notification_preferences (
-			user_id, mentions, assignments, comments, status_changes, due_date_changes
+			user_id, mentions, assignments, comments, status_changes, due_date_changes, forms
 		)
-		SELECT id, $2, $3, $4, $5, $6
+		SELECT id, $2, $3, $4, $5, $6, $7
 		FROM users
 		WHERE id = $1 AND deleted_at IS NULL
 		ON CONFLICT (user_id) DO UPDATE
@@ -104,10 +108,11 @@ func (s *Store) UpdatePushNotificationPreferences(ctx context.Context, userID uu
 		    comments = EXCLUDED.comments,
 		    status_changes = EXCLUDED.status_changes,
 		    due_date_changes = EXCLUDED.due_date_changes,
+		    forms = EXCLUDED.forms,
 		    updated_at = now()
-		RETURNING mentions, assignments, comments, status_changes, due_date_changes
-	`, userID, p.Mentions, p.Assignments, p.Comments, p.StatusChanges, p.DueDateChanges).
-		Scan(&out.Mentions, &out.Assignments, &out.Comments, &out.StatusChanges, &out.DueDateChanges)
+		RETURNING mentions, assignments, comments, status_changes, due_date_changes, forms
+	`, userID, p.Mentions, p.Assignments, p.Comments, p.StatusChanges, p.DueDateChanges, p.Forms).
+		Scan(&out.Mentions, &out.Assignments, &out.Comments, &out.StatusChanges, &out.DueDateChanges, &out.Forms)
 	if err != nil {
 		if isNoRows(err) {
 			return model.PushNotificationPreferences{}, ErrNotFound
@@ -301,6 +306,11 @@ func (s *Store) MaterializePushNotificationEvent(ctx context.Context, event Push
 		if time.Since(eventContext.CreatedAt) > maxEventAge {
 			return completePushNotificationEvent(ctx, tx, event, "event expired before delivery")
 		}
+		if eventContext.Entity == "form" {
+			n, err := materializeFormPushNotification(ctx, tx, event, eventContext)
+			created = n
+			return err
+		}
 		if err := loadPushNotificationIssueContext(ctx, tx, &eventContext); err != nil {
 			if errors.Is(err, ErrNotFound) {
 				return completePushNotificationEvent(ctx, tx, event, "issue unavailable")
@@ -323,7 +333,7 @@ func (s *Store) MaterializePushNotificationEvent(ctx context.Context, event Push
 			SELECT s.id, s.user_id,
 			       COALESCE(p.mentions, true), COALESCE(p.assignments, true),
 			       COALESCE(p.comments, false), COALESCE(p.status_changes, false),
-			       COALESCE(p.due_date_changes, false)
+			       COALESCE(p.due_date_changes, false), COALESCE(p.forms, true)
 			FROM push_subscriptions s
 			JOIN users u ON u.id = s.user_id AND u.deleted_at IS NULL
 			LEFT JOIN user_push_notification_preferences p ON p.user_id = s.user_id
@@ -342,7 +352,7 @@ func (s *Store) MaterializePushNotificationEvent(ctx context.Context, event Push
 			var subscription subscriptionCandidate
 			if err := rows.Scan(
 				&subscription.ID, &subscription.UserID, &subscription.Preferences.Mentions, &subscription.Preferences.Assignments,
-				&subscription.Preferences.Comments, &subscription.Preferences.StatusChanges, &subscription.Preferences.DueDateChanges,
+				&subscription.Preferences.Comments, &subscription.Preferences.StatusChanges, &subscription.Preferences.DueDateChanges, &subscription.Preferences.Forms,
 			); err != nil {
 				rows.Close()
 				return err
@@ -400,7 +410,8 @@ func loadPushNotificationEventContext(ctx context.Context, tx pgx.Tx, event Push
 		id := actorID.UUID
 		out.ActorID = &id
 	}
-	if !issueID.Valid {
+	// Only a form's entry has no issue.
+	if !issueID.Valid && out.Entity != "form" {
 		return pushNotificationEventContext{}, ErrConflict
 	}
 	out.IssueID = issueID.UUID
@@ -408,6 +419,42 @@ func loadPushNotificationEventContext(ctx context.Context, tx pgx.Tx, event Push
 		return pushNotificationEventContext{}, err
 	}
 	return out, nil
+}
+
+// materializeFormPushNotification handles the entry for a new form. The one
+// person told is the form's assignee, and the actor is not left out: an agent
+// that asks a question usually acts with the assignee's own account, and the
+// assignee still needs to hear that something is waiting. A form that is gone
+// or no longer open is not worth a push.
+func materializeFormPushNotification(ctx context.Context, tx pgx.Tx, event PushNotificationEvent, eventContext pushNotificationEventContext) (int, error) {
+	var assigneeID uuid.UUID
+	err := tx.QueryRow(ctx, `
+		SELECT f.assignee_id
+		FROM forms f
+		JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
+		WHERE f.id = $1 AND f.project_id = $2 AND f.status = 'open'
+	`, eventContext.EntityID, eventContext.ProjectID).Scan(&assigneeID)
+	if err != nil {
+		if isNoRows(err) {
+			return 0, completePushNotificationEvent(ctx, tx, event, "form unavailable")
+		}
+		return 0, err
+	}
+	tag, err := tx.Exec(ctx, `
+		INSERT INTO push_notification_deliveries (
+			changelog_id, subscription_id, user_id, project_id, form_id, category
+		)
+		SELECT $1, s.id, s.user_id, $2, $3, 'forms'
+		FROM push_subscriptions s
+		JOIN users u ON u.id = s.user_id AND u.deleted_at IS NULL
+		LEFT JOIN user_push_notification_preferences p ON p.user_id = s.user_id
+		WHERE s.user_id = $4 AND s.disabled_at IS NULL AND COALESCE(p.forms, true)
+		ON CONFLICT (changelog_id, subscription_id) DO NOTHING
+	`, event.ChangelogID, eventContext.ProjectID, eventContext.EntityID, assigneeID)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), completePushNotificationEvent(ctx, tx, event, "")
 }
 
 func loadPushNotificationIssueContext(ctx context.Context, tx pgx.Tx, event *pushNotificationEventContext) error {
@@ -630,6 +677,7 @@ func preferredPushNotificationCategory(preferences model.PushNotificationPrefere
 		PushNotificationComments,
 		PushNotificationStatusChanges,
 		PushNotificationDueDateChanges,
+		PushNotificationForms,
 	} {
 		if !categories[category] {
 			continue
@@ -646,6 +694,8 @@ func preferredPushNotificationCategory(preferences model.PushNotificationPrefere
 			enabled = preferences.StatusChanges
 		case PushNotificationDueDateChanges:
 			enabled = preferences.DueDateChanges
+		case PushNotificationForms:
+			enabled = preferences.Forms
 		}
 		if enabled {
 			return category, true
@@ -695,7 +745,7 @@ func (s *Store) ClaimPushNotificationDeliveries(ctx context.Context, limit int, 
 		SET attempt_count = d.attempt_count + 1, locked_at = now(), last_error = ''
 		FROM candidates c, push_subscriptions s
 		WHERE d.id = c.id AND s.id = d.subscription_id
-		RETURNING d.id, d.changelog_id, d.subscription_id, d.user_id, d.project_id, d.issue_id,
+		RETURNING d.id, d.changelog_id, d.subscription_id, d.user_id, d.project_id, d.issue_id, d.form_id,
 		          d.category, s.endpoint, s.p256dh, s.auth_secret, d.attempt_count
 	`, limit, leaseTimeout.Seconds())
 	if err != nil {
@@ -705,12 +755,18 @@ func (s *Store) ClaimPushNotificationDeliveries(ctx context.Context, limit int, 
 	out := make([]PushNotificationDelivery, 0, limit)
 	for rows.Next() {
 		var delivery PushNotificationDelivery
+		var issueID, formID uuid.NullUUID
 		if err := rows.Scan(
 			&delivery.ID, &delivery.ChangelogID, &delivery.SubscriptionID, &delivery.UserID,
-			&delivery.ProjectID, &delivery.IssueID, &delivery.Category, &delivery.Endpoint,
+			&delivery.ProjectID, &issueID, &formID, &delivery.Category, &delivery.Endpoint,
 			&delivery.P256DH, &delivery.AuthSecret, &delivery.AttemptCount,
 		); err != nil {
 			return nil, err
+		}
+		delivery.IssueID = issueID.UUID
+		if formID.Valid {
+			id := formID.UUID
+			delivery.FormID = &id
 		}
 		out = append(out, delivery)
 	}
@@ -734,6 +790,9 @@ func (s *Store) PreparePushNotificationDelivery(ctx context.Context, delivery Pu
 			return PushNotificationPayload{}, false, nil
 		}
 		return PushNotificationPayload{}, false, err
+	}
+	if delivery.FormID != nil {
+		return s.prepareFormPushNotification(ctx, delivery, user)
 	}
 	issue, err := s.GetIssue(ctx, delivery.IssueID)
 	if err != nil {
@@ -819,6 +878,49 @@ func (s *Store) PreparePushNotificationDelivery(ctx context.Context, delivery Pu
 	return payload, true, nil
 }
 
+// prepareFormPushNotification builds the push for a form waiting on its
+// assignee, or reports that it should not be sent. It is checked again here,
+// at send time: the form must still be open and still theirs, and they must
+// still be able to read what members see, so someone removed or blocked since
+// hears nothing. The payload names the form and its project and carries
+// nothing from its questions, answers, description or comment.
+func (s *Store) prepareFormPushNotification(ctx context.Context, delivery PushNotificationDelivery, user model.User) (PushNotificationPayload, bool, error) {
+	form, err := s.GetForm(ctx, *delivery.FormID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return PushNotificationPayload{}, false, nil
+		}
+		return PushNotificationPayload{}, false, err
+	}
+	if form.ProjectID != delivery.ProjectID || form.Status != model.FormStatusOpen || form.AssigneeID != user.ID {
+		return PushNotificationPayload{}, false, nil
+	}
+	permissions, err := s.ProjectPermissionsForUser(ctx, user, form.ProjectID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return PushNotificationPayload{}, false, nil
+		}
+		return PushNotificationPayload{}, false, err
+	}
+	if !permissions.CanReadMembersOnly {
+		return PushNotificationPayload{}, false, nil
+	}
+	project, err := s.GetProject(ctx, form.ProjectID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return PushNotificationPayload{}, false, nil
+		}
+		return PushNotificationPayload{}, false, err
+	}
+	return PushNotificationPayload{
+		Title: fmt.Sprintf("%s · %s", form.Ref, project.Name),
+		Body:  truncatePushNotificationText("Waiting on your answers — "+form.Title, 200),
+		URL: fmt.Sprintf("/%s/projects/%s/forms/%s",
+			url.PathEscape(form.OwnerUsername), url.PathEscape(form.ProjectKey), url.PathEscape(form.Ref)),
+		Tag: strings.ReplaceAll(delivery.ChangelogID.String(), "-", ""),
+	}, true, nil
+}
+
 func (s *Store) pushNotificationDeliveryEnabled(ctx context.Context, delivery PushNotificationDelivery) (bool, error) {
 	var enabled bool
 	err := s.db.QueryRow(ctx, `
@@ -833,6 +935,7 @@ func (s *Store) pushNotificationDeliveryEnabled(ctx context.Context, delivery Pu
 				  WHEN 'comments' THEN COALESCE(p.comments, false)
 				  WHEN 'status_changes' THEN COALESCE(p.status_changes, false)
 				  WHEN 'due_date_changes' THEN COALESCE(p.due_date_changes, false)
+				  WHEN 'forms' THEN COALESCE(p.forms, true)
 				  ELSE false
 			  END
 		)

@@ -46,6 +46,7 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Get("/me/all", func(w http.ResponseWriter, r *http.Request) { s.uiWorkPage(w, r, "all") })
 		r.Get("/me/all/panel", func(w http.ResponseWriter, r *http.Request) { s.uiWorkPanel(w, r, "all") })
 		r.Get("/inbox", func(w http.ResponseWriter, r *http.Request) { s.uiInboxPage(w, r, false) })
+		r.Get("/inbox/count", s.uiInboxCount)
 		r.Get("/inbox/panel", func(w http.ResponseWriter, r *http.Request) { s.uiInboxPanel(w, r, false) })
 		r.Get("/inbox/page", func(w http.ResponseWriter, r *http.Request) { s.uiInboxMore(w, r, false) })
 		r.Get("/inbox/done", func(w http.ResponseWriter, r *http.Request) { s.uiInboxPage(w, r, true) })
