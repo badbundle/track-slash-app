@@ -1,0 +1,69 @@
+{{define "form-panel"}}
+<section data-form-panel data-sidebar-view="project" data-sidebar-project-id="{{.Project.ID}}" class="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-6">
+  {{template "breadcrumb" .Breadcrumb}}
+  <header class="max-w-3xl rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+    <div class="flex flex-wrap items-center gap-2">
+      {{template "form-ref" .Form.Ref}}
+      {{template "form-status-badge" .Form.Status}}
+      {{if .IssueHref}}<a href="{{.IssueHref}}" hx-get="{{.IssuePanelHref}}" hx-target="#main" hx-push-url="{{.IssueHref}}" class="rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">{{template "issue-key" .Form.IssueIdentifier}}</a>{{end}}
+    </div>
+    <h1 class="mt-2 text-2xl font-semibold tracking-tight">{{.Form.Title}}</h1>
+    <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+      <span>Asked {{template "local-time" (tokenTime .Form.CreatedAt)}}</span>
+      {{template "form-origin" .Origin}}
+    </div>
+  </header>
+
+  <div class="mt-4 max-w-3xl space-y-4">
+    {{if .Notice}}<div role="alert" data-form-notice class="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200">{{.Notice}}</div>{{end}}
+    {{if .DescriptionHTML}}
+    <div data-form-description class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <div class="markdown-body text-sm leading-6 text-slate-800 dark:text-slate-200">{{.DescriptionHTML}}</div>
+    </div>
+    {{end}}
+
+    {{if .Open}}
+    {{range .Sections}}{{template "form-section" .}}{{end}}
+    {{template "form-comment" .Comment}}
+    {{template "form-footer" .Footer}}
+    {{else}}
+    {{if eq .Form.Status "open"}}<p data-form-waiting class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">Waiting on {{.AssigneeName}}.</p>{{end}}
+    <div class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      {{template "form-answer-summary" .Summary}}
+    </div>
+    {{if .Form.Comment}}
+    <div data-form-comment class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+      <h2 class="text-sm font-medium text-slate-600 dark:text-slate-300">Anything else?</h2>
+      <p class="mt-1 whitespace-pre-wrap break-words text-sm text-slate-950 dark:text-slate-100">{{.Form.Comment}}</p>
+    </div>
+    {{end}}
+    {{if ne .Form.Status "open"}}
+    <p data-form-status-line class="px-1 text-sm text-slate-600 dark:text-slate-300">
+      {{if eq .Form.Status "submitted"}}Submitted {{template "local-time" (tokenTime .Form.SubmittedAt)}}
+      {{else if eq .Form.Status "acknowledged"}}Picked up {{template "local-time" (tokenTime .Form.AcknowledgedAt)}}
+      {{else}}Cancelled {{template "local-time" (tokenTime .Form.CancelledAt)}}{{end}}
+    </p>
+    {{end}}
+    <div class="flex flex-wrap items-center gap-2">
+      {{if and .IsAssignee (eq .Form.Status "submitted")}}
+      <form method="post" action="{{.Base}}/reopen" hx-post="{{.Base}}/reopen" hx-target="#main" hx-push-url="false">{{template "csrf-field" $.CSRFToken}}
+        <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900"><i data-lucide="pencil" class="h-4 w-4" aria-hidden="true"></i>Edit answers</button>
+      </form>
+      {{end}}
+      {{template "form-copy" .CopyText}}
+      {{if .Origin.Href}}<a href="{{.Origin.Href}}" target="_blank" rel="noopener noreferrer" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900"><i data-lucide="external-link" class="h-4 w-4" aria-hidden="true"></i>Open thread</a>{{end}}
+    </div>
+    {{end}}
+
+    {{if .CanCancel}}
+    <form method="post" action="{{.Base}}/cancel" hx-post="{{.Base}}/cancel" hx-target="#main" hx-push-url="false" hx-confirm="Cancel this form? It can't be reopened.">{{template "csrf-field" $.CSRFToken}}
+      <button type="submit" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-rose-700 hover:bg-rose-50 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-rose-300 dark:hover:bg-rose-950/40 dark:focus:ring-offset-slate-900"><i data-lucide="x" class="h-4 w-4" aria-hidden="true"></i>Cancel form</button>
+    </form>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{define "form-copy"}}
+<button type="button" data-copy-text="{{.}}" class="inline-flex h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900"><i data-lucide="copy" class="h-4 w-4" aria-hidden="true"></i><span data-copy-label>Copy answers</span></button>
+{{end}}

@@ -18,6 +18,8 @@
       {{template "new-project-panel" .NewProjectPanel}}
       {{else if .NewIssuePanel}}
       {{template "new-issue-panel" .NewIssuePanel}}
+      {{else if .FormPanel}}
+      {{template "form-panel" .FormPanel}}
       {{else if .HelpDeskPanel}}
       {{template "helpdesk-panel" .HelpDeskPanel}}
       {{else if .ProjectPanel}}

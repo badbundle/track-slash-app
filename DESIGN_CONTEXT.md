@@ -140,6 +140,16 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Creating a page is one click from the list header (or the empty state) and takes a title plus optional Markdown. Editing uses the same explicit edit/save/cancel Markdown behavior as Context pages. Deleting is one action with a lightweight `hx-confirm`; pages are soft-deleted and their refs are never reused.
 - Writers see the create, edit, and delete controls. Read-only members and public readers see the same pages with none of them. The empty state reads `No whiteboard pages yet` and offers `New page` to writers only.
 
+## Form pages
+
+- A form is answered on one focused page, `/{owner}/projects/{key}/forms/{form-N}`: header card (ref, status, linked issue, when it was asked, where it came from), the description, then every question in section order. Steps for long forms are a later change; the per-section template is kept separate for that.
+- Answers save as they are made (on change, and after a short pause while typing). There is no Save button; the footer says `Saved` and how many required questions are answered.
+- Suggestions are pre-filled and marked `Suggested`. The badge stays on the suggested option after the person picks another one, and the summary notes `Changed from suggestion`.
+- Option rows are full-width tap targets at least 44px tall, with the radio or checkbox inside the label. The chosen row gets an indigo border and tint; unchosen rows keep full contrast and never fade.
+- Status colours: Open amber, Submitted indigo, Picked up emerald, Cancelled neutral slate. Cancel is a small rose text button with a confirm.
+- Who sees what: only the project's members see a form; anyone else gets the same not-found page as for a form that doesn't exist. Only the assignee answers, submits or reopens, and that includes a read-only member. Another member sees who the form is waiting on and the answers so far. Cancelling needs write access.
+- `Done` is disabled until every required question is answered. If a submit is still refused, the page says how many questions need an answer, marks them, and scrolls to the first.
+
 ## Tag IA
 
 - Treat issue tags as lightweight issue-detail metadata. Show them near the issue title, not buried in the Details sidebar.
