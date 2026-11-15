@@ -20,9 +20,9 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	body := e.uiGet(t, "/settings/notifications", token)
 	for _, want := range []string{
 		"Browser notifications", "Enable on this browser", "Notification categories", "Mentions",
-		"New assignments", "Relevant comments", "Status changes", "Due-date changes",
+		"New assignments", "Forms", "A form is waiting on your answers.", "Relevant comments", "Status changes", "Due-date changes",
 		`data-push-enabled="true"`, `data-push-public-key="` + publicKey + `"`, "0 browsers",
-		`name="mentions"`, `name="assignments"`,
+		`name="mentions"`, `name="assignments"`, `name="forms"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("push settings missing %q: %s", want, body)
@@ -30,6 +30,7 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	}
 	if !strings.Contains(body, `name="mentions" class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked`) ||
 		!strings.Contains(body, `name="assignments" class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked`) ||
+		!strings.Contains(body, `name="forms" class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked`) ||
 		strings.Contains(body, `name="comments" class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked`) {
 		t.Fatalf("push preference defaults incorrect: %s", body)
 	}
@@ -44,6 +45,16 @@ func TestUIPushNotificationSettingsAndBrowserSubscription(t *testing.T) {
 	wantPreferences := model.PushNotificationPreferences{Comments: true, StatusChanges: true, DueDateChanges: true}
 	if err != nil || preferences != wantPreferences {
 		t.Fatalf("updated preferences = %+v, %v", preferences, err)
+	}
+
+	// The Forms row round-trips: on after being ticked, and off when left out.
+	res = e.uiDoNoRedirect(t, http.MethodPost, "/settings/push/preferences", token, strings.NewReader(url.Values{"forms": {"on"}}.Encode()))
+	res.Body.Close()
+	if preferences, err := e.store.GetPushNotificationPreferences(e.ctx, user.ID); err != nil || preferences != (model.PushNotificationPreferences{Forms: true}) {
+		t.Fatalf("forms-only preferences = %+v, %v", preferences, err)
+	}
+	if body := e.uiGet(t, "/settings/notifications", token); !strings.Contains(body, `name="forms" class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" checked`) {
+		t.Fatalf("forms row not ticked after saving: %s", body)
 	}
 
 	endpoint := "https://push.example.test/browser"

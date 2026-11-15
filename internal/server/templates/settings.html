@@ -260,6 +260,10 @@
               <span><span class="block text-sm font-medium text-slate-900 dark:text-slate-100">New assignments</span><span class="block text-xs text-slate-500 dark:text-slate-400">An issue is newly assigned to you.</span></span>
             </label>
             <label class="flex items-start gap-3 rounded-md border border-slate-200 px-3 py-2 dark:border-slate-800">
+              <input type="checkbox" name="forms" class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" {{if .PushPreferences.Forms}}checked{{end}}>
+              <span><span class="block text-sm font-medium text-slate-900 dark:text-slate-100">Forms</span><span class="block text-xs text-slate-500 dark:text-slate-400">A form is waiting on your answers.</span></span>
+            </label>
+            <label class="flex items-start gap-3 rounded-md border border-slate-200 px-3 py-2 dark:border-slate-800">
               <input type="checkbox" name="comments" class="mt-1 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" {{if .PushPreferences.Comments}}checked{{end}}>
               <span><span class="block text-sm font-medium text-slate-900 dark:text-slate-100">Relevant comments</span><span class="block text-xs text-slate-500 dark:text-slate-400">Comments on issues you report, are assigned, or have commented on.</span></span>
             </label>

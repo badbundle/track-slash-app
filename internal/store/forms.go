@@ -225,7 +225,10 @@ func (s *Store) CreateForm(ctx context.Context, p CreateFormParams) (model.Form,
 		}
 		var err error
 		out, err = getForm(ctx, tx, id, false)
-		return err
+		if err != nil {
+			return err // defensive: the row was just inserted
+		}
+		return appendFormChangelog(ctx, tx, out, "insert", "Asked form")
 	})
 	if err != nil {
 		return model.Form{}, err
@@ -514,12 +517,48 @@ func (s *Store) transitionForm(ctx context.Context, formID uuid.UUID, assigneeID
 			return err // defensive: the row is locked and the move was checked
 		}
 		out, err = getForm(ctx, tx, form.ID, false)
-		return err
+		if err != nil {
+			return err // defensive: the row is locked
+		}
+		return appendFormChangelog(ctx, tx, out, "update", formTransitionSummary(to))
 	})
 	if err != nil {
 		return model.Form{}, err
 	}
 	return out, nil
+}
+
+// formTransitionSummary is the changelog wording for a form moving to a
+// status.
+func formTransitionSummary(to model.FormStatus) string {
+	switch to {
+	case model.FormStatusSubmitted:
+		return "Submitted form"
+	case model.FormStatusAcknowledged:
+		return "Picked up form"
+	case model.FormStatusCancelled:
+		return "Cancelled form"
+	default:
+		return "Reopened form"
+	}
+}
+
+// appendFormChangelog records a change to a form for the project's members. A
+// form belongs to its members, so the entry is members-only, and it carries
+// the form's title and reference and nothing the assignee answered. It names
+// no issue, so a form linked to a private issue doesn't tie the two together
+// for anyone else.
+func appendFormChangelog(ctx context.Context, tx pgx.Tx, form model.Form, op, action string) error {
+	return appendProjectChangelog(ctx, tx, appendProjectChangelogParams{
+		ProjectID:   form.ProjectID,
+		Entity:      "form",
+		Op:          op,
+		EntityID:    form.ID,
+		TargetRef:   form.Ref,
+		TargetTitle: form.Title,
+		Summary:     fmt.Sprintf("%s %s", action, form.Title),
+		MembersOnly: true,
+	})
 }
 
 // lockFormForAssignee locks a form for an action only its assignee takes.

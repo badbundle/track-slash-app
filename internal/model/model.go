@@ -283,6 +283,7 @@ type PushNotificationPreferences struct {
 	Comments       bool `json:"comments"`
 	StatusChanges  bool `json:"status_changes"`
 	DueDateChanges bool `json:"due_date_changes"`
+	Forms          bool `json:"forms"`
 }
 
 type PushSubscription struct {

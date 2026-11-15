@@ -1753,6 +1753,24 @@
     hideAppTooltip();
     setUpContent(mainContent || document);
   });
+  // The Inbox count in the sidebar is refreshed once a minute while the page
+  // is visible, and when the tab is shown again, so a form that arrives while
+  // someone has the app open appears without a reload. The timer starts once
+  // here, not on every content swap. The request targets the link itself, so
+  // it neither shows the navigation bar nor changes the address. The swap runs
+  // setUpContent, which restores the link's current-page state and its icon.
+  const inboxRefreshEvery = 60000;
+  const inboxRefreshMinGap = 15000;
+  let inboxRefreshedAt = 0;
+  const refreshInboxCount = () => {
+    if (document.hidden || !window.htmx || !document.getElementById("sidebar-inbox")) return;
+    inboxRefreshedAt = Date.now();
+    window.htmx.ajax("GET", "/inbox/count", { target: "#sidebar-inbox", swap: "outerHTML" });
+  };
+  window.setInterval(refreshInboxCount, inboxRefreshEvery);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && Date.now() - inboxRefreshedAt >= inboxRefreshMinGap) refreshInboxCount();
+  });
   const setUpPage = () => {
     setUpContent();
     focusClientModal(document.querySelector("[data-client-modal]:not(.hidden)"));

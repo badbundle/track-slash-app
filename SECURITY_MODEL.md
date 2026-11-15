@@ -68,6 +68,15 @@ source of a user's rights in a project.
   An issue names its forms (the form notice, the Details `Forms` row and
   `open_forms` on `track_get_issue` and the REST issue) to members only, and
   reporter views never do.
+  A form's changelog entries (asked, submitted, reopened, picked up,
+  cancelled) are members-only like the form, name no issue, and carry the
+  form's title and reference only: never a question, an answer, the description
+  or the comment. The push notification for a new form goes to its assignee
+  alone, even when they asked for it themselves, and is checked again when it
+  is sent: the form must still be open and theirs, and they must still be a
+  member who is not blocked, or nothing is sent. The payload is the form's
+  reference, its project, its title and a link, and nothing from the questions
+  or answers.
 - **Emails are never shown outside the account itself.** Member lists, pickers,
   comment authors and the reporter view name people by display name or
   username. Member search matches emails only for someone who manages members.

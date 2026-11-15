@@ -180,3 +180,36 @@ func TestPushWorkerRecordsNonRetryableProviderFailure(t *testing.T) {
 		t.Fatalf("RunOnce = %+v, sender calls=%d err=%v", result, sender.calls, err)
 	}
 }
+
+func TestPushWorkerDeliversWaitingForm(t *testing.T) {
+	t.Parallel()
+	env := newPushWorkerTestEnv(t)
+	// Send the issue's own events first, so only the form is left.
+	issueSender := &recordingPushSender{status: 201}
+	if _, err := NewWorker(env.store, issueSender, WorkerOptions{}).RunOnce(env.ctx); err != nil {
+		t.Fatalf("RunOnce for the issue: %v", err)
+	}
+	form, err := env.store.CreateForm(store.WithActor(env.ctx, env.member.ID), store.CreateFormParams{
+		ProjectID: env.projectID, Title: "Which channel?", Description: "SECRET-DESCRIPTION",
+		Definition: model.FormDefinition{Sections: []model.FormSection{{Questions: []model.FormQuestion{
+			{ID: "rotated", Type: model.FormQuestionConfirm, Label: "SECRET-QUESTION"},
+		}}}},
+		AssigneeID: env.member.ID, CreatedByID: env.member.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateForm: %v", err)
+	}
+	sender := &recordingPushSender{status: 201}
+	result, err := NewWorker(env.store, sender, WorkerOptions{}).RunOnce(env.ctx)
+	if err != nil || result.EventsClaimed != 1 || result.DeliveriesCreated != 1 || result.Delivered != 1 || sender.calls != 1 {
+		t.Fatalf("RunOnce = %+v, sender calls=%d err=%v", result, sender.calls, err)
+	}
+	payload := sender.payloads[0]
+	if !strings.HasPrefix(payload.Title, form.Ref+" · ") || payload.Body != "Waiting on your answers — Which channel?" ||
+		!strings.HasSuffix(payload.URL, "/forms/"+form.Ref) {
+		t.Fatalf("payload = %+v", payload)
+	}
+	if strings.Contains(payload.Title+payload.Body+payload.URL, "SECRET") {
+		t.Fatalf("payload carries form content: %+v", payload)
+	}
+}

@@ -600,6 +600,8 @@ func uiChangelogIcon(entry model.ProjectChangelogEntry) string {
 		return "book-open"
 	case "whiteboard_page":
 		return "presentation"
+	case "form":
+		return "clipboard-list"
 	case "sprint":
 		return "calendar-range"
 	case "project_member":
@@ -612,6 +614,9 @@ func uiChangelogIcon(entry model.ProjectChangelogEntry) string {
 }
 
 func uiChangelogTargetHref(project model.Project, entry model.ProjectChangelogEntry) string {
+	if entry.Entity == "form" && strings.TrimSpace(entry.TargetRef) != "" {
+		return "/" + project.OwnerUsername + "/projects/" + project.Key + "/forms/" + entry.TargetRef
+	}
 	if entry.IssueID == nil || strings.TrimSpace(entry.TargetRef) == "" {
 		return ""
 	}
