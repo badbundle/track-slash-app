@@ -1251,6 +1251,12 @@
       writeClipboardText(copyMarkdown.dataset.markdown || "").then(() => showCopied(copyMarkdown)).catch(() => {});
       return;
     }
+    const copyText = event.target.closest("[data-copy-text]");
+    if (copyText) {
+      event.preventDefault();
+      writeClipboardText(copyText.dataset.copyText || "").then(() => showCopied(copyText)).catch(() => {});
+      return;
+    }
     const removeAttachment = event.target.closest("[data-attachment-remove]");
     if (removeAttachment) {
       const list = removeAttachment.closest("[data-attachment-list][data-attachment-editing]");
@@ -1695,7 +1701,13 @@
     syncChangelogRealtime();
     syncPushNotifications(root);
     initInsightCharts(root);
+    // A form refused at Done marks the questions that need an answer; bring
+    // the first into view.
+    const unanswered = root.querySelector && root.querySelector("[data-form-unanswered]");
+    if (unanswered) unanswered.scrollIntoView({ block: "center" });
   };
+  // An autosave answers with out-of-band fragments only, so give them icons too.
+  document.body.addEventListener("htmx:oobAfterSwap", () => createIcons());
   document.body.addEventListener("htmx:afterSwap", (event) => {
     restoreIssueListControls(event.target);
     setUpContent(event.target);
