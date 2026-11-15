@@ -64,6 +64,11 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 - Create forms stack their fields in one left-aligned column, each labelled above its control with even spacing, so tab order follows the visual order. Free-text fields (title, description) span the card; short metadata fields (priority, people, dates) share a narrower column width. On New issue the order is Priority, Worker, Reporter, Assignee, Due date, then Repeat. Worker, Reporter, Assignee and Repeat are for members, so a public submission skips them.
 
+- A form with several sections, while its assignee answers it, shows one section per step, then a Review step, with a stepper above. Steps can be visited in any order and Next is never blocked, because answers save as they are made; only Done checks that the required questions are answered.
+- Review comes before Done. It lists every section's answers with an Edit link, marks the questions that still need an answer and says how many are left. The closing comment and Done live there.
+- The step is in the URL (`?step=2`, `?step=review`), so reload and the browser's Back and Forward return to the same step. With no step the form opens on the first section that still needs an answer, or on Review when none does; a step that does not exist opens step 1.
+- After a step control swaps the page, focus moves to the step's heading. A form with one section, and every read-only view, has no steps.
+
 ## Issue Detail
 
 - When Sub-issues and Linked issues are both empty they share one row in equal halves, so their headers never wrap and their edges line up with the Description card. A section with items takes the full width.

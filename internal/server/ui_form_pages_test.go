@@ -3,6 +3,7 @@ package server
 import (
 	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bradleymackey/track-slash/internal/model"
@@ -146,5 +147,75 @@ func TestUIFormProgressAndNotice(t *testing.T) {
 	unticked := false
 	if got := uiFormAnswerText(model.FormAnswerView{Type: model.FormQuestionConfirm, Answered: true, Checked: &unticked}); got != "No" {
 		t.Fatalf("confirm text = %q", got)
+	}
+}
+
+func uiFormStepTestDefinition() model.FormDefinition {
+	return model.FormDefinition{Sections: []model.FormSection{
+		{Title: "One", Questions: []model.FormQuestion{{ID: "a", Type: model.FormQuestionText, Label: "A"}}},
+		{Questions: []model.FormQuestion{{ID: "b", Type: model.FormQuestionText, Label: "B"}}},
+		{Title: "Three", Questions: []model.FormQuestion{{ID: "c", Type: model.FormQuestionText, Label: "C"}}},
+	}}
+}
+
+func TestUIFormResolveStep(t *testing.T) {
+	t.Parallel()
+	def := uiFormStepTestDefinition()
+	text := func(v string) model.FormAnswer { return model.FormAnswer{FormValue: model.FormValue{Text: v}} }
+	for _, tc := range []struct {
+		name    string
+		raw     string
+		answers model.FormAnswers
+		want    int
+	}{
+		{"landing on the first incomplete section", "", model.FormAnswers{"a": text("x")}, 2},
+		{"landing on review when all answered", "", model.FormAnswers{"a": text("x"), "b": text("y"), "c": text("z")}, 4},
+		{"landing on step 1 when nothing answered", "", nil, 1},
+		{"a section number", "3", nil, 3},
+		{"review", "review", nil, 4},
+		{"zero", "0", nil, 1},
+		{"past review", "99", nil, 1},
+		{"review as a number", "4", nil, 1},
+		{"negative", "-1", nil, 1},
+		{"garbage", "abc", nil, 1},
+	} {
+		if got := uiFormResolveStep(def, tc.answers, tc.raw); got != tc.want {
+			t.Errorf("%s: uiFormResolveStep(%q) = %d, want %d", tc.name, tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestUIFormBuildStepper(t *testing.T) {
+	t.Parallel()
+	def := uiFormStepTestDefinition()
+	answers := model.FormAnswers{"a": {FormValue: model.FormValue{Text: "x"}}}
+	states := func(s *uiFormStepper) string {
+		var out []string
+		for _, step := range s.Steps {
+			out = append(out, step.Key+"="+step.State)
+		}
+		return strings.Join(out, " ")
+	}
+	got := uiFormBuildStepper("/f", def, answers, 2)
+	if want := "1=complete 2=current 3=incomplete review=incomplete"; states(got) != want {
+		t.Fatalf("states on step 2 = %q, want %q", states(got), want)
+	}
+	if got.Text != "Step 2 of 4" || got.Heading != "Section 2" || got.Steps[1].Title != "Section 2" {
+		t.Fatalf("step 2 text = %q heading = %q", got.Text, got.Heading)
+	}
+	if got.Steps[2].Href != "/f?step=3" || got.Steps[3].PanelHref != "/f/panel?step=review" || !got.Steps[3].Review {
+		t.Fatalf("links = %+v", got.Steps)
+	}
+	all := model.FormAnswers{"a": answers["a"], "b": answers["a"], "c": answers["a"]}
+	got = uiFormBuildStepper("/f", def, all, 4)
+	if want := "1=complete 2=complete 3=complete review=current"; states(got) != want {
+		t.Fatalf("states on review = %q, want %q", states(got), want)
+	}
+	if got.Text != "Step 4 of 4" || got.Heading != "Review" {
+		t.Fatalf("review text = %q heading = %q", got.Text, got.Heading)
+	}
+	got = uiFormBuildStepper("/f", def, all, 1)
+	if want := "1=current 2=complete 3=complete review=complete"; states(got) != want {
+		t.Fatalf("states with everything answered = %q, want %q", states(got), want)
 	}
 }

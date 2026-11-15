@@ -1705,13 +1705,42 @@
     // the first into view.
     const unanswered = root.querySelector && root.querySelector("[data-form-unanswered]");
     if (unanswered) unanswered.scrollIntoView({ block: "center" });
+    // Moving between the steps of a form puts focus on the new step's heading.
+    // An ordinary page load or history restore leaves focus alone.
+    if (formStepNavPending) {
+      formStepNavPending = false;
+      const heading = root.querySelector && root.querySelector("[data-form-step-heading]");
+      if (heading) heading.focus();
+    }
   };
+  let formStepNavPending = false;
+  document.body.addEventListener("htmx:beforeRequest", (event) => {
+    const el = event.detail && event.detail.elt;
+    if (el && el.closest && el.closest("[data-form-step-nav]")) formStepNavPending = true;
+  });
   // An autosave answers with out-of-band fragments only, so give them icons too.
+  // An autosave that finishes after the person moved to another step must not
+  // put that step's footer back.
+  document.body.addEventListener("htmx:oobBeforeSwap", (event) => {
+    const incoming = event.detail && event.detail.fragment && event.detail.fragment.firstElementChild;
+    const current = event.target;
+    if (!incoming || incoming.id !== "form-footer" || !current || current.id !== "form-footer") return;
+    if (incoming.dataset.formStep !== current.dataset.formStep) event.preventDefault();
+  });
   document.body.addEventListener("htmx:oobAfterSwap", () => createIcons());
   document.body.addEventListener("htmx:afterSwap", (event) => {
     restoreIssueListControls(event.target);
     setUpContent(event.target);
     window.setTimeout(() => focusClientModal(document.querySelector("[data-client-modal]:not(.hidden)")), 0);
+  });
+  // The history snapshot is markup, which drops what a person has answered on
+  // a form step. Write the live values into the markup so Back shows them.
+  document.body.addEventListener("htmx:beforeHistorySave", () => {
+    const panel = (mainContent || document).querySelector("[data-form-panel]");
+    if (!panel) return;
+    panel.querySelectorAll("input[type=checkbox], input[type=radio]").forEach((input) => input.toggleAttribute("checked", input.checked));
+    panel.querySelectorAll("input[type=text]").forEach((input) => input.setAttribute("value", input.value));
+    panel.querySelectorAll("textarea").forEach((area) => { area.textContent = area.value; });
   });
   document.body.addEventListener("htmx:historyRestore", () => {
     // A snapshot saved while the whole body was the history element holds
