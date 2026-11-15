@@ -50,13 +50,22 @@ func uiFormTestDefinition() model.FormDefinition {
 	}}
 }
 
+// uiFormFlatDefinition is uiFormTestDefinition as one section, which the form
+// page shows all at once. The multi-section form is covered by the step tests.
+func uiFormFlatDefinition() model.FormDefinition {
+	def := uiFormTestDefinition()
+	flat := def.Sections[0]
+	flat.Questions = append(flat.Questions, def.Sections[1].Questions...)
+	return model.FormDefinition{Sections: []model.FormSection{flat}}
+}
+
 func (e *httpEnv) mustUIForm(t *testing.T, assignee uuid.UUID, mutate func(*store.CreateFormParams)) model.Form {
 	t.Helper()
 	params := store.CreateFormParams{
 		ProjectID:   e.projectID,
 		Title:       "Release decisions",
 		Description: "Please **decide** before Friday.",
-		Definition:  uiFormTestDefinition(),
+		Definition:  uiFormFlatDefinition(),
 		AssigneeID:  assignee,
 		CreatedByID: e.adminID,
 		OriginLabel: "Release chat",
@@ -145,7 +154,7 @@ func TestUIFormAssigneePageAndAutosave(t *testing.T) {
 		`data-form-status="open"`, "Release decisions", "form-1", ">"+issue.Identifier+"<",
 		"Asked ", "Release chat", `href="https://chat.example.com/thread/42"`, `target="_blank" rel="noopener noreferrer"`, "chat.example.com",
 		"<strong>decide</strong>",
-		"The plan", "<strong>one</strong>", "Wrap up",
+		"The plan", "<strong>one</strong>",
 		`id="q-env"`, `id="q-regions"`, `id="q-rotated"`, `id="q-reason"`, `id="q-details"`,
 		"Which environment?", "<em>safe</em>", "Safe to break.", "Other", "Optional",
 		`data-form-suggested`, "Suggested: Yes", "Suggested: See the ticket",
@@ -382,7 +391,7 @@ func TestUIFormStatusViews(t *testing.T) {
 	e := newHTTPEnv(t)
 	member, token := e.mustProjectMemberToken(t, "ui-form-status")
 	form := e.mustUIForm(t, member.ID, func(p *store.CreateFormParams) {
-		p.Definition.Sections[1].Questions[1].Default = &model.FormValue{Text: "Because"}
+		p.Definition.Sections[0].Questions[3].Default = &model.FormValue{Text: "Because"}
 		p.OriginLabel, p.OriginURL, p.Description = "", "", ""
 	})
 	path := e.uiFormPath(form)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -43,6 +44,11 @@ type uiFormPanelData struct {
 	// controls, and everyone else sees the answers so far.
 	Open     bool
 	Sections []uiFormSectionData
+	// Stepper is set while the assignee answers a form with several sections:
+	// one section is shown at a time, and then a Review step.
+	Stepper *uiFormStepper
+	// Review is set on the Review step: every section with its answers.
+	Review   []uiFormReviewSection
 	Summary  []uiFormSummaryItem
 	Footer   uiFormFooterData
 	Comment  uiFormCommentData
@@ -76,6 +82,9 @@ type uiFormQuestionData struct {
 	// questions, whose suggestion is shown as the starting answer.
 	Suggested string
 	Type      string
+	// Step is the step the question is shown on, posted back with each save
+	// so the footer that answers is the one for that step.
+	Step string
 }
 
 type uiFormOptionData struct {
@@ -96,6 +105,44 @@ type uiFormSummaryItem struct {
 	Answered bool
 	Note     string
 	Changed  bool
+	// Missing marks a question that blocks Done: "Needs an answer".
+	Missing bool
+}
+
+// uiFormStepper backs the form-stepper component.
+type uiFormStepper struct {
+	// Text is "Step 2 of 4"; Heading is the current section's title, or
+	// "Review".
+	Text    string
+	Heading string
+	Steps   []uiFormStep
+}
+
+// uiFormStep is one marker: a section or Review. State is current, complete
+// or incomplete.
+type uiFormStep struct {
+	Key       string
+	Number    int
+	Title     string
+	State     string
+	Review    bool
+	Href      string
+	PanelHref string
+}
+
+// uiFormStepLink is a Back or Next button: the page URL and its panel twin.
+type uiFormStepLink struct {
+	Href      string
+	PanelHref string
+}
+
+// uiFormReviewSection is a section on the Review step, with a link back to
+// its step.
+type uiFormReviewSection struct {
+	Title     string
+	Items     []uiFormSummaryItem
+	Href      string
+	PanelHref string
 }
 
 type uiFormProgressData struct {
@@ -121,12 +168,22 @@ type uiFormFooterData struct {
 	OOB       bool
 	Progress  uiFormProgressData
 	CanSubmit bool
+	// Stepped is set for a form with several sections. Back and Next are nil
+	// where there is nowhere to go, and Done shows only on Review.
+	Stepped bool
+	Review  bool
+	// StepKey is the step the footer is for, so a late autosave response for
+	// a step the person has left does not replace the current footer.
+	StepKey string
+	Back    *uiFormStepLink
+	Next    *uiFormStepLink
 }
 
 type uiFormCommentData struct {
 	CSRFToken string
 	Base      string
 	Comment   string
+	Step      string
 }
 
 // uiFormSaveData backs the fragment an autosave answers with: the footer and
@@ -144,7 +201,7 @@ func (s *Server) uiViewForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.renderUIForm(w, r, project, perms, form, nil)
+	s.renderUIForm(w, r, project, perms, form, r.URL.Query().Get("step"), nil)
 }
 
 func (s *Server) uiViewFormPanel(w http.ResponseWriter, r *http.Request) {
@@ -152,7 +209,7 @@ func (s *Server) uiViewFormPanel(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	panel, err := s.uiBuildFormPanel(r, project, perms, form)
+	panel, err := s.uiBuildFormPanel(r, project, perms, form, r.URL.Query().Get("step"))
 	if err != nil {
 		writeUIStoreError(w, err) // defensive: the assignee was a member a moment ago
 		return
@@ -181,7 +238,7 @@ func (s *Server) uiSaveFormAnswer(w http.ResponseWriter, r *http.Request) {
 		Answers:    model.FormAnswers{question.ID: uiFormAnswerFromValues(question, r.PostForm)},
 	})
 	slotID := "form-question-error-" + question.ID
-	s.finishFormSave(w, r, project, form, saved, err, slotID)
+	s.finishFormSave(w, r, project, form, saved, err, slotID, r.PostForm.Get("step"))
 }
 
 func (s *Server) uiSaveFormComment(w http.ResponseWriter, r *http.Request) {
@@ -200,14 +257,14 @@ func (s *Server) uiSaveFormComment(w http.ResponseWriter, r *http.Request) {
 		AssigneeID: currentUser(r).ID,
 		Comment:    &comment,
 	})
-	s.finishFormSave(w, r, project, form, saved, err, "form-comment-error")
+	s.finishFormSave(w, r, project, form, saved, err, "form-comment-error", r.PostForm.Get("step"))
 }
 
 // finishFormSave answers an autosave. The request used hx-swap="none", so the
 // answer is out-of-band fragments only: the footer, and the error slot of the
 // field that was saved. A refused answer is still a 200 so htmx applies the
 // swap. A form that moved on elsewhere reloads the page into its new state.
-func (s *Server) finishFormSave(w http.ResponseWriter, r *http.Request, project model.Project, before, saved model.Form, err error, slotID string) {
+func (s *Server) finishFormSave(w http.ResponseWriter, r *http.Request, project model.Project, before, saved model.Form, err error, slotID, step string) {
 	var formErr *model.FormError
 	if err != nil {
 		switch {
@@ -230,7 +287,7 @@ func (s *Server) finishFormSave(w http.ResponseWriter, r *http.Request, project 
 		http.Redirect(w, r, formPath(project.OwnerUsername, project.Key, before.Ref), http.StatusSeeOther)
 		return
 	}
-	data := uiFormSaveData{Footer: s.uiFormFooter(r, saved, true), SlotID: slotID}
+	data := uiFormSaveData{Footer: s.uiFormFooter(r, saved, true, step), SlotID: slotID}
 	if formErr != nil {
 		data.Message = formErr.Message
 	}
@@ -252,7 +309,7 @@ func (s *Server) uiSubmitForm(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		s.finishFormChange(w, r, project, perms, submitted)
 	case errors.As(err, &incomplete):
-		s.renderUIForm(w, r, project, perms, form, func(panel *uiFormPanelData) {
+		s.renderUIForm(w, r, project, perms, form, "review", func(panel *uiFormPanelData) {
 			panel.Notice = uiFormIncompleteNotice(len(incomplete.QuestionIDs))
 			for i := range panel.Sections {
 				for j := range panel.Sections[i].Questions {
@@ -303,7 +360,7 @@ func (s *Server) finishFormChange(w http.ResponseWriter, r *http.Request, projec
 		http.Redirect(w, r, formPath(project.OwnerUsername, project.Key, form.Ref), http.StatusSeeOther)
 		return
 	}
-	s.renderUIForm(w, r, project, perms, form, nil)
+	s.renderUIForm(w, r, project, perms, form, "", nil)
 }
 
 // renderFormAfterError answers a transition the store refused. A conflict
@@ -318,13 +375,14 @@ func (s *Server) renderFormAfterError(w http.ResponseWriter, r *http.Request, pr
 		writeUIStoreError(w, getErr) // defensive: the form was read a moment ago
 		return
 	}
-	s.renderUIForm(w, r, project, perms, current, nil)
+	s.renderUIForm(w, r, project, perms, current, "", nil)
 }
 
 // renderUIForm renders the form page: the whole document for a navigation and
-// the panel alone for htmx. mutate lets a caller add a notice or marks.
-func (s *Server) renderUIForm(w http.ResponseWriter, r *http.Request, project model.Project, perms store.ProjectPermissions, form model.Form, mutate func(*uiFormPanelData)) {
-	panel, err := s.uiBuildFormPanel(r, project, perms, form)
+// the panel alone for htmx. step is the raw step to show on a several-section
+// form. mutate lets a caller add a notice or marks.
+func (s *Server) renderUIForm(w http.ResponseWriter, r *http.Request, project model.Project, perms store.ProjectPermissions, form model.Form, step string, mutate func(*uiFormPanelData)) {
+	panel, err := s.uiBuildFormPanel(r, project, perms, form, step)
 	if err != nil {
 		writeUIStoreError(w, err) // defensive: the assignee was a member a moment ago
 		return
@@ -387,7 +445,7 @@ func (s *Server) uiAssigneeFormFromRoute(w http.ResponseWriter, r *http.Request)
 	return project, perms, form, true
 }
 
-func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms store.ProjectPermissions, form model.Form) (*uiFormPanelData, error) {
+func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms store.ProjectPermissions, form model.Form, rawStep string) (*uiFormPanelData, error) {
 	assignee, err := s.store.GetUser(r.Context(), form.AssigneeID)
 	if err != nil {
 		return nil, err
@@ -412,8 +470,7 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 		CanCancel:       perms.CanWrite && (form.Status == model.FormStatusOpen || form.Status == model.FormStatusSubmitted),
 		Open:            form.Status == model.FormStatusOpen && isAssignee,
 		Summary:         uiFormSummary(form),
-		Footer:          s.uiFormFooter(r, form, false),
-		Comment:         uiFormCommentData{CSRFToken: token, Base: base, Comment: form.Comment},
+		Footer:          s.uiFormFooter(r, form, false, rawStep),
 		CopyText:        uiFormCopyText(form, s.formURL(project.OwnerUsername, project.Key, form.Ref)),
 	}
 	if form.IssueIdentifier != nil {
@@ -428,26 +485,173 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 		panel.SidebarInbox = &uiSidebarInboxData{Count: count, OOB: true}
 	}
 	if panel.Open {
-		for _, section := range form.Definition.Sections {
-			data := uiFormSectionData{Title: section.Title, DescriptionHTML: renderMarkdown(section.Description, nil)}
-			for _, question := range section.Questions {
-				data.Questions = append(data.Questions, uiFormQuestion(token, base, question, form.Answers[question.ID]))
+		def := form.Definition
+		stepped := len(def.Sections) > 1
+		step := uiFormResolveStep(def, form.Answers, rawStep)
+		key := ""
+		if stepped {
+			key = uiFormStepKey(step, len(def.Sections))
+			panel.Stepper = uiFormBuildStepper(base, def, form.Answers, step)
+		}
+		panel.Comment = uiFormCommentData{CSRFToken: token, Base: base, Comment: form.Comment, Step: key}
+		switch {
+		case stepped && step > len(def.Sections):
+			panel.Review = uiFormReview(base, form)
+			if left := len(def.Unanswered(form.Answers)); left > 0 {
+				panel.Notice = uiFormIncompleteNotice(left)
 			}
-			panel.Sections = append(panel.Sections, data)
+		default:
+			for i, section := range def.Sections {
+				if stepped && i != step-1 {
+					continue
+				}
+				data := uiFormSectionData{Title: section.Title, DescriptionHTML: renderMarkdown(section.Description, nil)}
+				if stepped {
+					data.Title = "" // the stepper's heading shows it
+				}
+				for _, question := range section.Questions {
+					q := uiFormQuestion(token, base, question, form.Answers[question.ID])
+					q.Step = key
+					data.Questions = append(data.Questions, q)
+				}
+				panel.Sections = append(panel.Sections, data)
+			}
 		}
 	}
 	return panel, nil
 }
 
-func (s *Server) uiFormFooter(r *http.Request, form model.Form, oob bool) uiFormFooterData {
+// uiFormStepKey is a step as it appears in the URL: its number, or review.
+func uiFormStepKey(step, sections int) string {
+	if step > sections {
+		return "review"
+	}
+	return strconv.Itoa(step)
+}
+
+// uiFormResolveStep turns the step query parameter into a step: 1 to the
+// number of sections, then one more for Review. No parameter lands on the
+// first section that still needs an answer, or on Review when none does. A
+// value that is not a step opens step 1.
+func uiFormResolveStep(def model.FormDefinition, answers model.FormAnswers, raw string) int {
+	sections := len(def.Sections)
+	switch raw {
+	case "":
+		if first := def.FirstIncompleteSection(answers); first >= 0 {
+			return first + 1
+		}
+		return sections + 1
+	case "review":
+		return sections + 1
+	}
+	if n, err := strconv.Atoi(raw); err == nil && n >= 1 && n <= sections {
+		return n
+	}
+	return 1
+}
+
+func uiFormStepLinks(base, key string) *uiFormStepLink {
+	return &uiFormStepLink{Href: base + "?step=" + key, PanelHref: base + "/panel?step=" + key}
+}
+
+// uiFormSectionTitle is a section's title, or "Section N" when it has none.
+func uiFormSectionTitle(def model.FormDefinition, i int) string {
+	if title := def.Sections[i].Title; title != "" {
+		return title
+	}
+	return fmt.Sprintf("Section %d", i+1)
+}
+
+func uiFormBuildStepper(base string, def model.FormDefinition, answers model.FormAnswers, step int) *uiFormStepper {
+	sections := len(def.Sections)
+	unanswered := def.SectionUnanswered(answers)
+	stepper := &uiFormStepper{Text: fmt.Sprintf("Step %d of %d", step, sections+1)}
+	allDone := true
+	for i := range sections {
+		number := i + 1
+		state := "incomplete"
+		switch {
+		case number == step:
+			state = "current"
+		case len(unanswered[i]) == 0:
+			state = "complete"
+		}
+		if len(unanswered[i]) > 0 {
+			allDone = false
+		}
+		link := uiFormStepLinks(base, strconv.Itoa(number))
+		stepper.Steps = append(stepper.Steps, uiFormStep{
+			Key: strconv.Itoa(number), Number: number, Title: uiFormSectionTitle(def, i),
+			State: state, Href: link.Href, PanelHref: link.PanelHref,
+		})
+	}
+	reviewState := "incomplete"
+	switch {
+	case step > sections:
+		reviewState = "current"
+	case allDone:
+		reviewState = "complete"
+	}
+	link := uiFormStepLinks(base, "review")
+	stepper.Steps = append(stepper.Steps, uiFormStep{
+		Key: "review", Number: sections + 1, Title: "Review", State: reviewState, Review: true,
+		Href: link.Href, PanelHref: link.PanelHref,
+	})
+	if step > sections {
+		stepper.Heading = "Review"
+	} else {
+		stepper.Heading = uiFormSectionTitle(def, step-1)
+	}
+	return stepper
+}
+
+// uiFormReview lists every section with its answers, marking the questions
+// that block Done.
+func uiFormReview(base string, form model.Form) []uiFormReviewSection {
+	def := form.Definition
+	views := def.AnswerViews(form.Answers)
+	blocking := def.Unanswered(form.Answers)
+	next := 0
+	out := make([]uiFormReviewSection, 0, len(def.Sections))
+	for i, section := range def.Sections {
+		link := uiFormStepLinks(base, strconv.Itoa(i+1))
+		data := uiFormReviewSection{Title: uiFormSectionTitle(def, i), Href: link.Href, PanelHref: link.PanelHref}
+		for _, question := range section.Questions {
+			view := views[next]
+			next++
+			item := uiFormSummaryItemOf(view)
+			item.Missing = slices.Contains(blocking, question.ID)
+			data.Items = append(data.Items, item)
+		}
+		out = append(out, data)
+	}
+	return out
+}
+
+func (s *Server) uiFormFooter(r *http.Request, form model.Form, oob bool, rawStep string) uiFormFooterData {
 	answered, required := form.Definition.Progress(form.Answers)
-	return uiFormFooterData{
+	base := formPath(form.OwnerUsername, form.ProjectKey, form.Ref)
+	footer := uiFormFooterData{
 		CSRFToken: uiSessionCSRFToken(r),
-		Base:      formPath(form.OwnerUsername, form.ProjectKey, form.Ref),
+		Base:      base,
 		OOB:       oob,
 		Progress:  uiFormProgressData{Answered: answered, Required: required, Saved: oob},
 		CanSubmit: len(form.Definition.Unanswered(form.Answers)) == 0,
 	}
+	sections := len(form.Definition.Sections)
+	if sections > 1 {
+		step := uiFormResolveStep(form.Definition, form.Answers, rawStep)
+		footer.Stepped = true
+		footer.Review = step > sections
+		footer.StepKey = uiFormStepKey(step, sections)
+		if step > 1 {
+			footer.Back = uiFormStepLinks(base, uiFormStepKey(step-1, sections))
+		}
+		if step <= sections {
+			footer.Next = uiFormStepLinks(base, uiFormStepKey(step+1, sections))
+		}
+	}
+	return footer
 }
 
 func uiFormIncompleteNotice(count int) string {
@@ -552,15 +756,19 @@ func uiFormSummary(form model.Form) []uiFormSummaryItem {
 	views := form.Definition.AnswerViews(form.Answers)
 	items := make([]uiFormSummaryItem, 0, len(views))
 	for _, view := range views {
-		items = append(items, uiFormSummaryItem{
-			Label:    view.Label,
-			Answer:   uiFormAnswerText(view),
-			Answered: view.Answered,
-			Note:     view.Note,
-			Changed:  view.ChangedFromDefault,
-		})
+		items = append(items, uiFormSummaryItemOf(view))
 	}
 	return items
+}
+
+func uiFormSummaryItemOf(view model.FormAnswerView) uiFormSummaryItem {
+	return uiFormSummaryItem{
+		Label:    view.Label,
+		Answer:   uiFormAnswerText(view),
+		Answered: view.Answered,
+		Note:     view.Note,
+		Changed:  view.ChangedFromDefault,
+	}
 }
 
 // uiFormAnswerText is an answer as a person reads it: the chosen options'

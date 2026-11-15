@@ -641,3 +641,31 @@ func TestFormSummary(t *testing.T) {
 		t.Fatalf("summary counts = %d questions, %d of %d required answered; want 4, 2 of 3", got.QuestionCount, got.RequiredAnswered, got.RequiredCount)
 	}
 }
+
+func TestFormSectionUnansweredAndFirstIncomplete(t *testing.T) {
+	t.Parallel()
+	def := mustValidFormDefinition(t)
+	notes := FormAnswer{FormValue: FormValue{Text: "ok"}}
+	store := FormAnswer{FormValue: FormValue{Selected: []string{"store"}}}
+	other := FormAnswer{FormValue: FormValue{Selected: []string{FormOtherOptionID}}}
+	rotated := FormAnswer{FormValue: FormValue{Checked: true}}
+	cases := []struct {
+		name    string
+		answers FormAnswers
+		want    [][]string
+		first   int
+	}{
+		{"nothing answered", FormAnswers{}, [][]string{{"channel"}, {"rotated", "notes"}}, 0},
+		{"first section done", FormAnswers{"channel": store}, [][]string{nil, {"rotated", "notes"}}, 1},
+		{"other chosen with no text", FormAnswers{"channel": other, "rotated": rotated, "notes": notes}, [][]string{{"channel"}, nil}, 0},
+		{"everything answered", FormAnswers{"channel": store, "rotated": rotated, "notes": notes}, [][]string{nil, nil}, -1},
+	}
+	for _, tc := range cases {
+		if got := def.SectionUnanswered(tc.answers); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: SectionUnanswered = %v, want %v", tc.name, got, tc.want)
+		}
+		if got := def.FirstIncompleteSection(tc.answers); got != tc.first {
+			t.Errorf("%s: FirstIncompleteSection = %d, want %d", tc.name, got, tc.first)
+		}
+	}
+}

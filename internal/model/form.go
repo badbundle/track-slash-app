@@ -587,6 +587,32 @@ func (d FormDefinition) Unanswered(a FormAnswers) []string {
 	return out
 }
 
+// SectionUnanswered is Unanswered split by section: the ids that block
+// submitting in each section, in section order. A section with none is
+// complete.
+func (d FormDefinition) SectionUnanswered(a FormAnswers) [][]string {
+	out := make([][]string, len(d.Sections))
+	for i, section := range d.Sections {
+		for _, q := range section.Questions {
+			if q.blocksSubmit(a[q.ID]) {
+				out[i] = append(out[i], q.ID)
+			}
+		}
+	}
+	return out
+}
+
+// FirstIncompleteSection is the index of the first section with a question
+// that blocks submitting, or -1 when there is none.
+func (d FormDefinition) FirstIncompleteSection(a FormAnswers) int {
+	for i, ids := range d.SectionUnanswered(a) {
+		if len(ids) > 0 {
+			return i
+		}
+	}
+	return -1
+}
+
 // CheckComplete returns a FormIncompleteError unless the answers are enough
 // to submit the form.
 func (d FormDefinition) CheckComplete(a FormAnswers) error {
