@@ -552,7 +552,7 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_list_issues", "List project issues. Filter workers by agent for issues meant for an agent, or by human for issues waiting on a person. Private issues are listed to project members only. In a help desk you are not a member of, lists only the issues you reported, newest first, as their reporter sees them; filters are ignored.", readOnly, s.mcpListIssues)
 	addMCPTool(srv, "track_list_deleted_issues", "List deleted project issues.", readOnly, s.mcpListDeletedIssues)
 	addMCPTool(srv, "track_batch_get_issues", "Get visible issues by refs.", readOnly, s.mcpBatchIssues)
-	addMCPTool(srv, "track_get_issue", "Get issue by ref. The reporter of an issue in a help desk, or of a private issue in a project they are not a member of, gets only its title, description, status (open, in_progress or closed) and times. A private issue is not_found to anyone else outside the project.", readOnly, s.mcpGetIssue)
+	addMCPTool(srv, "track_get_issue", "Get issue by ref. The reporter of an issue in a help desk, or of a private issue in a project they are not a member of, gets only its title, description, status (open, in_progress or closed) and times. A private issue is not_found to anyone else outside the project. Members also get open_forms, the refs of forms still waiting on a person for this issue.", readOnly, s.mcpGetIssue)
 	addMCPTool(srv, "track_update_issue", "Update issue fields. worker says who is meant to complete the issue: agent or human. If you cannot finish an issue and a person has to step in, set worker to human and add a comment saying what they need to do. repeat changes how an issue repeats and clear_repeat stops it. Completing a repeating issue creates its next repetition, which the result's repeat.next names; if the next date had already passed, it is skipped and listed in repeat.next.skipped_dates.", write, s.mcpUpdateIssue)
 	addMCPTool(srv, "track_delete_issue", "Soft-delete issue.", write, s.mcpDeleteIssue)
 	addMCPTool(srv, "track_restore_issue", "Restore deleted issue.", write, s.mcpRestoreIssue)
@@ -2046,7 +2046,11 @@ func (s *Server) mcpGetIssue(ctx context.Context, req *mcp.CallToolRequest, inpu
 	if !permissions.CanRead {
 		return mcpToolOutput{"issue": model.NewReporterIssue(issue)}, nil
 	}
-	return mcpToolOutput{"issue": issue}, nil
+	out, err := s.memberIssue(ctx, permissions, issue)
+	if err != nil {
+		return nil, err
+	}
+	return mcpToolOutput{"issue": out}, nil
 }
 
 func (s *Server) mcpUpdateIssue(ctx context.Context, req *mcp.CallToolRequest, input mcpUpdateIssueInput) (mcpToolOutput, error) {

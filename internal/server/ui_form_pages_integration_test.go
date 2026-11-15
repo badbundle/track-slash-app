@@ -171,8 +171,8 @@ func TestUIFormAssigneePageAndAutosave(t *testing.T) {
 	if got := strings.Count(body, "data-form-suggested"); got != 1 {
 		t.Fatalf("Suggested badges = %d, want 1", got)
 	}
-	// Breadcrumb: Forms is plain text, the form is the current page.
-	requireContains(t, "breadcrumb", body, `aria-current="page" class="min-w-0 truncate font-medium text-slate-600 dark:text-slate-300">form-1`, `<span class="min-w-0 truncate">Forms</span>`)
+	// Breadcrumb: Forms links to the project's list, the form is the current page.
+	requireContains(t, "breadcrumb", body, `aria-current="page" class="min-w-0 truncate font-medium text-slate-600 dark:text-slate-300">form-1`, `hx-get="`+e.projectPath()+`/forms/panel" hx-target="#main"`)
 
 	// A text answer saves and completes the required questions.
 	res, body = e.uiFormPost(t, path+"/answers/reason", token, url.Values{"text": {"  Because  "}}, false)

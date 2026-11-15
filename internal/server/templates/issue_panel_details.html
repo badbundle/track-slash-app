@@ -140,6 +140,7 @@
               </a>
             </dd>
           </div>
+          {{with .IssueForms}}{{template "issue-forms-row" .}}{{end}}
           {{if .ParentIssue}}
           <div>
             <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Parent</dt>

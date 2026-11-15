@@ -161,7 +161,8 @@
 {{end}}
 
 {{/* A row of the Inbox: one form addressed to the signed-in user. It is the
-  whole link to the form's page. Data is uiInboxRow. It stacks on narrow
+  whole link to the form's page. Data is uiInboxRow: Done shows the status
+  badge and Assignee, when set, the assignee's avatar. It stacks on narrow
   screens and sits on one line from sm up. */}}
 {{define "form-summary-row"}}
 <a data-form-summary-row href="{{.Href}}" hx-get="{{.PanelHref}}" hx-target="#main" hx-push-url="{{.Href}}" class="block min-w-0 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:border-slate-800 dark:hover:bg-slate-800/50">
@@ -177,8 +178,49 @@
     <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 sm:flex-nowrap sm:justify-end">
       <span data-form-row-progress class="whitespace-nowrap">{{.Progress}}</span>
       <span class="whitespace-nowrap">Asked {{template "local-time" (tokenTime .Form.CreatedAt)}}</span>
+      {{with .Assignee}}<span data-form-row-assignee>{{template "user-avatar" (userAvatar . "grid h-5 w-5 shrink-0 place-items-center bg-slate-100 text-[9px] font-semibold leading-none text-slate-600 dark:bg-slate-800 dark:text-slate-300")}}</span>{{end}}
       {{if .Done}}{{template "form-status-badge" .Form.Status}}{{end}}
     </span>
   </span>
 </a>
+{{end}}
+
+{{/* Under the issue header, while the issue has open forms: one amber notice
+  naming each form that is waiting on answers, and on whom when it is someone
+  other than the viewer. Members only. Data is uiIssueFormsData. */}}
+{{define "issue-form-notice"}}
+{{if .Open}}
+<div data-issue-form-notice role="status" class="mt-4 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100">
+  <i data-lucide="clipboard-list" class="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true"></i>
+  <ul class="min-w-0 space-y-1">
+    {{range .Open}}
+    <li data-issue-form-notice-item class="min-w-0">Waiting on answers: {{template "form-ref" .Form.Ref}} <a href="{{.Href}}" hx-get="{{.PanelHref}}" hx-target="#main" hx-push-url="{{.Href}}" class="font-medium underline decoration-amber-400 underline-offset-2 hover:opacity-80 dark:decoration-amber-700">{{.Form.Title}}</a>{{if .WaitingOn}} · waiting on {{.WaitingOn}}{{end}}</li>
+    {{end}}
+  </ul>
+</div>
+{{end}}
+{{end}}
+
+{{/* The Forms row of the issue's Details sidebar: how many forms the issue
+  has and the newest ten, each with its status. Members only, and not drawn
+  for an issue without forms. Data is uiIssueFormsData. */}}
+{{define "issue-forms-row"}}
+<div data-issue-forms-row>
+  <dt class="text-xs font-medium text-slate-500 dark:text-slate-400">Forms</dt>
+  <dd class="mt-1 space-y-2">
+    {{template "count-badge" .Total}}
+    <ul class="space-y-1.5">
+      {{range .Lines}}
+      <li class="min-w-0">
+        <a data-issue-form-line href="{{.Href}}" hx-get="{{.PanelHref}}" hx-target="#main" hx-push-url="{{.Href}}" class="flex min-w-0 items-center gap-2 hover:text-indigo-700 dark:hover:text-indigo-200">
+          {{template "form-ref" .Form.Ref}}
+          <span class="min-w-0 flex-1 truncate text-slate-900 dark:text-slate-100">{{.Form.Title}}</span>
+          {{template "form-status-badge" .Form.Status}}
+        </a>
+      </li>
+      {{end}}
+    </ul>
+    {{if gt .More 0}}<a data-issue-forms-more href="{{.AllHref}}" hx-get="{{.AllPanelHref}}" hx-target="#main" hx-push-url="{{.AllHref}}" class="inline-flex text-xs font-medium text-indigo-700 hover:text-indigo-600 dark:text-indigo-300 dark:hover:text-indigo-200">and {{.More}} more</a>{{end}}
+  </dd>
+</div>
 {{end}}

@@ -454,7 +454,7 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 	isAssignee := form.AssigneeID == currentUser(r).ID
 	base := formPath(project.OwnerUsername, project.Key, form.Ref)
 	breadcrumb := uiBreadcrumbData{Items: append(uiProjectBreadcrumbItems(project),
-		uiBreadcrumbItem{Label: "Forms", Plain: true},
+		uiBreadcrumbItem{Label: "Forms", Href: uiProjectViewPath(project, "forms"), HXGet: uiProjectPanelPath(project, "forms")},
 		uiBreadcrumbItem{Label: form.Ref, Current: true},
 	)}
 	panel := &uiFormPanelData{

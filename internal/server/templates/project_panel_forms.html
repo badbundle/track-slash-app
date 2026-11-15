@@ -1,0 +1,29 @@
+{{/* The project's Forms view: a status filter and a card of the project's
+  forms, newest first. Members only. Data is uiProjectFormsData. */}}
+{{define "project-panel-forms"}}
+<section class="py-6" data-project-forms>
+  {{template "range-control" .FilterRange}}
+  <div class="mt-4">
+    {{if .Rows}}
+    <div data-project-forms-list class="overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      {{template "project-form-rows" .}}
+    </div>
+    {{else}}
+    <div data-project-forms-empty class="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400">{{if .Filtered}}No forms match this filter.{{else}}No forms yet. Agents create forms when they need a decision from a person.{{end}}</div>
+    {{end}}
+  </div>
+</section>
+{{end}}
+
+{{/* A run of rows, then the button for the next run when there is one. "Load more" swaps this whole run in place. */}}
+{{define "project-form-rows"}}
+{{range .Rows}}{{template "form-summary-row" .}}{{end}}
+{{if .HasMore}}
+<div id="project-forms-more" class="border-t border-slate-100 p-3 dark:border-slate-800">
+  <button type="button" hx-get="{{.MoreHref}}" hx-target="#project-forms-more" hx-swap="outerHTML" class="inline-flex h-8 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800 dark:focus:ring-offset-slate-900">
+    <i data-lucide="chevron-down" class="h-4 w-4" aria-hidden="true"></i>
+    Load more
+  </button>
+</div>
+{{end}}
+{{end}}

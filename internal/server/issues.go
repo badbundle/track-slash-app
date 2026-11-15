@@ -469,7 +469,12 @@ func (s *Server) getIssue(w http.ResponseWriter, r *http.Request) {
 		writeForbidden(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, iss)
+	out, err := s.memberIssue(r.Context(), permissions, iss)
+	if err != nil {
+		writeStoreError(w, err) // defensive: the issue was just resolved; only a DB outage fails here
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 type updateIssueReq struct {

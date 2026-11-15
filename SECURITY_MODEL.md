@@ -65,6 +65,9 @@ source of a user's rights in a project.
   where they are still the owner or a member and not blocked. A site admin gets
   no extra forms there, and removing or blocking someone drops their forms from
   the list and the count at once.
+  An issue names its forms (the form notice, the Details `Forms` row and
+  `open_forms` on `track_get_issue` and the REST issue) to members only, and
+  reporter views never do.
 - **Emails are never shown outside the account itself.** Member lists, pickers,
   comment authors and the reporter view name people by display name or
   username. Member search matches emails only for someone who manages members.

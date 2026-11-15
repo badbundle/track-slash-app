@@ -62,6 +62,7 @@ var uiProjectViewLabels = map[string]string{
 	"changelog":  "Changelog",
 	"insights":   "Insights",
 	"timeline":   "Timeline",
+	"forms":      "Forms",
 }
 
 func uiProjectBreadcrumb(project model.Project, view string, showOwner ...bool) uiBreadcrumbData {

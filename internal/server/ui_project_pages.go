@@ -153,7 +153,7 @@ func (s *Server) uiProjectAllIssuePage(w http.ResponseWriter, r *http.Request) {
 // falling back to the default view when the caller names one that does not exist.
 func uiProjectPanelView(raw string) string {
 	switch raw {
-	case "about", "sprint", "planned", "progress", "all", "context", "whiteboard", "sprints", "changelog", "insights", "timeline", "members":
+	case "about", "sprint", "planned", "progress", "all", "context", "whiteboard", "sprints", "changelog", "insights", "timeline", "forms", "members":
 		return raw
 	default:
 		return "sprint"
@@ -481,6 +481,7 @@ func (s *Server) uiBuildNewIssuePanel(ctx context.Context, r *http.Request, inpu
 func uiApplyProjectHeaderAccess(panel *uiProjectPanelData, user model.User, permissions store.ProjectPermissions) {
 	panel.Anonymous = user.ID == uuid.Nil
 	panel.CanWrite = permissions.CanWrite
+	panel.CanReadMembersOnly = permissions.CanReadMembersOnly
 	panel.CanCreateIssues = permissions.CanCreateIssues
 	panel.PublicIssueCreationEnabled = permissions.AccessMode.OutsideIssueCreation() && !permissions.IsBlocked
 	panel.CanManageMembers = permissions.CanManageMembers
@@ -774,6 +775,14 @@ func (s *Server) uiBuildProjectPanel(ctx context.Context, r *http.Request, proje
 			return nil, err
 		}
 		panel.Timeline = uiBuildProjectTimeline(project, timeline)
+	case "forms":
+		if !permissions.CanReadMembersOnly {
+			return nil, store.ErrNotFound
+		}
+		panel.Forms, err = s.uiBuildProjectForms(ctx, r, project)
+		if err != nil {
+			return nil, err
+		}
 	case "context":
 		manager, err := s.uiBuildProjectContextManager(ctx, r, projectID)
 		if err != nil {

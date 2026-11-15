@@ -35,7 +35,11 @@ type uiInboxRow struct {
 	Href      string
 	PanelHref string
 	Progress  string
-	Done      bool
+	// Done shows the form's status badge.
+	Done bool
+	// Assignee, when set, shows the person's avatar. Only the project's Forms
+	// list sets it, since the Inbox is all the signed-in user's.
+	Assignee *model.User
 }
 
 // uiInboxProgress is the progress text of a row: how many questions the form

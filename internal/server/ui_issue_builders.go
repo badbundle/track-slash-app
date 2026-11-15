@@ -530,6 +530,14 @@ func (s *Server) uiBuildIssuePanel(ctx context.Context, r *http.Request, issueID
 		return nil, err
 	}
 
+	var issueForms *uiIssueFormsData
+	if permissions.CanReadMembersOnly {
+		issueForms, err = s.uiBuildIssueForms(ctx, project, issue, currentUser(r).ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	githubConnections, err := s.store.ListGitHubConnections(ctx, projectID)
 	if err != nil {
 		return nil, err
@@ -576,6 +584,7 @@ func (s *Server) uiBuildIssuePanel(ctx context.Context, r *http.Request, issueID
 		LinksHasMore:            linksHasMore,
 		Contexts:                contexts,
 		ContextsHasMore:         contextsHasMore,
+		IssueForms:              issueForms,
 		BackHref:                backHref,
 		BackHXGet:               backHXGet,
 		BackLabel:               backLabel,
