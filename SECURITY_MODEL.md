@@ -13,8 +13,8 @@ source of a user's rights in a project.
 | Who | Reads | Writes |
 | --- | --- | --- |
 | Site admin, project owner | Everything | Everything, including members, access and deleting the project |
-| Member | Everything, including members-only comments and deleted issues | Issues, comments, sprints, context, whiteboard |
-| Read-only member | Everything, including members-only comments and deleted issues | Nothing |
+| Member | Everything, including members-only comments, deleted issues and forms | Issues, comments, sprints, context, whiteboard, forms |
+| Read-only member | Everything, including members-only comments, deleted issues and forms | Nothing, except answering a form addressed to them |
 | Public viewer (`public`, `public_issues`) | Live issues that are not private, and their shared comments | Files issues in `public_issues` only |
 | Reporter of a private issue (a non-member of a public project) | That issue, as a `ReporterIssue`, and its shared comments | Replies on it |
 | Help-desk reporter (non-member of a `helpdesk` project) | Only issues they reported, as a `ReporterIssue`, and their shared comments | Files issues (title and description) and replies |
@@ -49,6 +49,18 @@ source of a user's rights in a project.
   about them, and deleted comments' previews. Members-only comments never reach
   anyone else, whether through the API, MCP, the UI, the changelog, push
   notifications or realtime.
+- **Forms are the members'.** A form holds the questions an agent asks a
+  person and that person's answers. The project's members read it, read-only
+  ones included, and nobody else does: not a public viewer, a help-desk
+  reporter or the reporter of a private issue. Every form route and tool
+  checks membership before it looks for the form. Someone who can read the
+  project without being a member is answered as for a form that doesn't exist
+  (404, MCP `not_found`), whether or not it does, and someone who can't read
+  the project is refused as on any of its routes. Creating a form, picking one
+  up and cancelling one need write access. Only the form's assignee saves its
+  answers, submits it or reopens it. The assignee must be a member; a
+  read-only member can be asked, because answering their own form is not a
+  project write.
 - **Emails are never shown outside the account itself.** Member lists, pickers,
   comment authors and the reporter view name people by display name or
   username. Member search matches emails only for someone who manages members.
@@ -66,6 +78,11 @@ source of a user's rights in a project.
 - **Credentials are the account's own.** A connector (OAuth) token cannot read
   or change tokens, email, password, password login, passkeys, saved GitHub
   tokens, or site-admin account administration. See [OAUTH.md](OAUTH.md).
+- **A person answers a form.** A connector (OAuth) token can create a form,
+  read it and mark it picked up, but it cannot save answers, submit or reopen
+  one, even for its own user, and MCP has no tool for any of the three. A
+  session or an API token is the person's own, so REST accepts those. The
+  form records how it was submitted (`web` or `api`). See [OAUTH.md](OAUTH.md).
 - **Guesses are budgeted.** Password sign-in, password changes, reauthentication
   and OAuth client authentication share per-address and per-identifier failure
   budgets (`auth_rate_limit.go`).
@@ -95,6 +112,12 @@ These are known and left as they are. Change one only with that in mind.
 - **GitHub metadata follows the project's visibility.** If a public project
   connects a private repository, its readers see the repository name and the
   linked branch and pull request titles.
+- **A form's answers are plain text every member can read.** The tool
+  descriptions tell agents never to ask for a password, key or token in one,
+  but nothing stops a person typing one into an answer.
+- **A form's origin link is its creator's word.** `origin_url` must be an
+  `https` link with no credentials in it, but nothing checks where it leads.
+  Only members with write access create forms, and only members see them.
 - **Images are stored as uploaded,** metadata included.
 - **Session cookies do not use the `__Host-` prefix.** They are HttpOnly,
   SameSite=Lax, Secure over https and have no Domain. Renaming them would sign

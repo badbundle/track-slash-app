@@ -517,7 +517,7 @@ func (s *Server) verifyMCPBearerToken(ctx context.Context, raw string, _ *http.R
 
 func (s *Server) newMCPServer() *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "track-slash", Version: "v1"}, &mcp.ServerOptions{
-		Instructions: "Use trackslash tools to read and update issue-tracking data. Prefer refs like KEY-123, sprint-1, tag-1, link-1, context-1, whiteboard-1, object-1.",
+		Instructions: "Use trackslash tools to read and update issue-tracking data. Prefer refs like KEY-123, sprint-1, tag-1, link-1, context-1, whiteboard-1, form-1, object-1. When work is blocked on a person's decisions, ask them with track_create_form.",
 	})
 
 	readOnly := true
@@ -608,6 +608,12 @@ func (s *Server) newMCPServer() *mcp.Server {
 	addMCPTool(srv, "track_create_whiteboard_page", "Create a free-form project whiteboard page. Whiteboard pages are never linked to issues.", write, s.mcpCreateWhiteboardPage)
 	addMCPTool(srv, "track_update_whiteboard_page", "Update a project whiteboard page title or Markdown body.", write, s.mcpUpdateWhiteboardPage)
 	addMCPTool(srv, "track_delete_whiteboard_page", "Delete a project whiteboard page.", write, s.mcpDeleteWhiteboardPage)
+
+	addMCPTool(srv, "track_create_form", mcpCreateFormDescription, write, s.mcpCreateForm)
+	addMCPTool(srv, "track_get_form", "Get a form: its status, and in responses each question paired with the person's answer, where changed_from_default marks an answer that differs from the one you suggested. Once you have used a submitted form's answers, call track_acknowledge_form so the person can see they were picked up. Set include_definition to also get the questions as they were defined and the raw answers by question id.", readOnly, s.mcpGetForm)
+	addMCPTool(srv, "track_list_forms", "List a project's forms, newest first, without their questions. Filter by statuses (open, submitted, acknowledged, cancelled), by issue, or by assignee_id. Forms are for project members only.", readOnly, s.mcpListForms)
+	addMCPTool(srv, "track_acknowledge_form", "Mark a submitted form picked up, once its answers have been read and used. Its answers can no longer change after that.", write, s.mcpAcknowledgeForm)
+	addMCPTool(srv, "track_cancel_form", "Withdraw a form that is open or submitted and not yet picked up, for example when its questions no longer need an answer. A form's questions can't be edited: to change them, cancel it and create another.", write, s.mcpCancelForm)
 
 	addMCPTool(srv, "track_create_object", "Upload project storage object from base64 content.", write, s.mcpCreateObject)
 	addMCPTool(srv, "track_list_objects", "List project storage objects.", readOnly, s.mcpListObjects)
@@ -4336,6 +4342,13 @@ func (s *Server) addMCPResources(srv *mcp.Server) {
 		URITemplate: "track://whiteboard/{owner}/{key}/{page}",
 	}, handler)
 	srv.AddResourceTemplate(&mcp.ResourceTemplate{
+		Name:        "track_form",
+		Title:       "track form",
+		Description: "Form with its questions and answers by owner, key, and form ref. Project members only.",
+		MIMEType:    "application/json",
+		URITemplate: "track://form/{owner}/{key}/{form}",
+	}, handler)
+	srv.AddResourceTemplate(&mcp.ResourceTemplate{
 		Name:        "track_object",
 		Title:       "track object metadata",
 		Description: "Storage object metadata by owner, key, and object ref.",
@@ -4413,6 +4426,15 @@ func (s *Server) readMCPResource(ctx context.Context, req *mcp.ReadResourceReque
 			return nil, mcpResourceError(uri, err)
 		}
 		return mcpJSONResource(uri, page)
+	case "form":
+		if len(parts) != 3 {
+			return nil, mcp.ResourceNotFoundError(uri)
+		}
+		form, _, err := s.mcpForm(ctx, auth, mcpFormInput{mcpProjectInput: mcpProjectInput{Owner: parts[0], Key: parts[1]}, Form: parts[2]})
+		if err != nil {
+			return nil, mcpResourceError(uri, err)
+		}
+		return mcpJSONResource(uri, s.formResponse(form))
 	case "object":
 		if len(parts) != 3 {
 			return nil, mcp.ResourceNotFoundError(uri)

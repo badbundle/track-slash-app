@@ -98,6 +98,14 @@ administration (`/users`, `track_*_user`). A connector that could set the
 password or add a passkey would own a way in that outlives its revocation. A
 display name is not a credential, so a connector may still change that.
 
+**A connector cannot answer a form.** A form is how an agent asks a person for a
+decision, so the answer has to come from the person. `answerableFormFromRoute`
+refuses a token whose kind is `oauth` on the routes that save a form's answers,
+submit it and reopen it, even when the connector acts for the form's assignee,
+and MCP has no tool for any of the three. A connector can still create a form,
+read its answers and mark it picked up. See "A person answers a form" in
+[SECURITY_MODEL.md](SECURITY_MODEL.md).
+
 **A connector's token is not a browser session.** `uiAuthMiddleware` rejects the
 `oauth` kind. The UI's CSRF token is derived from whatever value sits in the
 session cookie, so anything holding a raw access token could otherwise drive the
