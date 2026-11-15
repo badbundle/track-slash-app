@@ -42,6 +42,11 @@ type mcpCreateFormInput struct {
 	Sections    []model.FormSection `json:"sections" jsonschema:"the questions, in one or more sections; several sections are shown as steps"`
 }
 
+type mcpListInboxInput struct {
+	mcpPageInput
+	State string `json:"state,omitempty" jsonschema:"todo (the default) or done"`
+}
+
 type mcpListFormsInput struct {
 	mcpProjectInput
 	mcpPageInput
@@ -262,4 +267,32 @@ func (s *Server) mcpCancelForm(ctx context.Context, req *mcp.CallToolRequest, in
 		return nil, err
 	}
 	return s.mcpFormOutput(cancelled, false), nil
+}
+
+func (s *Server) mcpListInbox(ctx context.Context, req *mcp.CallToolRequest, input mcpListInboxInput) (mcpToolOutput, error) {
+	ctx, auth, err := s.mcpAuth(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	state, err := parseInboxState(input.State)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	limit, err := mcpLimit(input.Limit)
+	if err != nil {
+		return nil, validationError(err.Error())
+	}
+	params := store.ListInboxFormsParams{UserID: auth.User.ID, State: state, Limit: limit}
+	if input.Cursor != "" {
+		var c store.InboxCursor
+		if err := decodeCursor(input.Cursor, &c); err != nil {
+			return nil, validationError(err.Error())
+		}
+		params.Cursor = &c
+	}
+	forms, hasMore, err := s.store.ListInboxForms(ctx, params)
+	if err != nil {
+		return nil, err // defensive: only a DB outage fails here
+	}
+	return mcpPageOut(s.formSummaryResponses(forms), inboxNextCursor(state, forms, hasMore)), nil
 }

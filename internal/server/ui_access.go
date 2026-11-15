@@ -100,6 +100,7 @@ func (s *Server) renderUIShell(w http.ResponseWriter, r *http.Request, status in
 	data.Anonymous = !data.Authenticated
 	var favorites []model.Project
 	var recents []model.Issue
+	inboxCount := 0
 	if data.Authenticated {
 		var err error
 		favorites, err = s.uiFavoriteProjects(r.Context(), data.User)
@@ -110,6 +111,11 @@ func (s *Server) renderUIShell(w http.ResponseWriter, r *http.Request, status in
 		recents, err = s.uiRecentIssues(r.Context(), data.User)
 		if err != nil {
 			writeUIInternalError(w, "ui shell recent issues", err)
+			return
+		}
+		inboxCount, err = s.store.CountInboxForms(r.Context(), data.User.ID)
+		if err != nil {
+			writeUIInternalError(w, "ui shell inbox count", err)
 			return
 		}
 		// Only a full page draws the backdrop; an htmx response replaces #main.
@@ -142,6 +148,7 @@ func (s *Server) renderUIShell(w http.ResponseWriter, r *http.Request, status in
 		Issues:        recents,
 		ActiveIssueID: activeIssueID,
 	}
+	data.SidebarInbox = uiSidebarInboxData{Count: inboxCount, Active: data.SidebarActive.View == "inbox"}
 	renderUITemplate(w, status, uiShellTemplateName(r), data)
 }
 
@@ -653,7 +660,7 @@ func safeUINext(raw string) string {
 	// straight to it. Without it the whole authorization request, query string
 	// and all, is replaced by "/" on the way through the login page, and the
 	// connection fails with nothing to explain why.
-	case path == "/", path == "/me", path == "/me/panel", path == "/me/all", path == "/me/all/panel", path == "/projects", path == "/projects/panel", path == "/projects/new", path == "/projects/new/panel", path == "/issues/new", path == "/issues/new/panel", path == "/issues/new/projects", path == "/settings", path == uiProfilePath, path == uiLoginSettingsPath, path == uiNotificationsPath, path == uiTokensPath, path == oauthAuthorizePath:
+	case path == "/", path == "/inbox", path == "/inbox/panel", path == "/inbox/done", path == "/inbox/done/panel", path == "/me", path == "/me/panel", path == "/me/all", path == "/me/all/panel", path == "/projects", path == "/projects/panel", path == "/projects/new", path == "/projects/new/panel", path == "/issues/new", path == "/issues/new/panel", path == "/issues/new/projects", path == "/settings", path == uiProfilePath, path == uiLoginSettingsPath, path == uiNotificationsPath, path == uiTokensPath, path == oauthAuthorizePath:
 		return raw
 	case safeUIIssuePath(path):
 		return raw

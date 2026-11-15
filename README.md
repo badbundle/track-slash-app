@@ -13,7 +13,7 @@ trackslash is a fast, self-hostable issue tracker built as a single Go applicati
 - Marks each issue for an agent or a human, so agents can find their work and hand an issue to a person when they get stuck.
 - Repeats issues on a schedule (daily, weekly, monthly, yearly, the 3rd Wednesday of the month, or cron). Only one repetition is open at a time: completing it creates the next, skipping any dates that already passed.
 - Keeps project and issue context, plus free-form project whiteboard notes, addressable from the UI, HTTP API, and MCP.
-- Lets agents ask people for decisions through forms: an agent sets the questions and suggested answers, and the person answers in the browser on one focused page.
+- Lets agents ask people for decisions through forms: an agent sets the questions and suggested answers, and the person answers in the browser on one focused page. The Inbox lists every form waiting on you across projects, with a count in the sidebar.
 - Exposes MCP tools, resources, and prompts for issue work, planning, context, attachments, users, and tokens.
 - Supports project membership, read-only roles, public project views, passkeys, password login, and API tokens.
 - Runs a project as a help desk if you want: it stays private, anyone signed in can file issues through its link and follow only the ones they filed, and members choose which comments to share with them.

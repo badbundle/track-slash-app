@@ -192,6 +192,7 @@ func (s *Server) Router() http.Handler {
 			r.Use(s.authMiddleware)
 
 			r.Get("/me", s.getMe)
+			r.Get("/me/inbox", s.listInbox)
 			r.Post("/me/profile-image", s.createMyProfileImage)
 			r.Delete("/me/profile-image", s.deleteMyProfileImage)
 			r.Patch("/me/settings", s.updateMySettings)

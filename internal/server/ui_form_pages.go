@@ -47,6 +47,9 @@ type uiFormPanelData struct {
 	Footer   uiFormFooterData
 	Comment  uiFormCommentData
 	CopyText string
+	// SidebarInbox is set for an htmx response, which refreshes the Inbox
+	// count in the sidebar out of band.
+	SidebarInbox *uiSidebarInboxData
 }
 
 type uiFormOriginData struct {
@@ -416,6 +419,13 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 	if form.IssueIdentifier != nil {
 		panel.IssueHref = "/" + form.OwnerUsername + "/issues/" + *form.IssueIdentifier
 		panel.IssuePanelHref = panel.IssueHref + "/panel"
+	}
+	if isHTMXRequest(r) {
+		count, err := s.store.CountInboxForms(r.Context(), currentUser(r).ID)
+		if err != nil {
+			return nil, err // defensive: the assignee was read just above
+		}
+		panel.SidebarInbox = &uiSidebarInboxData{Count: count, OOB: true}
 	}
 	if panel.Open {
 		for _, section := range form.Definition.Sections {

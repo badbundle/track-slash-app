@@ -32,6 +32,8 @@ type uiShellData struct {
 	Background        model.BackgroundPreset
 	SidebarFavorites  uiSidebarFavoritesData
 	SidebarRecents    uiSidebarRecentsData
+	SidebarInbox      uiSidebarInboxData
+	InboxPanel        *uiInboxPanelData
 	SidebarActive     uiSidebarState
 	WorkPanel         *uiWorkPanelData
 	ProjectsPanel     *uiProjectsPanelData
@@ -66,6 +68,14 @@ type uiSidebarRecentsData struct {
 	Issues        []model.Issue
 	ActiveIssueID uuid.UUID
 	OOB           bool
+}
+
+// uiSidebarInboxData is the sidebar's Inbox link: how many forms are waiting on
+// the signed-in user. Active marks the link on the Inbox page itself.
+type uiSidebarInboxData struct {
+	Count  int
+	Active bool
+	OOB    bool
 }
 
 type uiSidebarFavoritesData struct {
@@ -488,6 +498,8 @@ type uiTabItem struct {
 	HXSwap         string
 	Active         bool
 	MobileOverflow bool
+	// Count shows a count-badge after the label when it is above zero.
+	Count int
 }
 
 type uiWorkPanelData struct {

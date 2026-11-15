@@ -732,3 +732,167 @@ func TestFormOutlivesItsIssueAndNotItsProject(t *testing.T) {
 		t.Fatalf("create in a deleted project err = %v, want ErrNotFound", err)
 	}
 }
+
+func inboxRefs(forms []model.FormSummary) []string {
+	out := make([]string, len(forms))
+	for i, f := range forms {
+		out[i] = f.ProjectKey + "/" + f.Title
+	}
+	return out
+}
+
+func listInbox(t *testing.T, env *sprintsTestEnv, user uuid.UUID, state store.InboxState, limit int, cursor *store.InboxCursor) ([]model.FormSummary, bool) {
+	t.Helper()
+	forms, more, err := env.store.ListInboxForms(env.ctx, store.ListInboxFormsParams{UserID: user, State: state, Cursor: cursor, Limit: limit})
+	if err != nil {
+		t.Fatalf("ListInboxForms: %v", err)
+	}
+	return forms, more
+}
+
+func TestListInboxFormsStatesOrderAndPaging(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	owner := formsEnvOwner(t, env)
+	me := mustCreateUser(t, env, "inbox-me@example.com")
+	if _, err := env.store.GrantProjectAccess(env.ctx, env.projectID, me.ID); err != nil {
+		t.Fatalf("GrantProjectAccess: %v", err)
+	}
+	other, err := env.store.CreateProjectForUser(env.ctx, me.ID, "INBX", "Mine", "")
+	if err != nil {
+		t.Fatalf("CreateProjectForUser: %v", err)
+	}
+	create := func(projectID uuid.UUID, title string) model.Form {
+		t.Helper()
+		form, err := env.store.CreateForm(env.ctx, store.CreateFormParams{ProjectID: projectID, Title: title, Definition: formsTestDefinition(), AssigneeID: me.ID, CreatedByID: me.ID})
+		if err != nil {
+			t.Fatalf("CreateForm %q: %v", title, err)
+		}
+		return form
+	}
+	project, err := env.store.GetProject(env.ctx, env.projectID)
+	if err != nil {
+		t.Fatalf("GetProject: %v", err)
+	}
+	key := project.Key
+	create(env.projectID, "A")
+	b := create(other.ID, "B")
+	create(env.projectID, "C")
+	d := create(other.ID, "D")
+	create(env.projectID, "E")
+	mustCreateForm(t, env, owner, "Not mine")
+
+	mustSubmitForm(t, env, d)
+	if _, err := env.store.CancelForm(env.ctx, b.ID); err != nil {
+		t.Fatalf("CancelForm: %v", err)
+	}
+	if _, err := env.store.AcknowledgeForm(env.ctx, d.ID); err != nil {
+		t.Fatalf("AcknowledgeForm: %v", err)
+	}
+
+	// To do: open forms, longest-waiting first, across projects.
+	todo, more := listInbox(t, env, me.ID, store.InboxTodo, 10, nil)
+	if got := inboxRefs(todo); more || !reflect.DeepEqual(got, []string{key + "/A", key + "/C", key + "/E"}) {
+		t.Fatalf("todo = %v more=%v", got, more)
+	}
+	if n, err := env.store.CountInboxForms(env.ctx, me.ID); err != nil || n != 3 {
+		t.Fatalf("count = %d, %v; want 3", n, err)
+	}
+
+	// Done: everything else, most recently changed first.
+	done, more := listInbox(t, env, me.ID, store.InboxDone, 10, nil)
+	if got := inboxRefs(done); more || !reflect.DeepEqual(got, []string{"INBX/D", "INBX/B"}) {
+		t.Fatalf("done = %v more=%v", got, more)
+	}
+
+	// Paging follows the cursor in both states, one form at a time.
+	for _, tc := range []struct {
+		state store.InboxState
+		want  []string
+	}{
+		{store.InboxTodo, []string{"A", "C", "E"}},
+		{store.InboxDone, []string{"D", "B"}},
+	} {
+		var got []string
+		var cursor *store.InboxCursor
+		for pages := 0; pages < 10; pages++ {
+			page, more := listInbox(t, env, me.ID, tc.state, 1, cursor)
+			if len(page) != 1 {
+				t.Fatalf("%s page %d has %d forms", tc.state, pages, len(page))
+			}
+			got = append(got, page[0].Title)
+			if !more {
+				break
+			}
+			next := store.NextInboxCursor(tc.state, page[0])
+			cursor = &next
+		}
+		if !reflect.DeepEqual(got, tc.want) {
+			t.Fatalf("%s paged = %v, want %v", tc.state, got, tc.want)
+		}
+	}
+
+	// Someone else's inbox holds only their own forms.
+	if forms, _ := listInbox(t, env, owner, store.InboxTodo, 10, nil); len(forms) != 1 || forms[0].Title != "Not mine" {
+		t.Fatalf("owner todo = %v", inboxRefs(forms))
+	}
+}
+
+func TestInboxDropsFormsOfProjectsTheUserCannotReadAsAMember(t *testing.T) {
+	t.Parallel()
+	env := newSprintsEnv(t)
+	owner := formsEnvOwner(t, env)
+	member := mustCreateUser(t, env, "inbox-member@example.com")
+	blocked := mustCreateUser(t, env, "inbox-blocked@example.com")
+	gone := mustCreateUser(t, env, "inbox-gone@example.com")
+	for _, u := range []model.User{member, blocked, gone} {
+		if _, err := env.store.GrantProjectAccess(env.ctx, env.projectID, u.ID); err != nil {
+			t.Fatalf("GrantProjectAccess: %v", err)
+		}
+	}
+	for _, u := range []model.User{member, blocked, gone} {
+		for _, title := range []string{"One", "Two"} {
+			f := mustCreateForm(t, env, u.ID, title)
+			if title == "Two" {
+				mustSubmitForm(t, env, f)
+			}
+		}
+	}
+	counts := func(u model.User) (int, int, int) {
+		t.Helper()
+		todo, _ := listInbox(t, env, u.ID, store.InboxTodo, 10, nil)
+		done, _ := listInbox(t, env, u.ID, store.InboxDone, 10, nil)
+		n, err := env.store.CountInboxForms(env.ctx, u.ID)
+		if err != nil {
+			t.Fatalf("CountInboxForms: %v", err)
+		}
+		return len(todo), len(done), n
+	}
+	for _, u := range []model.User{member, blocked, gone} {
+		if todo, done, n := counts(u); todo != 1 || done != 1 || n != 1 {
+			t.Fatalf("%s before = %d/%d/%d, want 1/1/1", u.Email, todo, done, n)
+		}
+	}
+
+	if _, err := env.store.BlockProjectUser(env.ctx, env.projectID, blocked.ID, owner); err != nil {
+		t.Fatalf("BlockProjectUser: %v", err)
+	}
+	if err := env.store.RevokeProjectAccess(env.ctx, env.projectID, gone.ID); err != nil {
+		t.Fatalf("RevokeProjectAccess: %v", err)
+	}
+	for _, u := range []model.User{blocked, gone} {
+		if todo, done, n := counts(u); todo != 0 || done != 0 || n != 0 {
+			t.Fatalf("%s after = %d/%d/%d, want 0/0/0", u.Email, todo, done, n)
+		}
+	}
+	if todo, done, n := counts(member); todo != 1 || done != 1 || n != 1 {
+		t.Fatalf("member after = %d/%d/%d, want 1/1/1", todo, done, n)
+	}
+
+	if err := env.store.DeleteProject(env.ctx, env.projectID); err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	if todo, done, n := counts(member); todo != 0 || done != 0 || n != 0 {
+		t.Fatalf("member after delete = %d/%d/%d, want 0/0/0", todo, done, n)
+	}
+}

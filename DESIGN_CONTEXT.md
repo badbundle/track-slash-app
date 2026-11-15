@@ -11,7 +11,8 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 
 ## Sidebar
 
-- Below `Me` and `Projects`, the sidebar has two titled sections, each behind a divider: `Favorites` (favorited projects) and `Recents` (the ten issues the user opened most recently, newest first). Each has a small uppercase heading, and an empty section is not shown at all.
+- `Inbox` is the first link, above `Me` and `Projects`: the forms waiting on the signed-in user. When any are open it shows their count as a badge, and in the collapsed icon rail a small indigo dot on the icon instead (a number would not fit). At zero it shows neither.
+- Below the links, the sidebar has two titled sections, each behind a divider: `Favorites` (favorited projects) and `Recents` (the ten issues the user opened most recently, newest first). Each has a small uppercase heading, and an empty section is not shown at all.
 - Recents rows are the issue key badge plus a one-line title. Opening an issue moves it to the top without duplicating it, and the list refreshes out of band on htmx navigation. The full title shows in the app tooltip only when it is cut off.
 - Recents history is stored per user on the server (the store keeps the 50 newest views), so it follows the user across devices. It never lists an issue the user can no longer read, and signed-out visitors have none.
 - The collapsed icon rail hides Recents entirely rather than squeezing issue keys into icons. On an issue page, the issue's Recents entry is the active destination; with the sidebar collapsed, the page's favorited project is highlighted instead.
@@ -149,6 +150,7 @@ Use this as lightweight product/design memory alongside `MANIFESTO.md` and `COMP
 - Status colours: Open amber, Submitted indigo, Picked up emerald, Cancelled neutral slate. Cancel is a small rose text button with a confirm.
 - Who sees what: only the project's members see a form; anyone else gets the same not-found page as for a form that doesn't exist. Only the assignee answers, submits or reopens, and that includes a read-only member. Another member sees who the form is waiting on and the answers so far. Cancelling needs write access.
 - `Done` is disabled until every required question is answered. If a submit is still refused, the page says how many questions need an answer, marks them, and scrolls to the first.
+- The Inbox (`/inbox`) is the one place to see every form waiting on you, across projects. It uses the `Me` page's frame, with `To do` (longest-waiting first) and `Done` tabs. A row is a single link to the form with its title, project, issue, origin, progress and when it was asked; the empty state is a plain dashed card, not an illustration.
 
 ## Tag IA
 

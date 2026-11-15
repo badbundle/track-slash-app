@@ -119,3 +119,26 @@
   {{end}}
 </dl>
 {{end}}
+
+{{/* A row of the Inbox: one form addressed to the signed-in user. It is the
+  whole link to the form's page. Data is uiInboxRow. It stacks on narrow
+  screens and sits on one line from sm up. */}}
+{{define "form-summary-row"}}
+<a data-form-summary-row href="{{.Href}}" hx-get="{{.PanelHref}}" hx-target="#main" hx-push-url="{{.Href}}" class="block min-w-0 border-b border-slate-100 px-4 py-3 text-sm last:border-b-0 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:border-slate-800 dark:hover:bg-slate-800/50">
+  <span class="grid min-w-0 gap-1.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+    <span class="min-w-0">
+      <span class="block break-words font-medium text-slate-900 dark:text-slate-100 sm:truncate">{{.Form.Title}}</span>
+      <span class="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
+        {{template "project-key" .Form.ProjectKey}}
+        {{if .Form.IssueIdentifier}}{{template "issue-key" .Form.IssueIdentifier}}{{end}}
+        {{if .Form.OriginLabel}}<span class="min-w-0 truncate">{{.Form.OriginLabel}}</span>{{end}}
+      </span>
+    </span>
+    <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 dark:text-slate-400 sm:flex-nowrap sm:justify-end">
+      <span data-form-row-progress class="whitespace-nowrap">{{.Progress}}</span>
+      <span class="whitespace-nowrap">Asked {{template "local-time" (tokenTime .Form.CreatedAt)}}</span>
+      {{if .Done}}{{template "form-status-badge" .Form.Status}}{{end}}
+    </span>
+  </span>
+</a>
+{{end}}
