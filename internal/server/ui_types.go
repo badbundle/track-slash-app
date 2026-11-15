@@ -37,6 +37,7 @@ type uiShellData struct {
 	ProjectsPanel     *uiProjectsPanelData
 	NewProjectPanel   *uiNewProjectPanelData
 	NewIssuePanel     *uiNewIssuePanelData
+	FormPanel         *uiFormPanelData
 	HelpDeskPanel     *uiHelpDeskPanelData
 	ProjectPanel      *uiProjectPanelData
 	DeletedPanel      *uiDeletedIssuesPanelData
@@ -120,6 +121,8 @@ type uiBreadcrumbItem struct {
 	HXGet    string
 	IssueKey bool
 	Current  bool
+	// Plain is a crumb with nowhere to go yet: text, not a link.
+	Plain bool
 }
 
 type uiIssueItem struct {

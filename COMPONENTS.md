@@ -120,4 +120,20 @@ Brand building blocks live in `internal/server/templates/brand.html`; see "Brand
 - Pages are title plus Markdown only. They render through the shared safe Markdown pipeline with no attachment store, so external images stay inert links and `object-N` refs stay text.
 - Delete uses a single `hx-confirm` action. Refs such as `whiteboard-1` stay in URLs and API/MCP mechanics, never as visible row labels.
 
+### Form Page Components
+
+Templates are in `internal/server/templates/form_components.html` (page in `form_panel.html`); data types are in `internal/server/ui_form_pages.go`. The page is `/{owner}/projects/{key}/forms/{form-N}` with a `/panel` twin; it is a whole-page panel in `shell-main-content`.
+
+- `form-ref`: compact monospace badge for a `form-N` ref, same treatment as `sprint-ref`. Pass the ref string.
+- `form-status-badge`: the status as a bordered badge with `data-form-status`. Pass the `model.FormStatus`; the label is `FormStatus.Label()` (Open amber, Submitted indigo, Picked up emerald, Cancelled slate).
+- `form-origin`: the origin label in muted text and, when the URL is https with a host, an `Open thread` link with the `external-link` icon and the host. Pass `uiFormOriginData`, built by `uiFormOrigin`; renders nothing when both are empty.
+- `form-question`: one question as a card with its own autosaving `<form>`: a `<fieldset>`/`<legend>` label (muted `Optional` when not required), Markdown help, the control for the type, an error slot `form-question-error-<id>` and an `Add a note` disclosure. Pass `uiFormQuestionData`. A question that blocked Done carries `data-form-unanswered`, a rose border and `Needs an answer`.
+- `form-choice-option`: a full-width, at-least-44px option row for single and multi choice, with a real radio or checkbox inside its `<label>`, the option description, and a `Suggested` badge on the option the question suggests. The selected row takes an indigo border and tint through `has-[:checked]`; unselected rows keep full contrast. The Other row's text box shows only while Other is checked (`peer-checked:block`). Pass `uiFormOptionData`.
+- `form-section`: a section's title, Markdown description and questions, on its own so a stepped view can render one section at a time. Pass `uiFormSectionData`.
+- `form-comment`: the closing `Anything else?` card, autosaving to `/comment`. Pass `uiFormCommentData`.
+- `form-progress`: the `aria-live` progress line: `<answered> of <required> answered`, or `No required questions`, with a `Saved` tick after an autosave. Pass `uiFormProgressData`.
+- `form-footer`: sticky footer on small screens holding `form-progress` and the primary `Done` button, which is disabled while a required question is unanswered. Pass `uiFormFooterData`; with `OOB` set it carries `hx-swap-oob="true"`, which is how an autosave refreshes it. `form-save-response` is that out-of-band response: the footer plus the saved field's error slot.
+- `form-answer-summary`: read-only list of questions and answers (option labels, `Other: text`, Yes/No, text, `No answer`), notes, and a `Changed from suggestion` badge. Pass `[]uiFormSummaryItem`.
+- `form-copy`: the `Copy answers` button. Pass the plain-text summary from `uiFormCopyText`; the delegated `data-copy-text` handler in `app.js` copies it.
+
 When adding a reusable component, document its template name, purpose, and expected data shape here.
