@@ -1,8 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"mime"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -165,7 +169,7 @@ func (s *Server) uploadFormMedia(w http.ResponseWriter, r *http.Request, project
 	if !s.requireObjectStorage(w) {
 		return
 	}
-	object, ok := s.storeUploadedObject(w, r, projectID, creatorID, s.formMediaMaxFileBytes(),
+	object, ok := s.storeUploadedObject(w, r, projectID, creatorID, s.formMediaMaxFileBytes(), formMediaDeclaredType,
 		func(ctx context.Context, p store.CreateStorageObjectParams) (model.StorageObject, error) {
 			return s.store.CreateFormUpload(ctx, store.CreateFormUploadParams{Object: p, GrantID: grantID})
 		})
@@ -203,20 +207,74 @@ func (s *Server) uploadFormMediaWithToken(w http.ResponseWriter, r *http.Request
 	s.uploadFormMedia(w, r, project.ID, currentUser(r).ID, nil)
 }
 
-// formAttachmentKind says how a client should show a file: an image the
-// browser may show inline, audio, video, or a download.
-func formAttachmentKind(object model.StorageObject) string {
-	contentType := strings.ToLower(strings.TrimSpace(object.ContentType))
-	switch {
-	case storageObjectSafeInlineImage(object):
-		return "image"
-	case strings.HasPrefix(contentType, "audio/"):
-		return "audio"
-	case strings.HasPrefix(contentType, "video/"):
-		return "video"
-	default:
-		return "file"
+// formPlayableTypes are the audio and video types a form's content routes
+// serve inline with their own type, and the kind each is. Nothing outside this
+// list, and outside the safe images, is ever served with its declared type.
+// Audio and video are passive: a browser plays them and never runs them.
+var formPlayableTypes = map[string]string{
+	"audio/mpeg":      "audio",
+	"audio/mp4":       "audio",
+	"audio/x-m4a":     "audio",
+	"audio/aac":       "audio",
+	"audio/wav":       "audio",
+	"audio/x-wav":     "audio",
+	"audio/ogg":       "audio",
+	"audio/webm":      "audio",
+	"video/mp4":       "video",
+	"video/quicktime": "video",
+	"video/webm":      "video",
+}
+
+// formUploadTypesByExtension decide the type of a form upload whose uploader
+// declared none (a plain `curl -F file=@clip.m4a` declares
+// application/octet-stream, and Go's sniffer misreads most .m4a files). They
+// are all in formPlayableTypes, so this can only make a file playable.
+var formUploadTypesByExtension = map[string]string{
+	".mp3":  "audio/mpeg",
+	".m4a":  "audio/mp4",
+	".aac":  "audio/aac",
+	".wav":  "audio/wav",
+	".ogg":  "audio/ogg",
+	".oga":  "audio/ogg",
+	".opus": "audio/ogg",
+	".mp4":  "video/mp4",
+	".m4v":  "video/mp4",
+	".mov":  "video/quicktime",
+	".webm": "video/webm",
+}
+
+// formMediaDeclaredType is the type to use for a form upload before the usual
+// normalising: a type the uploader declared is kept, and when there is none
+// (empty or application/octet-stream) a known extension decides.
+func formMediaDeclaredType(filename, declared string) string {
+	mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(declared))
+	if err == nil && mediaType != "" && !strings.EqualFold(mediaType, "application/octet-stream") {
+		return declared
 	}
+	if byName, ok := formUploadTypesByExtension[strings.ToLower(path.Ext(filename))]; ok {
+		return byName
+	}
+	return declared
+}
+
+// formPlayableKind is "audio" or "video" for an allow-listed type, and empty
+// otherwise.
+func formPlayableKind(contentType string) string {
+	return formPlayableTypes[strings.ToLower(strings.TrimSpace(contentType))]
+}
+
+// formAttachmentKind says how a client should show a file: an image the
+// browser may show inline, audio or video it can play, or a download. It
+// follows what the content route serves: a clip of a type outside the
+// allow-list is a download, so it is a file.
+func formAttachmentKind(object model.StorageObject) string {
+	if storageObjectSafeInlineImage(object) {
+		return "image"
+	}
+	if kind := formPlayableKind(object.ContentType); kind != "" {
+		return kind
+	}
+	return "file"
 }
 
 // formAttachmentPath is a file's content on its form's page, relative to the
@@ -288,5 +346,45 @@ func (s *Server) serveFormAttachment(w http.ResponseWriter, r *http.Request, for
 		fail(w, err)
 		return
 	}
-	s.streamStorageObjectContent(w, r, attachment.Object, true)
+	s.streamFormMediaContent(w, r, attachment.Object)
+}
+
+// streamFormMediaContent serves a form's file with byte ranges, so a browser
+// can play and seek audio and video (Safari plays nothing without them). It is
+// used by the two form content routes and by no other. A safe image or an
+// allow-listed audio or video type goes out inline with its own type; every
+// other file is an opaque download, as on every other content route. The
+// protective headers are the same as there.
+func (s *Server) streamFormMediaContent(w http.ResponseWriter, r *http.Request, object model.StorageObject) {
+	if !s.requireObjectStorage(w) {
+		return
+	}
+	body, err := s.objectStorage.Open(r.Context(), object.ObjectKey)
+	if err != nil {
+		writeStorageError(w, err)
+		return
+	}
+	defer body.Close()
+
+	contentType, disposition := "application/octet-stream", "attachment"
+	if storageObjectSafeInlineImage(object) || formPlayableKind(object.ContentType) != "" {
+		contentType, disposition = strings.ToLower(strings.TrimSpace(object.ContentType)), "inline"
+	}
+
+	// ServeContent needs a seekable body. A backend that can't seek is read
+	// into memory first, and never more than the size recorded at upload,
+	// which the form media limit capped.
+	content, ok := body.(io.ReadSeeker)
+	if !ok {
+		data, err := io.ReadAll(io.LimitReader(body, object.ByteSize))
+		if err != nil {
+			writeStorageError(w, err)
+			return
+		}
+		content = bytes.NewReader(data)
+	}
+	setStoredContentHeaders(w, object, contentType, disposition)
+	w.Header().Set("Accept-Ranges", "bytes")
+	// No modification time: the ETag is the validator, a hash of the bytes.
+	http.ServeContent(w, r, object.Filename, time.Time{}, content)
 }

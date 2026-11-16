@@ -82,13 +82,14 @@ func TestHTTPFormClaimsTheUploadsItNames(t *testing.T) {
 		t.Fatalf("submit code = %d attachments = %+v", code, got.Attachments)
 	}
 
-	// Each file is served from its form: an image inline, the rest as a download.
+	// Each file is served from its form: an image or a playable clip inline
+	// with its own type, the rest as a download.
 	res, body := e.doRaw(t, e.authToken, http.MethodGet, e.formContentPath(form.Ref, png.Object), nil, "")
 	if res.StatusCode != http.StatusOK || !bytes.Equal(body, formMediaPNG) || res.Header.Get("Content-Type") != "image/png" || !strings.HasPrefix(res.Header.Get("Content-Disposition"), "inline") {
 		t.Fatalf("image: code = %d headers = %v", res.StatusCode, res.Header)
 	}
 	res, body = e.doRaw(t, e.authToken, http.MethodGet, e.formContentPath(form.Ref, mp3.Object), nil, "")
-	if res.StatusCode != http.StatusOK || !bytes.Equal(body, formMediaMP3) || res.Header.Get("Content-Type") != "application/octet-stream" || !strings.HasPrefix(res.Header.Get("Content-Disposition"), "attachment") {
+	if res.StatusCode != http.StatusOK || !bytes.Equal(body, formMediaMP3) || res.Header.Get("Content-Type") != "audio/mpeg" || !strings.HasPrefix(res.Header.Get("Content-Disposition"), "inline") {
 		t.Fatalf("audio: code = %d headers = %v", res.StatusCode, res.Header)
 	}
 	if res.Header.Get("X-Content-Type-Options") != "nosniff" || !strings.Contains(strings.Join(res.Header.Values("Content-Security-Policy"), ";"), "sandbox") {

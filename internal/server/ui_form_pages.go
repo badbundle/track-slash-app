@@ -32,12 +32,15 @@ type uiFormPanelData struct {
 	Base            string
 	Breadcrumb      uiBreadcrumbData
 	DescriptionHTML template.HTML
-	IssueHref       string
-	IssuePanelHref  string
-	Origin          uiFormOriginData
-	AssigneeName    string
-	IsAssignee      bool
-	CanCancel       bool
+	// Unplaced are the form's files that no question, option or Markdown
+	// shows. They are listed under the description.
+	Unplaced       uiFormMedia
+	IssueHref      string
+	IssuePanelHref string
+	Origin         uiFormOriginData
+	AssigneeName   string
+	IsAssignee     bool
+	CanCancel      bool
 	// Notice is the message at the top of the page after a refused Done.
 	Notice string
 	// Open is set while the assignee is answering: they see the questions as
@@ -71,13 +74,18 @@ type uiFormSectionData struct {
 }
 
 type uiFormQuestionData struct {
-	CSRFToken  string
-	Action     string
-	Question   model.FormQuestion
-	Answer     model.FormAnswer
-	HelpHTML   template.HTML
-	Options    []uiFormOptionData
-	Unanswered bool
+	CSRFToken string
+	Action    string
+	Question  model.FormQuestion
+	Answer    model.FormAnswer
+	HelpHTML  template.HTML
+	// Media are the question's files, shown between its help and its inputs.
+	Media uiFormMedia
+	// HasPictures is set when an option has an image: the options become
+	// picture cards in a grid.
+	HasPictures bool
+	Options     []uiFormOptionData
+	Unanswered  bool
 	// Suggested is the muted "Suggested: ..." line for confirm and text
 	// questions, whose suggestion is shown as the starting answer.
 	Suggested string
@@ -97,6 +105,8 @@ type uiFormOptionData struct {
 	Suggested   bool
 	IsOther     bool
 	OtherText   string
+	// Media is the option's file, if it has one.
+	Media *uiFormMediaItem
 }
 
 type uiFormSummaryItem struct {
@@ -107,6 +117,8 @@ type uiFormSummaryItem struct {
 	Changed  bool
 	// Missing marks a question that blocks Done: "Needs an answer".
 	Missing bool
+	// Thumbs are the pictures of the chosen options.
+	Thumbs []uiFormThumb
 }
 
 // uiFormStepper backs the form-stepper component.
@@ -457,19 +469,21 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 		uiBreadcrumbItem{Label: "Forms", Href: uiProjectViewPath(project, "forms"), HXGet: uiProjectPanelPath(project, "forms")},
 		uiBreadcrumbItem{Label: form.Ref, Current: true},
 	)}
+	media := newUIFormMediaLookup(base, form)
 	panel := &uiFormPanelData{
 		CSRFToken:       token,
 		Project:         project,
 		Form:            form,
 		Base:            base,
 		Breadcrumb:      breadcrumb,
-		DescriptionHTML: renderMarkdown(form.Description, nil),
+		DescriptionHTML: renderFormMarkdown(base, form, form.Description),
+		Unplaced:        media.unplaced(form),
 		Origin:          uiFormOrigin(form.OriginLabel, form.OriginURL),
 		AssigneeName:    uiUserLabel(assignee.Name, assignee.Username, assignee.Email),
 		IsAssignee:      isAssignee,
 		CanCancel:       perms.CanWrite && (form.Status == model.FormStatusOpen || form.Status == model.FormStatusSubmitted),
 		Open:            form.Status == model.FormStatusOpen && isAssignee,
-		Summary:         uiFormSummary(form),
+		Summary:         uiFormSummary(form, media),
 		Footer:          s.uiFormFooter(r, form, false, rawStep),
 		CopyText:        uiFormCopyText(form, s.formURL(project.OwnerUsername, project.Key, form.Ref)),
 	}
@@ -496,7 +510,7 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 		panel.Comment = uiFormCommentData{CSRFToken: token, Base: base, Comment: form.Comment, Step: key}
 		switch {
 		case stepped && step > len(def.Sections):
-			panel.Review = uiFormReview(base, form)
+			panel.Review = uiFormReview(base, form, media)
 			if left := len(def.Unanswered(form.Answers)); left > 0 {
 				panel.Notice = uiFormIncompleteNotice(left)
 			}
@@ -505,12 +519,12 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 				if stepped && i != step-1 {
 					continue
 				}
-				data := uiFormSectionData{Title: section.Title, DescriptionHTML: renderMarkdown(section.Description, nil)}
+				data := uiFormSectionData{Title: section.Title, DescriptionHTML: renderFormMarkdown(base, form, section.Description)}
 				if stepped {
 					data.Title = "" // the stepper's heading shows it
 				}
 				for _, question := range section.Questions {
-					q := uiFormQuestion(token, base, question, form.Answers[question.ID])
+					q := uiFormQuestion(token, base, form, media, question, form.Answers[question.ID])
 					q.Step = key
 					data.Questions = append(data.Questions, q)
 				}
@@ -607,7 +621,7 @@ func uiFormBuildStepper(base string, def model.FormDefinition, answers model.For
 
 // uiFormReview lists every section with its answers, marking the questions
 // that block Done.
-func uiFormReview(base string, form model.Form) []uiFormReviewSection {
+func uiFormReview(base string, form model.Form, media uiFormMediaLookup) []uiFormReviewSection {
 	def := form.Definition
 	views := def.AnswerViews(form.Answers)
 	blocking := def.Unanswered(form.Answers)
@@ -620,6 +634,7 @@ func uiFormReview(base string, form model.Form) []uiFormReviewSection {
 			view := views[next]
 			next++
 			item := uiFormSummaryItemOf(view)
+			item.Thumbs = media.thumbs(question, view.Selected)
 			item.Missing = slices.Contains(blocking, question.ID)
 			data.Items = append(data.Items, item)
 		}
@@ -663,13 +678,14 @@ func uiFormIncompleteNotice(count int) string {
 
 // uiFormQuestion prepares one question card from the question and the answer
 // saved so far.
-func uiFormQuestion(token, base string, question model.FormQuestion, answer model.FormAnswer) uiFormQuestionData {
+func uiFormQuestion(token, base string, form model.Form, media uiFormMediaLookup, question model.FormQuestion, answer model.FormAnswer) uiFormQuestionData {
 	data := uiFormQuestionData{
 		CSRFToken: token,
 		Action:    base + "/answers/" + question.ID,
 		Question:  question,
 		Answer:    answer,
-		HelpHTML:  renderMarkdown(question.Help, nil),
+		HelpHTML:  renderFormMarkdown(base, form, question.Help),
+		Media:     media.media(question.Media),
 		Type:      string(question.Type),
 	}
 	switch question.Type {
@@ -698,8 +714,10 @@ func uiFormQuestion(token, base string, question model.FormQuestion, answer mode
 				Input:       input,
 				Checked:     slices.Contains(answer.Selected, option.ID),
 				Suggested:   suggested(option.ID),
+				Media:       media.item(option.Media),
 			})
 		}
+		data.HasPictures = uiFormHasPictures(data.Options)
 		if question.AllowOther {
 			data.Options = append(data.Options, uiFormOptionData{
 				QuestionID: question.ID,
@@ -752,11 +770,14 @@ func uiFormOriginHref(raw string) (string, string) {
 	return u.String(), u.Hostname()
 }
 
-func uiFormSummary(form model.Form) []uiFormSummaryItem {
+func uiFormSummary(form model.Form, media uiFormMediaLookup) []uiFormSummaryItem {
 	views := form.Definition.AnswerViews(form.Answers)
 	items := make([]uiFormSummaryItem, 0, len(views))
 	for _, view := range views {
-		items = append(items, uiFormSummaryItemOf(view))
+		item := uiFormSummaryItemOf(view)
+		question, _ := form.Definition.Question(view.ID)
+		item.Thumbs = media.thumbs(question, view.Selected)
+		items = append(items, item)
 	}
 	return items
 }

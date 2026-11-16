@@ -54,7 +54,9 @@ func TestFormAttachmentKind(t *testing.T) {
 		// Only the safe inline types are images: SVG is shown as a file.
 		"image/svg+xml": "file", "image/tiff": "file",
 		"audio/mpeg": "audio", "audio/x-m4a": "audio", "Audio/Wav": "audio",
-		"video/mp4": "video", "video/quicktime": "video",
+		"video/mp4": "video", "video/quicktime": "video", "video/webm": "video",
+		// Audio and video the content route doesn't play are downloads.
+		"audio/flac": "file", "video/x-matroska": "file",
 		"text/plain": "file", "application/pdf": "file", "application/octet-stream": "file", "": "file",
 	} {
 		if got := formAttachmentKind(model.StorageObject{ContentType: contentType}); got != want {

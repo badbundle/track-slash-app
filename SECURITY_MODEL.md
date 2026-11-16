@@ -146,7 +146,20 @@ source of a user's rights in a project.
   budgets (`auth_rate_limit.go`).
 - **Uploads are inert.** Only safe raster images are served inline and with
   their own type. Everything else is sent as an octet-stream download with a
-  sandbox CSP.
+  sandbox CSP. The one exception is a form's own content routes (the two
+  `/forms/{formRef}/attachments/{objectRef}/content` routes, REST and UI),
+  which also serve these audio and video types inline with their own type, and
+  answer byte ranges, so a browser can play and seek them (Safari plays
+  nothing without ranges): `audio/mpeg`, `audio/mp4`, `audio/x-m4a`,
+  `audio/aac`, `audio/wav`, `audio/x-wav`, `audio/ogg`, `audio/webm`,
+  `video/mp4`, `video/quicktime`, `video/webm`. That is safe because audio and
+  video are passive media a browser plays and never runs, the response keeps
+  `X-Content-Type-Options: nosniff`, the added `Content-Security-Policy:
+  default-src 'none'; sandbox`, `Cross-Origin-Resource-Policy: same-origin`
+  and the SHA-256 `ETag`, and the route is for members only. Any other type,
+  however it was declared or named (HTML, SVG, script, FLAC, ...), is still an
+  octet-stream download there. Every other route that serves an upload is
+  unchanged: no inline audio or video, no ranges (tests pin this).
 - **A file reaches people only through what owns it.** A form's file is
   served by its form's route and by no generic object route, and a file
   nothing owns yet (a pending upload) is served by none. Any new flow that

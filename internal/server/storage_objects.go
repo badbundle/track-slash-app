@@ -47,14 +47,15 @@ func (s *Server) createStorageObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.Request, projectID, userID uuid.UUID) (model.StorageObject, bool) {
-	return s.storeUploadedObject(w, r, projectID, userID, s.objectStorage.MaxUploadBytes(), s.store.CreateStorageObject)
+	return s.storeUploadedObject(w, r, projectID, userID, s.objectStorage.MaxUploadBytes(), nil, s.store.CreateStorageObject)
 }
 
 // storeUploadedObject reads the multipart `file` of a request, writes its
 // bytes to object storage and records them with create, which is
 // CreateStorageObject for an ordinary upload. A file over maxFileBytes is
-// refused with 413. If create fails, the bytes are deleted again.
-func (s *Server) storeUploadedObject(w http.ResponseWriter, r *http.Request, projectID, userID uuid.UUID, maxFileBytes int64, create func(context.Context, store.CreateStorageObjectParams) (model.StorageObject, error)) (model.StorageObject, bool) {
+// refused with 413. If create fails, the bytes are deleted again. declare, when
+// set, may replace the type the uploader declared, given the filename.
+func (s *Server) storeUploadedObject(w http.ResponseWriter, r *http.Request, projectID, userID uuid.UUID, maxFileBytes int64, declare func(filename, declared string) string, create func(context.Context, store.CreateStorageObjectParams) (model.StorageObject, error)) (model.StorageObject, bool) {
 	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 	if !strings.HasPrefix(contentType, "multipart/form-data") {
 		writeError(w, http.StatusBadRequest, "multipart file required")
@@ -87,7 +88,11 @@ func (s *Server) storeUploadedObject(w http.ResponseWriter, r *http.Request, pro
 		writeError(w, http.StatusBadRequest, err.Error())
 		return model.StorageObject{}, false
 	}
-	contentType, body, err := storageUploadContentTypeAndBody(file, header.Header.Get("Content-Type"))
+	declared := header.Header.Get("Content-Type")
+	if declare != nil {
+		declared = declare(filename, declared)
+	}
+	contentType, body, err := storageUploadContentTypeAndBody(file, declared)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return model.StorageObject{}, false
@@ -200,8 +205,16 @@ func (s *Server) streamStorageObjectContent(w http.ResponseWriter, r *http.Reque
 			disposition = "inline"
 		}
 	}
-	w.Header().Set("Content-Type", contentType)
+	setStoredContentHeaders(w, object, contentType, disposition)
 	w.Header().Set("Content-Length", strconv.FormatInt(object.ByteSize, 10))
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, body)
+}
+
+// setStoredContentHeaders sets the type, validator and protective headers
+// every upload is served with.
+func setStoredContentHeaders(w http.ResponseWriter, object model.StorageObject, contentType, disposition string) {
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("ETag", `"`+object.SHA256+`"`)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	// Added beside the site-wide policy, not in place of it: a browser
@@ -209,8 +222,6 @@ func (s *Server) streamStorageObjectContent(w http.ResponseWriter, r *http.Reque
 	w.Header().Add("Content-Security-Policy", "default-src 'none'; sandbox")
 	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": object.Filename}))
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, body)
 }
 
 func (s *Server) cleanupStorageObject(ctx context.Context, object model.StorageObject) {
