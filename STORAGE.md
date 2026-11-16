@@ -82,6 +82,12 @@ Profile images are account-wide user-owned objects. Each user can reference one 
 
 Project images are project-owned objects referenced by `projects.image_object_id` and `projects.image_thumbnail_object_id`. Both rows must be live objects owned by that project. Although they retain internal project object numbers, current project-image rows are excluded from generic `object-N` listing, metadata, content, attachment, and delete flows; they are available only through the project-image routes.
 
+Form files are project-owned objects with a row in `form_uploads` (a pending upload, made through an upload URL and not yet on a form) or in `form_attachments` (a file of a form); see "Form attachments" in `ATTACHMENTS.md`. Like project images they keep an internal object number but are excluded from every generic `object-N` flow: the object list and the metadata, content and delete routes and tools, for every caller, members included. The queries behind them leave out any object with either row (`formMediaObject` in `internal/store/storage_objects.go`). A file is reachable only through its form.
+
+A pending upload is created in one transaction with its `form_uploads` row, so it is never visible as an ordinary object, even briefly. It uses the same key layout and the same write and delete flow as any project object.
+
+`SweepFormUploads` removes pending uploads that no form claimed. The deletion worker runs it once an hour (`DeletionWorkerOptions.FormUploadSweepEvery`) on uploads more than 24 hours old (`FormUploadMaxAge`). Each one is soft-deleted, which queues its bytes for deletion like any removed object, and its `form_uploads` row is removed. The same sweep deletes upload grants (`form_upload_grants`) that expired more than 24 hours ago. A file a form has claimed is never swept.
+
 ## API
 
 Project readers, including anonymous readers of public projects, can list object metadata and download object content. Owners, admins, and members with write access can also upload and delete objects. A project-level user block overrides public read access for that signed-in account:

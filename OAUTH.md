@@ -105,7 +105,9 @@ submit it and reopen it, even when the connector acts for the form's assignee,
 and MCP has no tool for any of the three. A connector can still create a form,
 read its answers and mark it picked up. Creating one gives it the form's wait
 URL, which tells it when the person has answered and shows only the form's
-status. See "A person answers a form" in
+status. It can also create an upload URL (`track_create_form_upload_url`) for
+the files a form carries. The URL takes files into the connector's own pending
+uploads and nothing else. See "A person answers a form" in
 [SECURITY_MODEL.md](SECURITY_MODEL.md).
 
 **A connector's token is not a browser session.** `uiAuthMiddleware` rejects the

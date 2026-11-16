@@ -210,11 +210,18 @@ func TestFormWaitRequestsGetLongerDeadlines(t *testing.T) {
 
 func TestRequestLogLeavesOutWaitKeys(t *testing.T) {
 	t.Parallel()
-	if got := redactedFormWaitURI(httptest.NewRequest(http.MethodGet, "/api/v1/form-waits/SECRETKEY", nil)); got != "/api/v1/form-waits/[wait-key]" {
-		t.Fatalf("redacted = %q", got)
+	for target, want := range map[string]string{
+		"/api/v1/form-waits/SECRETKEY":         "/api/v1/form-waits/[wait-key]",
+		"/api/v1/form-waits/SECRETKEY?wait=50": "/api/v1/form-waits/[wait-key]?wait=50",
+		"/api/v1/form-uploads/SECRETKEY":       "/api/v1/form-uploads/[upload-key]",
+	} {
+		got, secret := redactedSecretRouteURI(httptest.NewRequest(http.MethodGet, target, nil))
+		if !secret || got != want {
+			t.Fatalf("redacted %s = %q, %v; want %q", target, got, secret, want)
+		}
 	}
-	if got := redactedFormWaitURI(httptest.NewRequest(http.MethodGet, "/api/v1/form-waits/SECRETKEY?wait=50", nil)); got != "/api/v1/form-waits/[wait-key]?wait=50" {
-		t.Fatalf("redacted with query = %q", got)
+	if got, secret := redactedSecretRouteURI(httptest.NewRequest(http.MethodGet, "/api/v1/healthz", nil)); secret || got != "" {
+		t.Fatalf("an ordinary route was redacted: %q", got)
 	}
 
 	// The handler still gets the real request, with the log entry in its

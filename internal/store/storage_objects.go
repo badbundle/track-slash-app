@@ -69,6 +69,14 @@ const hiddenMembersOnlyIssueObject = `(
 	)
 )`
 
+// formMediaObject is true for a file a form carries or a pending upload for
+// one. Generic object routes and tools leave these out for everyone, members
+// included: form media is reachable only through its form.
+const formMediaObject = `(
+	EXISTS (SELECT 1 FROM form_uploads fu WHERE fu.storage_object_id = so.id)
+	OR EXISTS (SELECT 1 FROM form_attachments fa WHERE fa.storage_object_id = so.id)
+)`
+
 type storageObjectScanner interface {
 	Scan(dest ...any) error
 }
@@ -104,48 +112,55 @@ func scanStorageObject(row storageObjectScanner) (model.StorageObject, error) {
 func (s *Store) CreateStorageObject(ctx context.Context, p CreateStorageObjectParams) (model.StorageObject, error) {
 	var out model.StorageObject
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		var number int
-		if err := tx.QueryRow(ctx, `
-			SELECT next_object_number
-			FROM projects
-			WHERE id = $1 AND deleted_at IS NULL
-			FOR UPDATE
-		`, p.ProjectID).Scan(&number); err != nil {
-			if isNoRows(err) {
-				return ErrNotFound
-			}
-			return err // defensive: DB outage past the no-rows branch
-		}
-
 		var err error
-		out, err = scanStorageObject(tx.QueryRow(ctx, `
-			INSERT INTO storage_objects (
-				id, project_id, number, owner_user_id, backend, bucket, object_key, filename, content_type,
-				byte_size, sha256, created_by_id
-			)
-			VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11)
-			RETURNING id, project_id, number, owner_user_id, backend, bucket, object_key, filename, content_type,
-			          byte_size, sha256, created_by_id, created_at, updated_at, deleted_at
-		`, p.ID, p.ProjectID, number, p.Backend, p.Bucket, p.ObjectKey, p.Filename, p.ContentType, p.ByteSize, p.SHA256, p.CreatedByID))
-		if err != nil {
-			if mapped := mapStorageObjectWriteError(err); mapped != nil {
-				return mapped
-			}
-			return err // defensive: non-pg or unmapped pg error
-		}
-
-		if _, err := tx.Exec(ctx, `
-			UPDATE projects
-			SET next_object_number = next_object_number + 1,
-			    updated_at = now()
-			WHERE id = $1
-		`, p.ProjectID); err != nil {
-			return err // defensive: project row was locked above
-		}
-		return nil
+		out, err = insertStorageObject(ctx, tx, p)
+		return err
 	})
 	if err != nil {
 		return model.StorageObject{}, err
+	}
+	return out, nil
+}
+
+// insertStorageObject allocates the project's next object number under the
+// project row lock and inserts the object, in the caller's transaction.
+func insertStorageObject(ctx context.Context, tx pgx.Tx, p CreateStorageObjectParams) (model.StorageObject, error) {
+	var number int
+	if err := tx.QueryRow(ctx, `
+		SELECT next_object_number
+		FROM projects
+		WHERE id = $1 AND deleted_at IS NULL
+		FOR UPDATE
+	`, p.ProjectID).Scan(&number); err != nil {
+		if isNoRows(err) {
+			return model.StorageObject{}, ErrNotFound
+		}
+		return model.StorageObject{}, err // defensive: DB outage past the no-rows branch
+	}
+
+	out, err := scanStorageObject(tx.QueryRow(ctx, `
+		INSERT INTO storage_objects (
+			id, project_id, number, owner_user_id, backend, bucket, object_key, filename, content_type,
+			byte_size, sha256, created_by_id
+		)
+		VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, project_id, number, owner_user_id, backend, bucket, object_key, filename, content_type,
+		          byte_size, sha256, created_by_id, created_at, updated_at, deleted_at
+	`, p.ID, p.ProjectID, number, p.Backend, p.Bucket, p.ObjectKey, p.Filename, p.ContentType, p.ByteSize, p.SHA256, p.CreatedByID))
+	if err != nil {
+		if mapped := mapStorageObjectWriteError(err); mapped != nil {
+			return model.StorageObject{}, mapped
+		}
+		return model.StorageObject{}, err // defensive: non-pg or unmapped pg error
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE projects
+		SET next_object_number = next_object_number + 1,
+		    updated_at = now()
+		WHERE id = $1
+	`, p.ProjectID); err != nil {
+		return model.StorageObject{}, err // defensive: project row was locked above
 	}
 	return out, nil
 }
@@ -206,6 +221,7 @@ func (s *Store) GetVisibleStorageObjectByProjectNumber(ctx context.Context, proj
 		WHERE so.project_id = $1 AND so.number = $2 AND so.deleted_at IS NULL AND p.deleted_at IS NULL
 		  AND so.id IS DISTINCT FROM p.image_object_id
 		  AND so.id IS DISTINCT FROM p.image_thumbnail_object_id
+		  AND NOT ` + formMediaObject + `
 		  AND NOT ` + fmt.Sprintf(hiddenMembersOnlyIssueObject, "$3") + `
 	`
 	out, err := scanStorageObject(s.db.QueryRow(ctx, q, projectID, number, hideMembersOnlyIssueObjects))
@@ -232,6 +248,7 @@ func (s *Store) ListStorageObjects(ctx context.Context, p ListStorageObjectsPara
 		WHERE so.project_id = $1 AND so.deleted_at IS NULL AND p.deleted_at IS NULL
 		  AND so.id IS DISTINCT FROM p.image_object_id
 		  AND so.id IS DISTINCT FROM p.image_thumbnail_object_id
+		  AND NOT ` + formMediaObject + `
 		  AND NOT ` + fmt.Sprintf(hiddenMembersOnlyIssueObject, "$2") + `
 	`
 	if p.Cursor != nil {

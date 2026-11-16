@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -260,5 +261,134 @@ func TestDeletionWorkerRunOnceKeepsBytesALiveCopyUses(t *testing.T) {
 	result, err = worker.RunOnce(env.ctx)
 	if err != nil || result != (DeletionRunResult{Claimed: 1, Deleted: 1}) || len(deleted) != 1 || deleted[0] != "objects/shared" {
 		t.Fatalf("RunOnce after the last copy = %+v, %v, deleted %v", result, err, deleted)
+	}
+}
+
+// pendingFormUpload records a file uploaded for a form that no form claimed,
+// as the server does, and says how old it is.
+func (e *deletionWorkerTestEnv) pendingFormUpload(t *testing.T, key string, age time.Duration) uuid.UUID {
+	t.Helper()
+	object, err := e.store.CreateFormUpload(e.ctx, store.CreateFormUploadParams{Object: store.CreateStorageObjectParams{
+		ID: uuid.New(), ProjectID: e.projectID, Backend: "local", Bucket: "local", ObjectKey: key,
+		Filename: "form.png", ContentType: "image/png", ByteSize: 1,
+		SHA256: strings.Repeat("a", 64), CreatedByID: e.userID,
+	}})
+	if err != nil {
+		t.Fatalf("CreateFormUpload: %v", err)
+	}
+	if _, err := e.pool.Exec(e.ctx, `UPDATE form_uploads SET created_at = now() - $2::interval WHERE storage_object_id = $1`, object.ID, age); err != nil {
+		t.Fatalf("age the upload: %v", err)
+	}
+	return object.ID
+}
+
+func TestNewDeletionWorkerFormUploadSweepOptions(t *testing.T) {
+	t.Parallel()
+	defaults := NewDeletionWorker(nil, nil, DeletionWorkerOptions{})
+	if defaults.formUploadSweepEvery != time.Hour || defaults.formUploadMaxAge != 24*time.Hour {
+		t.Fatalf("default sweep = every %v, after %v", defaults.formUploadSweepEvery, defaults.formUploadMaxAge)
+	}
+	configured := NewDeletionWorker(nil, nil, DeletionWorkerOptions{FormUploadSweepEvery: time.Minute, FormUploadMaxAge: time.Second})
+	if configured.formUploadSweepEvery != time.Minute || configured.formUploadMaxAge != time.Second {
+		t.Fatalf("configured sweep = every %v, after %v", configured.formUploadSweepEvery, configured.formUploadMaxAge)
+	}
+}
+
+func TestDeletionWorkerSweepsUnclaimedFormUploadsThenDeletesTheirBytes(t *testing.T) {
+	t.Parallel()
+	env := newDeletionWorkerTestEnv(t)
+	stale := env.pendingFormUpload(t, "form/stale", 25*time.Hour)
+	env.pendingFormUpload(t, "form/fresh", time.Hour)
+	var mu sync.Mutex
+	var deleted []string
+	service := newDeletionWorkerService(t, &deletionWorkerBackend{delete: func(_ context.Context, key string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		deleted = append(deleted, key)
+		return nil
+	}})
+	worker := NewDeletionWorker(env.store, service, DeletionWorkerOptions{})
+
+	swept, err := worker.SweepFormUploads(env.ctx)
+	if err != nil || swept.Uploads != 1 {
+		t.Fatalf("SweepFormUploads = %+v, %v, want the stale upload only", swept, err)
+	}
+	// The sweep soft-deleted the object, which queued its bytes for the
+	// ordinary deletion path.
+	result, err := worker.RunOnce(env.ctx)
+	if err != nil || result != (DeletionRunResult{Claimed: 1, Deleted: 1}) {
+		t.Fatalf("RunOnce = %+v, %v", result, err)
+	}
+	if len(deleted) != 1 || deleted[0] != "form/stale" {
+		t.Fatalf("backend deletes = %v, want only form/stale", deleted)
+	}
+	var left int
+	if err := env.pool.QueryRow(env.ctx, `SELECT count(*) FROM form_uploads WHERE storage_object_id = $1`, stale).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("the stale upload is still pending: %d, %v", left, err)
+	}
+}
+
+func TestDeletionWorkerRunSweepsFormUploadsOncePerInterval(t *testing.T) {
+	t.Parallel()
+	env := newDeletionWorkerTestEnv(t)
+	env.pendingFormUpload(t, "form/old-one", 25*time.Hour)
+	service := newDeletionWorkerService(t, &deletionWorkerBackend{})
+	worker := NewDeletionWorker(env.store, service, DeletionWorkerOptions{PollInterval: time.Millisecond})
+
+	ctx, cancel := context.WithCancel(env.ctx)
+	done := make(chan struct{})
+	go func() {
+		worker.Run(ctx)
+		close(done)
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var pending int
+		if err := env.pool.QueryRow(env.ctx, `SELECT count(*) FROM form_uploads`).Scan(&pending); err != nil {
+			t.Fatalf("count pending: %v", err)
+		}
+		if pending == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Run never swept the old upload")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// A second upload made after the first sweep waits for the next interval.
+	env.pendingFormUpload(t, "form/old-two", 25*time.Hour)
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	<-done
+	var pending int
+	if err := env.pool.QueryRow(env.ctx, `SELECT count(*) FROM form_uploads`).Scan(&pending); err != nil || pending != 1 {
+		t.Fatalf("pending after the interval has not passed = %d, %v, want the second upload still pending", pending, err)
+	}
+}
+
+func TestDeletionWorkerLogsAFailedSweepUnlessCanceled(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	db := testutil.NewMigratedDatabase(t)
+	st := store.New(db.Pool)
+	db.Pool.Close() // every query now fails
+
+	var logs bytes.Buffer
+	worker := NewDeletionWorker(st, nil, DeletionWorkerOptions{Logger: log.New(&logs, "", 0)})
+	worker.sweepFormUploadsIfDue(ctx)
+	if !strings.Contains(logs.String(), "sweep form uploads") {
+		t.Fatalf("failed sweep log = %q", logs.String())
+	}
+
+	// A sweep cut short by shutdown is not worth a log line.
+	logs.Reset()
+	canceled, stop := context.WithCancel(ctx)
+	stop()
+	worker = NewDeletionWorker(st, nil, DeletionWorkerOptions{Logger: log.New(&logs, "", 0)})
+	worker.sweepFormUploadsIfDue(canceled)
+	if logs.Len() != 0 {
+		t.Fatalf("canceled sweep logged %q", logs.String())
 	}
 }

@@ -41,12 +41,15 @@ func TestMCPFormParity(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	want := map[string]bool{
-		"track_create_form":      false,
-		"track_get_form":         true,
-		"track_list_forms":       true,
-		"track_list_inbox":       true,
-		"track_acknowledge_form": false,
-		"track_cancel_form":      false,
+		"track_create_form": false,
+		// A connector can get an upload URL for a form it is about to ask,
+		// but still cannot answer one.
+		"track_create_form_upload_url": false,
+		"track_get_form":               true,
+		"track_list_forms":             true,
+		"track_list_inbox":             true,
+		"track_acknowledge_form":       false,
+		"track_cancel_form":            false,
 	}
 	found := 0
 	for _, tool := range tools.Tools {

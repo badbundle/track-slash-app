@@ -21,7 +21,16 @@ const mcpCreateFormDescription = "Ask a person for decisions through a form they
 	"You don't need the person to tell you they have answered. The result's wait_url says when the form is no longer open: GET it with ?wait=50 from a background command, and again while its status is still open. It needs no credentials and returns only {\"status\"}. Keep wait_url, because it is shown only once. Without a way to run a command, call track_get_form with wait_seconds instead. " +
 	"Never ask for a password, key or token: every member of the project can read a form's answers. " +
 	"Question types: single_choice and multi_choice (each with options, and allow_other for a free-text Other), confirm (one checkbox, for \"I've done this\" or \"Go ahead\") and text. " +
+	"A question can show up to 6 files (media: object refs such as object-12) and each option of a choice question can show one (media on the option), for example screenshots, design options or a recording to listen to; attachments adds files that belong to the form as a whole. Upload the files first: call track_create_form_upload_url and put the object refs its uploads return here. A form carries at most 20 files, and every file must be one you uploaded for it. " +
 	"A form's questions can't be edited after it is created."
+
+// mcpCreateFormUploadURLDescription says how to get files into a form, because
+// an agent can't send a file through a tool call.
+const mcpCreateFormUploadURLDescription = "Get a URL to upload images, audio, video or other files for a form you are about to create. " +
+	"Send each file from a shell with `curl -sS -F file=@PATH \"$upload_url\"`; each upload returns {\"object\":\"object-N\"}. " +
+	"Put those refs in a question's media, an option's media or the form's attachments when you call track_create_form. " +
+	"The URL needs no credentials, lasts 30 minutes and takes 20 files of up to 25 MB each. Uploads that no form uses within a day are deleted. " +
+	"Keep the URL to yourself: whoever holds it can add files to your uploads until it expires, and it is shown only once."
 
 type mcpFormInput struct {
 	mcpProjectInput
@@ -43,6 +52,7 @@ type mcpCreateFormInput struct {
 	OriginLabel string              `json:"origin_label,omitempty" jsonschema:"short name of the thread or session that is asking, so the person knows where to return"`
 	OriginURL   string              `json:"origin_url,omitempty" jsonschema:"https link back to that thread, when it has one"`
 	Sections    []model.FormSection `json:"sections" jsonschema:"the questions, in one or more sections; several sections are shown as steps"`
+	Attachments []string            `json:"attachments,omitempty" jsonschema:"object refs, such as object-12, of files you uploaded with an upload URL, to show the person besides the media of questions and options; at most 20 files in all"`
 }
 
 type mcpListInboxInput struct {
@@ -69,6 +79,7 @@ type mcpFormBrief struct {
 	URL          string                   `json:"url"`
 	WaitURL      string                   `json:"wait_url,omitempty"`
 	Responses    []model.FormAnswerView   `json:"responses"`
+	Attachments  []formAttachmentResponse `json:"attachments"`
 }
 
 func (s *Server) mcpFormBrief(form model.Form) mcpFormBrief {
@@ -80,6 +91,7 @@ func (s *Server) mcpFormBrief(form model.Form) mcpFormBrief {
 		SubmittedVia: form.SubmittedVia,
 		URL:          full.URL,
 		Responses:    full.Responses,
+		Attachments:  full.Attachments,
 	}
 }
 
@@ -183,6 +195,10 @@ func (s *Server) mcpCreateForm(ctx context.Context, req *mcp.CallToolRequest, in
 	} else if given != nil {
 		assigneeID = *given
 	}
+	attachments, err := model.ParseFormAttachments(input.Attachments)
+	if err != nil {
+		return nil, mcpFormError(err)
+	}
 	waitKey, waitKeyHash := newFormWaitKey()
 	form, err := s.store.CreateForm(ctx, store.CreateFormParams{
 		ProjectID:   project.ID,
@@ -195,6 +211,8 @@ func (s *Server) mcpCreateForm(ctx context.Context, req *mcp.CallToolRequest, in
 		OriginLabel: input.OriginLabel,
 		OriginURL:   input.OriginURL,
 		WaitKeyHash: waitKeyHash,
+
+		AttachmentObjectNumbers: attachments,
 	})
 	if err != nil {
 		return nil, mcpFormError(err)
@@ -202,6 +220,30 @@ func (s *Server) mcpCreateForm(ctx context.Context, req *mcp.CallToolRequest, in
 	created := s.mcpFormBrief(form)
 	created.WaitURL = s.formWaitURL(waitKey)
 	return mcpToolOutput{"form": created}, nil
+}
+
+func (s *Server) mcpCreateFormUploadURL(ctx context.Context, req *mcp.CallToolRequest, input mcpProjectInput) (mcpToolOutput, error) {
+	ctx, auth, err := s.mcpAuth(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	project, permissions, err := s.mcpFormProject(ctx, auth, input)
+	if err != nil {
+		return nil, err
+	}
+	if !permissions.CanWrite {
+		return nil, errMCPForbidden
+	}
+	created, err := s.newFormUploadURL(ctx, project.ID, auth.User.ID)
+	if err != nil {
+		return nil, err // defensive: the project was just resolved; only a concurrent delete or DB outage fails here
+	}
+	return mcpToolOutput{
+		"upload_url":     created.UploadURL,
+		"expires_at":     created.ExpiresAt,
+		"max_files":      created.MaxFiles,
+		"max_file_bytes": created.MaxFileBytes,
+	}, nil
 }
 
 func (s *Server) mcpGetForm(ctx context.Context, req *mcp.CallToolRequest, input mcpGetFormInput) (mcpToolOutput, error) {

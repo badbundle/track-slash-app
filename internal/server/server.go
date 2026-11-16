@@ -55,6 +55,7 @@ type Server struct {
 	formWaitMax          time.Duration
 	formWaitPoll         time.Duration
 	formWaits            *formWaitLimiter
+	formMedia            FormMediaOptions
 	previewTermsRequired bool
 	webPushPublicKey     string
 	githubIntegration    *githubintegration.Service
@@ -72,7 +73,11 @@ type Options struct {
 	// FormWait bounds waiting for a form to be answered: the longest one
 	// request waits, how often it reads the form again, and how many requests
 	// may wait at once on one form and in total. Zero values use the defaults.
-	FormWait             FormWaitOptions
+	FormWait FormWaitOptions
+	// FormMedia limits the files a form carries: the largest file, and how
+	// long an upload URL works and how many files it takes. Zero values use
+	// the defaults.
+	FormMedia            FormMediaOptions
 	PreviewTermsRequired bool
 	DevReload            bool
 	ObjectStorage        *objectstorage.Service
@@ -147,6 +152,7 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 		formWaitMax:          formWaitMax,
 		formWaitPoll:         formWaitPoll,
 		formWaits:            newFormWaitLimiter(opts.FormWait.PerForm, opts.FormWait.Total),
+		formMedia:            opts.FormMedia.withDefaults(),
 		previewTermsRequired: opts.PreviewTermsRequired,
 		webPushPublicKey:     opts.WebPushPublicKey,
 		githubIntegration:    opts.GitHubIntegration,
@@ -211,6 +217,10 @@ func (s *Server) Router() http.Handler {
 		// A wait URL carries its own secret instead of an account's credentials,
 		// and the request-deadline middleware gives it longer than other requests.
 		r.Get("/form-waits/{waitKey}", s.getFormWait)
+		// An upload URL carries its own secret too, and all it buys is putting
+		// a file in its creator's pending uploads. It is registered beside the
+		// wait URL because an agent's shell holds no account token either.
+		r.Post("/form-uploads/{uploadKey}", s.uploadFormMediaWithKey)
 
 		// The request-deadline middleware exempts this long-lived connection.
 		if s.hub != nil {
@@ -321,8 +331,11 @@ func (s *Server) Router() http.Handler {
 					r.Patch("/whiteboard/{pageRef}", s.updateWhiteboardPage)
 					r.Delete("/whiteboard/{pageRef}", s.deleteWhiteboardPage)
 					r.Post("/forms", s.createForm)
+					r.Post("/forms/upload-urls", s.createFormUploadURL)
+					r.Post("/forms/uploads", s.uploadFormMediaWithToken)
 					r.Get("/forms", s.listForms)
 					r.Get("/forms/{formRef}", s.getForm)
+					r.Get("/forms/{formRef}/attachments/{objectRef}/content", s.getFormAttachmentContent)
 					r.Put("/forms/{formRef}/answers", s.saveFormAnswers)
 					r.Post("/forms/{formRef}/submit", s.submitForm)
 					r.Post("/forms/{formRef}/reopen", s.reopenForm)

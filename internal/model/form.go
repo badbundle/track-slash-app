@@ -31,6 +31,11 @@ const (
 	FormMaxOtherLength       = 2000
 	FormMaxTextAnswerLength  = 10000
 	FormMaxDefinitionBytes   = 64 * 1024
+	// FormMaxQuestionMedia is how many files one question can show.
+	FormMaxQuestionMedia = 6
+	// FormMaxAttachments is how many distinct files one form can carry,
+	// counting question media, option media and its explicit attachments.
+	FormMaxAttachments = 20
 )
 
 // FormOtherOptionID is the id a choice answer uses for the "Other" option that
@@ -135,12 +140,14 @@ type FormQuestion struct {
 	Multiline   bool             `json:"multiline,omitempty" jsonschema:"text questions only: a multi-line box"`
 	Placeholder string           `json:"placeholder,omitempty" jsonschema:"text questions only: placeholder text"`
 	Default     *FormValue       `json:"default,omitempty" jsonschema:"the answer you suggest; the form opens with it filled in"`
+	Media       []string         `json:"media,omitempty" jsonschema:"up to 6 object refs, such as object-12, of files you uploaded with an upload URL; they are shown with the question"`
 }
 
 type FormOption struct {
 	ID          string `json:"id" jsonschema:"unique in the question: 1 to 40 lowercase letters, digits, - or _; not other"`
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty" jsonschema:"optional one-line explanation"`
+	Media       string `json:"media,omitempty" jsonschema:"optional object ref, such as object-12, of a file you uploaded with an upload URL; it is shown with this option"`
 }
 
 // FormValue is the answer to one question, or the answer a question suggests.
@@ -318,6 +325,11 @@ func validateFormQuestion(path string, q FormQuestion) (FormQuestion, error) {
 	if utf8.RuneCountInString(q.Placeholder) > FormMaxPlaceholderLength {
 		return FormQuestion{}, formError(path+".placeholder", "at most %d characters", FormMaxPlaceholderLength)
 	}
+	media, err := validateFormMedia(path+".media", q.Media)
+	if err != nil {
+		return FormQuestion{}, err
+	}
+	q.Media = media
 
 	switch q.Type {
 	case FormQuestionSingleChoice, FormQuestionMultiChoice:
@@ -384,7 +396,15 @@ func validateFormOptions(path string, in []FormOption) ([]FormOption, error) {
 		if utf8.RuneCountInString(description) > FormMaxLabelLength {
 			return nil, formError(opath+".description", "at most %d characters", FormMaxLabelLength)
 		}
-		out[i] = FormOption{ID: id, Label: label, Description: description}
+		var media string
+		if strings.TrimSpace(option.Media) != "" {
+			number, err := parseFormMediaRef(opath+".media", option.Media)
+			if err != nil {
+				return nil, err
+			}
+			media = StorageObjectRef(number)
+		}
+		out[i] = FormOption{ID: id, Label: label, Description: description, Media: media}
 	}
 	return out, nil
 }
@@ -721,6 +741,22 @@ type Form struct {
 	CancelledAt     *time.Time         `json:"cancelled_at"`
 	CreatedAt       time.Time          `json:"created_at"`
 	UpdatedAt       time.Time          `json:"updated_at"`
+	// Attachments are the files the form carries, by object number. The
+	// store fills them in when it reads one form; a list row has none. They
+	// are left out of the JSON because the API describes them its own way
+	// (a name, a kind and a link), and the storage object holds locations.
+	Attachments []FormAttachment `json:"-"`
+}
+
+// FormAttachment is a file a form carries: an upload a form's creator named
+// when they created it.
+type FormAttachment struct {
+	ID              uuid.UUID     `json:"id"`
+	FormID          uuid.UUID     `json:"form_id"`
+	StorageObjectID uuid.UUID     `json:"storage_object_id"`
+	Object          StorageObject `json:"object"`
+	CreatedByID     uuid.UUID     `json:"created_by_id"`
+	CreatedAt       time.Time     `json:"created_at"`
 }
 
 // FormSummary is a list row: a form without its questions and answers, with
@@ -781,4 +817,108 @@ func (f Form) Summary() FormSummary {
 
 func FormRef(number int) string {
 	return fmt.Sprintf("form-%d", number)
+}
+
+// parseFormMediaRef reads an object ref a form names, trimmed. Field is the
+// path to report if it is not one.
+func parseFormMediaRef(field, raw string) (int, error) {
+	number, ok := ParseStorageObjectRef(strings.TrimSpace(raw))
+	if !ok {
+		return 0, formError(field, "%q is not an object ref: it must look like object-12", raw)
+	}
+	return number, nil
+}
+
+// validateFormMedia checks the files one question shows and returns their
+// refs in canonical form. A file can be shown once per question.
+func validateFormMedia(path string, in []string) ([]string, error) {
+	if len(in) > FormMaxQuestionMedia {
+		return nil, formError(path, "at most %d files per question", FormMaxQuestionMedia)
+	}
+	if len(in) == 0 {
+		return nil, nil
+	}
+	out := make([]string, len(in))
+	seen := map[int]bool{}
+	for i, raw := range in {
+		field := fmt.Sprintf("%s[%d]", path, i)
+		number, err := parseFormMediaRef(field, raw)
+		if err != nil {
+			return nil, err
+		}
+		if seen[number] {
+			return nil, formError(field, "%s is listed twice", StorageObjectRef(number))
+		}
+		seen[number] = true
+		out[i] = StorageObjectRef(number)
+	}
+	return out, nil
+}
+
+// MediaRefs lists the distinct files the questions and options show, in the
+// order the form asks them: a question's own files, then each option's.
+func (d FormDefinition) MediaRefs() []string {
+	var out []string
+	seen := map[string]bool{}
+	add := func(ref string) {
+		if ref != "" && !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	for _, q := range d.Questions() {
+		for _, ref := range q.Media {
+			add(ref)
+		}
+		for _, option := range q.Options {
+			add(option.Media)
+		}
+	}
+	return out
+}
+
+// ParseFormAttachments reads the refs a form names in its attachments list
+// into object numbers, in the order given with repeats left out. Field names
+// the list in an error.
+func ParseFormAttachments(refs []string) ([]int, error) {
+	var out []int
+	seen := map[int]bool{}
+	for i, raw := range refs {
+		number, err := parseFormMediaRef(fmt.Sprintf("attachments[%d]", i), raw)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[number] {
+			seen[number] = true
+			out = append(out, number)
+		}
+	}
+	return out, nil
+}
+
+// FormMediaNumbers is every file a form carries as object numbers: the files
+// its questions and options show, in form order, then the explicit
+// attachments that are not among them. Each appears once, and a form takes at
+// most FormMaxAttachments. The definition must be one ValidateFormDefinition
+// returned.
+func FormMediaNumbers(d FormDefinition, attachments []int) ([]int, error) {
+	var out []int
+	seen := map[int]bool{}
+	add := func(number int) {
+		if !seen[number] {
+			seen[number] = true
+			out = append(out, number)
+		}
+	}
+	for _, ref := range d.MediaRefs() {
+		number, _ := ParseStorageObjectRef(ref) // validated with the definition
+		add(number)
+	}
+	for _, number := range attachments {
+		add(number)
+	}
+	if len(out) > FormMaxAttachments {
+		return nil, formError("attachments", "a form can carry at most %d files, counting those its questions show", FormMaxAttachments)
+	}
+	return out, nil
 }

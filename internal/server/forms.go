@@ -26,6 +26,9 @@ type createFormReq struct {
 	OriginLabel string              `json:"origin_label"`
 	OriginURL   string              `json:"origin_url"`
 	Sections    []model.FormSection `json:"sections"`
+	// Attachments are object refs of files uploaded with an upload URL, such
+	// as object-12, that the form carries besides those its questions show.
+	Attachments []string `json:"attachments"`
 }
 
 type saveFormAnswersReq struct {
@@ -36,12 +39,14 @@ type saveFormAnswersReq struct {
 // formResponse is a form as the API and MCP return it: the form, its page's
 // URL to hand to the person, and each question with its answer in form order.
 // WaitURL is set only on the response that creates the form: it holds the
-// form's wait key, which the server can't show again.
+// form's wait key, which the server can't show again. Attachments are the
+// files the form carries.
 type formResponse struct {
 	model.Form
-	URL       string                 `json:"url"`
-	WaitURL   string                 `json:"wait_url,omitempty"`
-	Responses []model.FormAnswerView `json:"responses"`
+	URL         string                   `json:"url"`
+	WaitURL     string                   `json:"wait_url,omitempty"`
+	Responses   []model.FormAnswerView   `json:"responses"`
+	Attachments []formAttachmentResponse `json:"attachments"`
 }
 
 type formSummaryResponse struct {
@@ -62,9 +67,10 @@ func (s *Server) formURL(ownerUsername, projectKey, ref string) string {
 
 func (s *Server) formResponse(form model.Form) formResponse {
 	return formResponse{
-		Form:      form,
-		URL:       s.formURL(form.OwnerUsername, form.ProjectKey, form.Ref),
-		Responses: form.Definition.AnswerViews(form.Answers),
+		Form:        form,
+		URL:         s.formURL(form.OwnerUsername, form.ProjectKey, form.Ref),
+		Responses:   form.Definition.AnswerViews(form.Answers),
+		Attachments: s.formAttachmentResponses(form),
 	}
 }
 
@@ -83,7 +89,10 @@ func (s *Server) formSummaryResponses(forms []model.FormSummary) []formSummaryRe
 func formErrorMessage(err error) (string, bool) {
 	var formErr *model.FormError
 	var incomplete *model.FormIncompleteError
+	var notClaimable *store.FormMediaNotClaimableError
 	switch {
+	case errors.As(err, &notClaimable):
+		return notClaimable.Error(), true
 	case errors.As(err, &formErr):
 		return formErr.Error(), true
 	case errors.As(err, &incomplete):
@@ -221,6 +230,11 @@ func (s *Server) createForm(w http.ResponseWriter, r *http.Request) {
 	if req.AssigneeID != nil {
 		assigneeID = *req.AssigneeID
 	}
+	attachments, err := model.ParseFormAttachments(req.Attachments)
+	if err != nil {
+		writeFormError(w, err)
+		return
+	}
 	waitKey, waitKeyHash := newFormWaitKey()
 	form, err := s.store.CreateForm(r.Context(), store.CreateFormParams{
 		ProjectID:   project.ID,
@@ -233,6 +247,8 @@ func (s *Server) createForm(w http.ResponseWriter, r *http.Request) {
 		OriginLabel: req.OriginLabel,
 		OriginURL:   req.OriginURL,
 		WaitKeyHash: waitKeyHash,
+
+		AttachmentObjectNumbers: attachments,
 	})
 	if err != nil {
 		writeFormError(w, err)

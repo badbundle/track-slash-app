@@ -116,6 +116,31 @@ Sprint UI equivalents use `/{owner}/projects/{key}/sprints/{sprintRef}/attachmen
 
 Content responses stream bytes from the backend with stored content type, content length, SHA-256 ETag, content disposition, and `X-Content-Type-Options: nosniff`.
 
+## Form attachments
+
+A form (see `SECURITY_MODEL.md`) can carry files: images, audio, video or anything else. They are shown with a question, with one of its options, or with the form as a whole. Unlike the attachments above they have no description Markdown, and they are for the project's members only.
+
+`form_attachments` has the same shape as `issue_attachments` with `form_id` in place of `issue_id` (no `version` or `updated_at`, because forms have no realtime events). It stores `project_id`, `form_id`, `storage_object_id` and `created_by_id`, one row per storage object, and its rows go when the form or the project does. Object metadata stays in `storage_objects`.
+
+The file is uploaded before the form exists, so it goes through three steps:
+
+1. `POST /api/v1/{owner}/projects/{key}/forms/upload-urls` (or `track_create_form_upload_url`) makes an upload URL: `{"upload_url","expires_at","max_files","max_file_bytes"}`. It needs write access.
+2. `curl -sS -F file=@PATH "$upload_url"` uploads one file and returns `{"object":"object-N","filename","content_type","byte_size"}`. The URL is `/api/v1/form-uploads/{key}`. It takes no account credentials: the key is the credential. Members with write access can also upload with their token to `POST /api/v1/{owner}/projects/{key}/forms/uploads`. The file is a pending upload (`form_uploads`) of the person who made the URL.
+3. `POST .../forms` (or `track_create_form`) names pending uploads in a question's `media` (up to 6), an option's `media` (one) and the form's `attachments`. Creating the form claims them: each moves from `form_uploads` to `form_attachments`, in the transaction that creates the form. A form takes at most 20 distinct files, counting all three places, and a file named twice counts once. A ref that is not one of the creator's pending uploads in this project (someone else's, already on another form, deleted, a generic object, an issue attachment or missing) fails the whole create with a 400 that names it, and every upload stays pending.
+
+A storage object belongs to at most one attachment flow. A pending upload is a flow of its own until a form claims it.
+
+Routes that serve a form's files, both for members only (a reader who is not a member gets 404):
+
+- `GET /api/v1/{owner}/projects/{key}/forms/{formRef}/attachments/{objectRef}/content`
+- `GET /{owner}/projects/{key}/forms/{formRef}/attachments/{objectRef}/content` (cookie session)
+
+`object-N` in a form resolves only against that form's attachments: a file on another form, a pending upload or a missing one is 404. Content is served with `streamStorageObjectContent` like every upload: a safe image inline, anything else as an octet-stream download in a sandbox.
+
+A form response lists its files in `attachments`: `object`, `filename`, `content_type`, `byte_size`, `kind` (`image`, `audio`, `video` or `file`) and `url`, the content route above, absolute when the public origin is set. A list of forms carries none.
+
+Limits are settings in `server.Options.FormMedia`: the largest file (25 MiB, and never more than the storage limit), how long an upload URL works (30 minutes), and how many files it takes (20).
+
 ## Security Constraints
 
 - Raw HTML in Markdown remains disabled.
@@ -124,3 +149,4 @@ Content responses stream bytes from the backend with stored content type, conten
 - `object-N` refs never cross project, issue, or sprint description boundaries.
 - Context-page `object-N` refs resolve only against attachments on that context page, including when the page is viewed from an issue.
 - Inline rendering is limited to safe image content types; downloads use attachment disposition.
+- Form files are never listed, fetched or deleted by the generic object routes, and no Markdown resolves an `object-N` against them.

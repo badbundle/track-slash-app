@@ -669,3 +669,130 @@ func TestFormSectionUnansweredAndFirstIncomplete(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateFormDefinitionTidiesMedia(t *testing.T) {
+	def := testFormDefinition()
+	def.Sections[0].Questions[0].Media = []string{" object-3 ", "object-4"}
+	def.Sections[0].Questions[0].Options[1].Media = " object-5 "
+	// A question that is not a choice can show files too.
+	def.Sections[1].Questions[0].Media = []string{"object-6"}
+	out, err := ValidateFormDefinition(def)
+	if err != nil {
+		t.Fatalf("ValidateFormDefinition: %v", err)
+	}
+	if got := out.Sections[0].Questions[0].Media; !reflect.DeepEqual(got, []string{"object-3", "object-4"}) {
+		t.Fatalf("question media = %v", got)
+	}
+	if got := out.Sections[0].Questions[0].Options[1].Media; got != "object-5" {
+		t.Fatalf("option media = %q", got)
+	}
+	if got := out.Sections[0].Questions[0].Options[0].Media; got != "" {
+		t.Fatalf("an option without media got %q", got)
+	}
+	if got := out.Sections[1].Questions[0].Media; !reflect.DeepEqual(got, []string{"object-6"}) {
+		t.Fatalf("confirm question media = %v", got)
+	}
+	if got := out.Sections[0].Questions[1].Media; got != nil {
+		t.Fatalf("a question without media got %v", got)
+	}
+	// The refs are in the question's JSON only when there are some.
+	raw, _ := json.Marshal(out.Sections[0].Questions[1])
+	if strings.Contains(string(raw), "media") {
+		t.Fatalf("question without media marshals as %s", raw)
+	}
+	raw, _ = json.Marshal(out.Sections[0].Questions[0])
+	if !strings.Contains(string(raw), `"media":["object-3","object-4"]`) || !strings.Contains(string(raw), `"media":"object-5"`) {
+		t.Fatalf("question with media marshals as %s", raw)
+	}
+}
+
+func TestValidateFormDefinitionMediaRefusals(t *testing.T) {
+	tooMany := make([]string, FormMaxQuestionMedia+1)
+	for i := range tooMany {
+		tooMany[i] = StorageObjectRef(i + 1)
+	}
+	for name, tc := range map[string]struct {
+		mutate  func(*FormDefinition)
+		field   string
+		message string
+	}{
+		"question ref not an object ref":  {func(d *FormDefinition) { d.Sections[0].Questions[0].Media = []string{"object-1", "file-2"} }, "sections[0].questions[0].media[1]", "not an object ref"},
+		"question ref zero":               {func(d *FormDefinition) { d.Sections[0].Questions[0].Media = []string{"object-0"} }, "sections[0].questions[0].media[0]", "not an object ref"},
+		"question ref has a leading zero": {func(d *FormDefinition) { d.Sections[0].Questions[0].Media = []string{"object-01"} }, "sections[0].questions[0].media[0]", "not an object ref"},
+		"question ref blank":              {func(d *FormDefinition) { d.Sections[0].Questions[0].Media = []string{"  "} }, "sections[0].questions[0].media[0]", "not an object ref"},
+		"question ref twice":              {func(d *FormDefinition) { d.Sections[0].Questions[0].Media = []string{"object-2", "object-2"} }, "sections[0].questions[0].media[1]", "object-2 is listed twice"},
+		"too many on a question":          {func(d *FormDefinition) { d.Sections[0].Questions[0].Media = tooMany }, "sections[0].questions[0].media", "at most 6 files"},
+		"option ref not an object ref":    {func(d *FormDefinition) { d.Sections[0].Questions[0].Options[1].Media = "https://example.com/a.png" }, "sections[0].questions[0].options[1].media", "not an object ref"},
+		"option ref negative":             {func(d *FormDefinition) { d.Sections[0].Questions[0].Options[0].Media = "object--3" }, "sections[0].questions[0].options[0].media", "not an object ref"},
+	} {
+		def := testFormDefinition()
+		tc.mutate(&def)
+		_, err := ValidateFormDefinition(def)
+		if err == nil {
+			t.Fatalf("%s: accepted", name)
+		}
+		wantFormError(t, err, tc.field, tc.message)
+	}
+}
+
+func TestFormDefinitionMediaRefsAreDistinctAndInFormOrder(t *testing.T) {
+	def := testFormDefinition()
+	if got := mustValidFormDefinition(t).MediaRefs(); got != nil {
+		t.Fatalf("a form with no media lists %v", got)
+	}
+	def.Sections[0].Questions[0].Media = []string{"object-9", "object-2"}
+	def.Sections[0].Questions[0].Options[0].Media = "object-5"
+	def.Sections[0].Questions[0].Options[1].Media = "object-2" // shown twice, listed once
+	def.Sections[0].Questions[1].Options[2].Media = "object-9"
+	def.Sections[1].Questions[1].Media = []string{"object-1"}
+	valid, err := ValidateFormDefinition(def)
+	if err != nil {
+		t.Fatalf("ValidateFormDefinition: %v", err)
+	}
+	want := []string{"object-9", "object-2", "object-5", "object-1"}
+	if got := valid.MediaRefs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("MediaRefs = %v, want %v", got, want)
+	}
+}
+
+func TestParseFormAttachments(t *testing.T) {
+	got, err := ParseFormAttachments([]string{"object-3", " object-1 ", "object-3"})
+	if err != nil || !reflect.DeepEqual(got, []int{3, 1}) {
+		t.Fatalf("ParseFormAttachments = %v, %v; want [3 1] with the repeat left out", got, err)
+	}
+	if got, err := ParseFormAttachments(nil); err != nil || got != nil {
+		t.Fatalf("ParseFormAttachments(nil) = %v, %v", got, err)
+	}
+	_, err = ParseFormAttachments([]string{"object-1", "nope"})
+	wantFormError(t, err, "attachments[1]", "not an object ref")
+}
+
+func TestFormMediaNumbers(t *testing.T) {
+	def := testFormDefinition()
+	def.Sections[0].Questions[0].Media = []string{"object-4"}
+	def.Sections[0].Questions[0].Options[0].Media = "object-7"
+	valid, err := ValidateFormDefinition(def)
+	if err != nil {
+		t.Fatalf("ValidateFormDefinition: %v", err)
+	}
+	// What the questions show comes first, then the explicit attachments
+	// they don't already include.
+	got, err := FormMediaNumbers(valid, []int{9, 7, 2, 9})
+	if err != nil || !reflect.DeepEqual(got, []int{4, 7, 9, 2}) {
+		t.Fatalf("FormMediaNumbers = %v, %v", got, err)
+	}
+	if got, err := FormMediaNumbers(mustValidFormDefinition(t), nil); err != nil || got != nil {
+		t.Fatalf("a form with no files = %v, %v", got, err)
+	}
+
+	// Twenty is the most, counting the questions' files.
+	explicit := make([]int, 0, FormMaxAttachments)
+	for i := 10; i < 10+FormMaxAttachments-2; i++ {
+		explicit = append(explicit, i)
+	}
+	if got, err := FormMediaNumbers(valid, explicit); err != nil || len(got) != FormMaxAttachments {
+		t.Fatalf("exactly %d files = %d, %v", FormMaxAttachments, len(got), err)
+	}
+	_, err = FormMediaNumbers(valid, append(explicit, 99))
+	wantFormError(t, err, "attachments", "at most 20 files")
+}

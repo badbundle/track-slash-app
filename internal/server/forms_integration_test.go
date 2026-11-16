@@ -31,6 +31,7 @@ type formJSON struct {
 	Definition   *model.FormDefinition  `json:"definition"`
 	Answers      model.FormAnswers      `json:"answers"`
 	Responses    []model.FormAnswerView `json:"responses"`
+	Attachments  []formAttachmentJSON   `json:"attachments"`
 	// Counts are only on list rows and the MCP's brief form.
 	QuestionCount    int `json:"question_count"`
 	RequiredCount    int `json:"required_count"`

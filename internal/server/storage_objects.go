@@ -47,14 +47,22 @@ func (s *Server) createStorageObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.Request, projectID, userID uuid.UUID) (model.StorageObject, bool) {
+	return s.storeUploadedObject(w, r, projectID, userID, s.objectStorage.MaxUploadBytes(), s.store.CreateStorageObject)
+}
+
+// storeUploadedObject reads the multipart `file` of a request, writes its
+// bytes to object storage and records them with create, which is
+// CreateStorageObject for an ordinary upload. A file over maxFileBytes is
+// refused with 413. If create fails, the bytes are deleted again.
+func (s *Server) storeUploadedObject(w http.ResponseWriter, r *http.Request, projectID, userID uuid.UUID, maxFileBytes int64, create func(context.Context, store.CreateStorageObjectParams) (model.StorageObject, error)) (model.StorageObject, bool) {
 	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
 	if !strings.HasPrefix(contentType, "multipart/form-data") {
 		writeError(w, http.StatusBadRequest, "multipart file required")
 		return model.StorageObject{}, false
 	}
 
-	r.Body = http.MaxBytesReader(w, r.Body, s.objectStorage.MaxUploadBytes()+storageMultipartOverheadBytes)
-	if err := r.ParseMultipartForm(s.objectStorage.MaxUploadBytes() + storageMultipartOverheadBytes); err != nil {
+	r.Body = http.MaxBytesReader(w, r.Body, maxFileBytes+storageMultipartOverheadBytes)
+	if err := r.ParseMultipartForm(maxFileBytes + storageMultipartOverheadBytes); err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "file too large")
@@ -69,6 +77,10 @@ func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.R
 		return model.StorageObject{}, false
 	}
 	defer file.Close()
+	if header.Size > maxFileBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "file too large")
+		return model.StorageObject{}, false
+	}
 
 	filename, err := normalizeStorageObjectFilename(header.Filename)
 	if err != nil {
@@ -87,7 +99,7 @@ func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.R
 		writeStorageError(w, err)
 		return model.StorageObject{}, false
 	}
-	created, err := s.store.CreateStorageObject(r.Context(), store.CreateStorageObjectParams{
+	created, err := create(r.Context(), store.CreateStorageObjectParams{
 		ID:          objectID,
 		ProjectID:   projectID,
 		Backend:     stored.Backend,

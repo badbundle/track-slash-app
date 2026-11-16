@@ -91,6 +91,29 @@ source of a user's rights in a project.
   key once, in the response that creates the form. `track_get_form` with
   `wait_seconds` waits the same way with the caller's own credentials, and
   checks their membership again on each read.
+  A form can carry files (images, audio, video, anything). They are the form's
+  and its members': a file reaches a member only through its form
+  (`/forms/{formRef}/attachments/{objectRef}/content`, REST and UI), which
+  checks membership first and looks for the file on that form only, so an
+  `object-N` that is pending, on another form or not attached is 404. A file
+  that belongs to a form, and a pending upload no form has claimed yet, are
+  left out of every generic object route and tool for everyone, members
+  included (`/objects`, `track_list_objects`, `track_get_object`,
+  `track_read_object_content`, the `track://object-content` resource, and the
+  project and issue attachment routes). A pending upload belongs to whoever
+  made it: only a form created by that same person can claim it, and a ref that
+  names someone else's, a deleted one or one that is not a pending upload is
+  refused with one message, and nothing is claimed. Uploads that no form claims
+  within a day are deleted.
+  An upload URL (`/api/v1/form-uploads/{key}`) is how an agent gets files in,
+  because a tool call can't carry a file and the agent's shell holds no account
+  token. Like the wait URL it carries its own secret. All it buys is adding a
+  file to its creator's pending uploads, for 30 minutes, 20 files and 25 MB a
+  file, and the key is checked before the body is read. The key stands for the
+  member who made it and needs write access, checked on every use: once they are
+  no longer a member, are blocked, made read-only or deleted, or the project is
+  gone, it answers 404 as for a key that was never issued. The server keeps only
+  the key's SHA-256 and shows the key once.
 - **Emails are never shown outside the account itself.** Member lists, pickers,
   comment authors and the reporter view name people by display name or
   username. Member search matches emails only for someone who manages members.
@@ -124,6 +147,10 @@ source of a user's rights in a project.
 - **Uploads are inert.** Only safe raster images are served inline and with
   their own type. Everything else is sent as an octet-stream download with a
   sandbox CSP.
+- **A file reaches people only through what owns it.** A form's file is
+  served by its form's route and by no generic object route, and a file
+  nothing owns yet (a pending upload) is served by none. Any new flow that
+  stores files must be left out of the generic object routes the same way.
 
 ## Accepted trade-offs
 
@@ -159,6 +186,13 @@ These are known and left as they are. Change one only with that in mind.
   own: cancelling the form leaves it answering `cancelled`. The server's own
   request log leaves the key out, but a proxy in front of it may log the full
   path. A status is all it gives away, so that is accepted.
+- **A form's upload URL is a secret in a URL.** Whoever holds it can add files
+  to its creator's pending uploads until it expires (30 minutes), up to its
+  limits (20 files, 25 MB each), and it can't be revoked on its own. It is
+  write-only: it reads nothing, and a file it adds does nothing until its
+  creator puts it in a form. The files count as the creator's. A pending upload
+  that no form claims is deleted after a day. The server's own request log leaves the key out, but a
+  proxy in front of it may log the full path.
 - **Images are stored as uploaded,** metadata included.
 - **Session cookies do not use the `__Host-` prefix.** They are HttpOnly,
   SameSite=Lax, Secure over https and have no Domain. Renaming them would sign
