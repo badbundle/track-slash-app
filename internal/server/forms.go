@@ -35,9 +35,12 @@ type saveFormAnswersReq struct {
 
 // formResponse is a form as the API and MCP return it: the form, its page's
 // URL to hand to the person, and each question with its answer in form order.
+// WaitURL is set only on the response that creates the form: it holds the
+// form's wait key, which the server can't show again.
 type formResponse struct {
 	model.Form
 	URL       string                 `json:"url"`
+	WaitURL   string                 `json:"wait_url,omitempty"`
 	Responses []model.FormAnswerView `json:"responses"`
 }
 
@@ -218,6 +221,7 @@ func (s *Server) createForm(w http.ResponseWriter, r *http.Request) {
 	if req.AssigneeID != nil {
 		assigneeID = *req.AssigneeID
 	}
+	waitKey, waitKeyHash := newFormWaitKey()
 	form, err := s.store.CreateForm(r.Context(), store.CreateFormParams{
 		ProjectID:   project.ID,
 		IssueID:     issueID,
@@ -228,12 +232,15 @@ func (s *Server) createForm(w http.ResponseWriter, r *http.Request) {
 		CreatedByID: currentUser(r).ID,
 		OriginLabel: req.OriginLabel,
 		OriginURL:   req.OriginURL,
+		WaitKeyHash: waitKeyHash,
 	})
 	if err != nil {
 		writeFormError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, s.formResponse(form))
+	created := s.formResponse(form)
+	created.WaitURL = s.formWaitURL(waitKey)
+	writeJSON(w, http.StatusCreated, created)
 }
 
 // parseFormStatusFilters reads repeated status values into a filter.

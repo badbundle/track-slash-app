@@ -32,6 +32,16 @@ type CreateFormParams struct {
 	CreatedByID uuid.UUID
 	OriginLabel string
 	OriginURL   string
+	// WaitKeyHash is the SHA-256 of the form's wait key, or nil for a form
+	// that has none. See GetFormWait.
+	WaitKeyHash []byte
+}
+
+// FormWait is all a wait key shows: which form it belongs to and that form's
+// status.
+type FormWait struct {
+	FormID uuid.UUID
+	Status model.FormStatus
 }
 
 // SaveFormAnswersParams saves answers to some or all of a form's questions.
@@ -207,12 +217,12 @@ func (s *Store) CreateForm(ctx context.Context, p CreateFormParams) (model.Form,
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO forms (
 				project_id, number, issue_id, title, description, definition, answers,
-				assignee_id, created_by_id, origin_label, origin_url
+				assignee_id, created_by_id, origin_label, origin_url, wait_key_hash
 			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING id
 		`, p.ProjectID, number, p.IssueID, details.Title, details.Description, rawDefinition, rawAnswers,
-			p.AssigneeID, p.CreatedByID, details.OriginLabel, details.OriginURL).Scan(&id); err != nil {
+			p.AssigneeID, p.CreatedByID, details.OriginLabel, details.OriginURL, p.WaitKeyHash).Scan(&id); err != nil {
 			return mapFormWriteError(err)
 		}
 
@@ -250,6 +260,42 @@ func (s *Store) GetFormByProjectNumber(ctx context.Context, projectID uuid.UUID,
 			return model.Form{}, ErrNotFound
 		}
 		return model.Form{}, err // defensive: DB outage past the no-rows branch
+	}
+	return out, nil
+}
+
+// GetFormWait returns the status of the form a wait key belongs to, given the
+// key's SHA-256. The key stands for the person who created the form and shows
+// nothing once they could no longer read the form themselves: it is not found
+// when they are no longer a member of the project, are blocked from it or
+// have been deleted, and when the project is gone. Each call is three short
+// reads, so a caller that polls holds no connection between calls.
+func (s *Store) GetFormWait(ctx context.Context, waitKeyHash []byte) (FormWait, error) {
+	if len(waitKeyHash) == 0 {
+		return FormWait{}, ErrNotFound
+	}
+	var out FormWait
+	var projectID, creatorID uuid.UUID
+	if err := s.db.QueryRow(ctx, `
+		SELECT id, status, project_id, created_by_id
+		FROM forms
+		WHERE wait_key_hash = $1
+	`, waitKeyHash).Scan(&out.FormID, &out.Status, &projectID, &creatorID); err != nil {
+		if isNoRows(err) {
+			return FormWait{}, ErrNotFound
+		}
+		return FormWait{}, err // defensive: DB outage past the no-rows branch
+	}
+	creator, err := s.GetUser(ctx, creatorID)
+	if err != nil {
+		return FormWait{}, err
+	}
+	permissions, err := s.ProjectPermissionsForUser(ctx, creator, projectID)
+	if err != nil {
+		return FormWait{}, err
+	}
+	if !permissions.CanReadMembersOnly {
+		return FormWait{}, ErrNotFound
 	}
 	return out, nil
 }
@@ -578,15 +624,24 @@ func formStatusConflict(form model.Form, consequence string) error {
 	return fmt.Errorf("%s is %s, so %s: %w", form.Ref, form.Status, consequence, ErrConflict)
 }
 
-// mapFormWriteError maps a foreign-key failure on insert. The project, the
-// assignee and the issue were checked in the same transaction, so in practice
-// it is a creator who doesn't exist. The form's CHECKs and its unique number
-// can't fail here: the model validated every length first, and the number was
-// allocated under the project row lock.
+// mapFormWriteError maps a failure on insert. A foreign-key failure is in
+// practice a creator who doesn't exist, because the project, the assignee and
+// the issue were checked in the same transaction. A unique failure is a wait
+// key hash another form already has, and a CHECK failure one that isn't a
+// SHA-256: the form's other CHECKs and its unique number can't fail here,
+// because the model validated every length first and the number was allocated
+// under the project row lock.
 func mapFormWriteError(err error) error {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
-		return fmt.Errorf("project, issue or user not found: %w", ErrNotFound)
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case "23503":
+			return fmt.Errorf("project, issue or user not found: %w", ErrNotFound)
+		case "23505":
+			return fmt.Errorf("wait key is already in use: %w", ErrConflict)
+		case "23514":
+			return fmt.Errorf("wait key hash must be a SHA-256: %w", ErrConflict)
+		}
 	}
 	return err // defensive: non-pg or unmapped pg error
 }
