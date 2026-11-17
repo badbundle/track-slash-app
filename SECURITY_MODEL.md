@@ -58,7 +58,7 @@ source of a user's rights in a project.
   (404, MCP `not_found`), whether or not it does, and someone who can't read
   the project is refused as on any of its routes. Creating a form, picking one
   up and cancelling one need write access. Only the form's assignee saves its
-  answers, submits it or reopens it. The assignee must be a member; a
+  answers, attaches or removes a file of an answer, submits it or reopens it. The assignee must be a member; a
   read-only member can be asked, because answering their own form is not a
   project write. The Inbox (`/inbox`, `GET /api/v1/me/inbox`, `track_list_inbox`)
   lists only the forms addressed to the caller, and only those in live projects
@@ -104,7 +104,20 @@ source of a user's rights in a project.
   made it: only a form created by that same person can claim it, and a ref that
   names someone else's, a deleted one or one that is not a pending upload is
   refused with one message, and nothing is claimed. Uploads that no form claims
-  within a day are deleted.
+  within a day are deleted, and the files of a form that was picked up or
+  cancelled are deleted 30 days later (the form keeps `media_removed_at`).
+  The person answering can attach files to an answer (a `file` question is
+  answered by one). An answer file is a form file too: it has a
+  `form_attachments` row with `answer_question_id` set, so every rule above
+  holds for it, and nothing shows it as the asker's media. Only the assignee
+  adds or removes one, and only while the form is open. It is read through the
+  form's content routes by members only, and, for an agent's shell, through a
+  download URL (`/api/v1/form-files/{key}`). Any member who can read the form
+  makes one (`POST .../forms/{formRef}/attachments/{objectRef}/url`,
+  `track_create_form_file_url`), connectors included, because reading is
+  allowed. It serves that one file to a GET, for 10 minutes, and stops when the
+  file is removed, the project is deleted or its creator can no longer read the
+  form. A form takes at most 6 files per answer and 20 in all.
   An upload URL (`/api/v1/form-uploads/{key}`) is how an agent gets files in,
   because a tool call can't carry a file and the agent's shell holds no account
   token. Like the wait URL it carries its own secret. All it buys is adding a
@@ -132,8 +145,9 @@ source of a user's rights in a project.
   or change tokens, email, password, password login, passkeys, saved GitHub
   tokens, or site-admin account administration. See [OAUTH.md](OAUTH.md).
 - **A person answers a form.** A connector (OAuth) token can create a form,
-  read it and mark it picked up, but it cannot save answers, submit or reopen
-  one, even for its own user, and MCP has no tool for any of the three. A
+  read it and mark it picked up, but it cannot save answers, attach or remove an
+  answer's file, submit or reopen one, even for its own user, and MCP has no
+  tool for any of them. Attaching a file is answering. A
   session or an API token is the person's own, so REST accepts those. The
   form records how it was submitted (`web` or `api`). See [OAUTH.md](OAUTH.md).
 - **A wait is bounded.** A wait URL and `track_get_form` hold a request for 50
@@ -204,8 +218,16 @@ These are known and left as they are. Change one only with that in mind.
   limits (20 files, 25 MB each), and it can't be revoked on its own. It is
   write-only: it reads nothing, and a file it adds does nothing until its
   creator puts it in a form. The files count as the creator's. A pending upload
-  that no form claims is deleted after a day. The server's own request log leaves the key out, but a
+  that no form claims is deleted after a day, and a closed form's files go 30
+  days after it is picked up or cancelled. The server's own request log leaves the key out, but a
   proxy in front of it may log the full path.
+- **A form's download URL is a secret in a URL.** Whoever holds it can read
+  one file of one form until it expires (10 minutes), and nothing else. It is
+  read-only, can't be revoked on its own, and counts as the member who made it:
+  it stops working when that member loses the form. Only the key's SHA-256 is
+  stored, the server's own request log leaves the key out, and no later response
+  shows it again. A proxy in front of the server may log the full path. One
+  file for a few minutes is all it gives away, so that is accepted.
 - **Images are stored as uploaded,** metadata included.
 - **Session cookies do not use the `__Host-` prefix.** They are HttpOnly,
   SameSite=Lax, Secure over https and have no Domain. Renaming them would sign

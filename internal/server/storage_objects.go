@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"path"
 	"strconv"
@@ -56,20 +57,7 @@ func (s *Server) createStorageObjectFromRequest(w http.ResponseWriter, r *http.R
 // refused with 413. If create fails, the bytes are deleted again. declare, when
 // set, may replace the type the uploader declared, given the filename.
 func (s *Server) storeUploadedObject(w http.ResponseWriter, r *http.Request, projectID, userID uuid.UUID, maxFileBytes int64, declare func(filename, declared string) string, create func(context.Context, store.CreateStorageObjectParams) (model.StorageObject, error)) (model.StorageObject, bool) {
-	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
-	if !strings.HasPrefix(contentType, "multipart/form-data") {
-		writeError(w, http.StatusBadRequest, "multipart file required")
-		return model.StorageObject{}, false
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, maxFileBytes+storageMultipartOverheadBytes)
-	if err := r.ParseMultipartForm(maxFileBytes + storageMultipartOverheadBytes); err != nil {
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "file too large")
-			return model.StorageObject{}, false
-		}
-		writeError(w, http.StatusBadRequest, "unable to read upload")
+	if !parseUploadRequest(w, r, maxFileBytes, 1) {
 		return model.StorageObject{}, false
 	}
 	file, header, err := r.FormFile("file")
@@ -78,6 +66,34 @@ func (s *Server) storeUploadedObject(w http.ResponseWriter, r *http.Request, pro
 		return model.StorageObject{}, false
 	}
 	defer file.Close()
+	return s.storeUploadedFile(w, r, file, header, projectID, userID, maxFileBytes, declare, create)
+}
+
+// parseUploadRequest reads a multipart request that carries up to files files
+// of at most maxFileBytes each, and answers the request itself when it cannot.
+func parseUploadRequest(w http.ResponseWriter, r *http.Request, maxFileBytes int64, files int) bool {
+	contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if !strings.HasPrefix(contentType, "multipart/form-data") {
+		writeError(w, http.StatusBadRequest, "multipart file required")
+		return false
+	}
+	limit := maxFileBytes*int64(files) + storageMultipartOverheadBytes
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	if err := r.ParseMultipartForm(limit); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeError(w, http.StatusRequestEntityTooLarge, "file too large")
+			return false
+		}
+		writeError(w, http.StatusBadRequest, "unable to read upload")
+		return false
+	}
+	return true
+}
+
+// storeUploadedFile writes one uploaded file's bytes to object storage and
+// records them with create. See storeUploadedObject. The caller closes file.
+func (s *Server) storeUploadedFile(w http.ResponseWriter, r *http.Request, file multipart.File, header *multipart.FileHeader, projectID, userID uuid.UUID, maxFileBytes int64, declare func(filename, declared string) string, create func(context.Context, store.CreateStorageObjectParams) (model.StorageObject, error)) (model.StorageObject, bool) {
 	if header.Size > maxFileBytes {
 		writeError(w, http.StatusRequestEntityTooLarge, "file too large")
 		return model.StorageObject{}, false

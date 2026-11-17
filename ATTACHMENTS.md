@@ -141,9 +141,26 @@ A form upload that declares no type, or `application/octet-stream` (what `curl -
 
 On the form page (a member's view) a question's `media` sits between its help and its inputs, an option's `media` inside its card, `object-N` in Markdown (description, section description, help) resolves against the form's files, and files nothing places are listed under the description.
 
-A form response lists its files in `attachments`: `object`, `filename`, `content_type`, `byte_size`, `kind` (`image`, `audio`, `video` or `file`) and `url`, the content route above, absolute when the public origin is set. A list of forms carries none.
+A form's files are kept for 30 days after it is picked up (`acknowledged`) or cancelled, and then deleted. `ExpireFormMedia` does it, from the deletion worker's hourly pass. In one transaction per run it soft-deletes the form's storage objects, deletes its `form_attachments` rows and sets `forms.media_removed_at`. It leaves `updated_at` alone, because the Inbox orders finished forms by it. A form that is open or submitted keeps its files however old it is, and a form that never had files is never marked. After removal `attachments` is empty, `media_removed_at` says when, and the content routes answer 404. The page shows "This form's media was removed on <date>." under the description, no Files card and no thumbnails. A closed form shows its answers and not its question cards, so no question is left with a gap. `object-N` in Markdown stays plain text, because nothing resolves it.
 
-Limits are settings in `server.Options.FormMedia`: the largest file (25 MiB, and never more than the storage limit), how long an upload URL works (30 minutes), and how many files it takes (20).
+A form response lists its files in `attachments`: `object`, `filename`, `content_type`, `byte_size`, `kind` (`image`, `audio`, `video` or `file`) and `url`, the content route above, absolute when the public origin is set. A list of forms carries none. Every form response and list row also carries `media_removed_at`, which is null until the files are removed.
+
+Limits are settings in `server.Options.FormMedia`: the largest file (25 MiB, and never more than the storage limit), how long an upload URL works (30 minutes), how many files it takes (20), and how long a download URL works (`FileURLTTL`, 10 minutes).
+
+### Answer files
+
+The person answering can attach files to an answer. Every question's `Add a note or file` disclosure takes them, and a `file` question is answered by attaching at least one. An answer file is a `form_attachments` row with `answer_question_id` set to the question's id. The asker's rows have it NULL, so the two never mix: the page's `Files` card, `attachments` in a response, the question and option `media`, Markdown `object-N` and the unplaced-files list are the asker's files only.
+
+- `POST /api/v1/{owner}/projects/{key}/forms/{formRef}/answers/{questionID}/files` takes one multipart `file` and returns 201 with `object`, `filename`, `content_type`, `byte_size` and `kind`. Types are decided as for the asker's media.
+- `DELETE .../answers/{questionID}/files/{objectRef}` removes one (204). The object is soft-deleted, which queues its bytes.
+- The page posts to `/{owner}/projects/{key}/forms/{formRef}/answers/{questionID}/files` (any number of files in the one `file` field, one request) and `.../files/{objectRef}/remove`, and answers with the file list, the footer and the error slot.
+- Both are answering: only the assignee, only while the form is open, never a connector token. At most 6 files per answer (`FormMaxAnswerFiles`) and 20 per form (`FormMaxAnswerFilesPerForm`), apart from the asker's 20.
+- A response lists each answer's files in `responses[].files` with the same fields as `attachments`, and `url`. `FormValue.Files` holds the refs. It is derived: filled in whenever a form is read, never stored in `answers`, and ignored on input.
+- Expiry removes them with the asker's media, 30 days after the form is picked up or cancelled.
+
+### Download URLs
+
+An agent's shell has no account token, so it fetches a file of a form through a download URL. `POST .../forms/{formRef}/attachments/{objectRef}/url` (or `track_create_form_file_url`), by any member who can read the form, returns `{"download_url","expires_at","filename","content_type","byte_size"}` for the asker's file or an answer file. `curl -sS -o FILE "$download_url"` saves it. The URL is `/api/v1/form-files/{key}`, takes no credentials, answers only GET, and lasts 10 minutes. An unknown, expired or no-longer-valid key is 404 with the body of any missing route. `form_file_grants` stores only the key's SHA-256; expired grants are deleted by the hourly sweep.
 
 ## Security Constraints
 
@@ -153,4 +170,4 @@ Limits are settings in `server.Options.FormMedia`: the largest file (25 MiB, and
 - `object-N` refs never cross project, issue, or sprint description boundaries.
 - Context-page `object-N` refs resolve only against attachments on that context page, including when the page is viewed from an issue.
 - Inline rendering is limited to safe image content types; downloads use attachment disposition.
-- Form files are never listed, fetched or deleted by the generic object routes, and no Markdown resolves an `object-N` against them.
+- Form files, answer files included, are never listed, fetched or deleted by the generic object routes, and no Markdown resolves an `object-N` against them (or against an answer file).

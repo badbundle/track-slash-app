@@ -214,7 +214,7 @@ func TestUIFormAssigneePageAndAutosave(t *testing.T) {
 		t.Fatalf("regions answer = %+v", got)
 	}
 	_, body = e.uiFormGetDoc(t, path, token)
-	requireContains(t, "page with note", body, "EU first", "<details class=\"mt-3\" open>")
+	requireContains(t, "page with note", body, "EU first", "<details class=\"mt-1\" data-form-extras open>")
 	e.uiFormPost(t, path+"/answers/rotated", token, url.Values{}, false)
 	if e.mustReloadForm(t, form).Answers["rotated"].Checked {
 		t.Fatal("unticked confirm still checked")

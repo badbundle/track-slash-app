@@ -81,6 +81,8 @@ type uiFormQuestionData struct {
 	HelpHTML  template.HTML
 	// Media are the question's files, shown between its help and its inputs.
 	Media uiFormMedia
+	// Files are the files the person attached to their answer.
+	Files uiFormAnswerFiles
 	// HasPictures is set when an option has an image: the options become
 	// picture cards in a grid.
 	HasPictures bool
@@ -119,6 +121,8 @@ type uiFormSummaryItem struct {
 	Missing bool
 	// Thumbs are the pictures of the chosen options.
 	Thumbs []uiFormThumb
+	// Files are the files attached to the answer, to look at and not to change.
+	Files uiFormAnswerFiles
 }
 
 // uiFormStepper backs the form-stepper component.
@@ -526,6 +530,7 @@ func (s *Server) uiBuildFormPanel(r *http.Request, project model.Project, perms 
 				for _, question := range section.Questions {
 					q := uiFormQuestion(token, base, form, media, question, form.Answers[question.ID])
 					q.Step = key
+					q.Files.Step = key
 					data.Questions = append(data.Questions, q)
 				}
 				panel.Sections = append(panel.Sections, data)
@@ -635,6 +640,7 @@ func uiFormReview(base string, form model.Form, media uiFormMediaLookup) []uiFor
 			next++
 			item := uiFormSummaryItemOf(view)
 			item.Thumbs = media.thumbs(question, view.Selected)
+			item.Files = media.answerFiles(base, "", question, view.Files, false)
 			item.Missing = slices.Contains(blocking, question.ID)
 			data.Items = append(data.Items, item)
 		}
@@ -686,6 +692,7 @@ func uiFormQuestion(token, base string, form model.Form, media uiFormMediaLookup
 		Answer:    answer,
 		HelpHTML:  renderFormMarkdown(base, form, question.Help),
 		Media:     media.media(question.Media),
+		Files:     media.answerFiles(base, token, question, answer.Files, true),
 		Type:      string(question.Type),
 	}
 	switch question.Type {
@@ -772,11 +779,13 @@ func uiFormOriginHref(raw string) (string, string) {
 
 func uiFormSummary(form model.Form, media uiFormMediaLookup) []uiFormSummaryItem {
 	views := form.Definition.AnswerViews(form.Answers)
+	base := formPath(form.OwnerUsername, form.ProjectKey, form.Ref)
 	items := make([]uiFormSummaryItem, 0, len(views))
 	for _, view := range views {
 		item := uiFormSummaryItemOf(view)
 		question, _ := form.Definition.Question(view.ID)
 		item.Thumbs = media.thumbs(question, view.Selected)
+		item.Files = media.answerFiles(base, "", question, view.Files, false)
 		items = append(items, item)
 	}
 	return items
@@ -806,6 +815,11 @@ func uiFormAnswerText(view model.FormAnswerView) string {
 		return "No"
 	case model.FormQuestionText:
 		return view.Text
+	case model.FormQuestionFile:
+		if len(view.Files) == 1 {
+			return "1 file attached"
+		}
+		return fmt.Sprintf("%d files attached", len(view.Files))
 	}
 	var parts []string
 	for _, option := range view.Selected {
@@ -824,10 +838,21 @@ func uiFormCopyText(form model.Form, formURL string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s · %s\n%s\n", form.Ref, form.Title, formURL)
 	b.WriteString("\n")
+	filenames := map[string]string{}
+	for _, attachment := range form.Attachments {
+		filenames[attachment.Object.Ref] = attachment.Object.Filename
+	}
 	for i, view := range form.Definition.AnswerViews(form.Answers) {
 		fmt.Fprintf(&b, "%d. %s: %s\n", i+1, view.Label, uiFormAnswerText(view))
 		if view.Note != "" {
 			fmt.Fprintf(&b, "   Note: %s\n", view.Note)
+		}
+		if len(view.Files) > 0 {
+			names := make([]string, len(view.Files))
+			for j, ref := range view.Files {
+				names[j] = filenames[ref]
+			}
+			fmt.Fprintf(&b, "   Files: %s\n", strings.Join(names, ", "))
 		}
 	}
 	if form.Comment != "" {

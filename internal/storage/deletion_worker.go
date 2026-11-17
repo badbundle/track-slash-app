@@ -27,6 +27,12 @@ type DeletionWorkerOptions struct {
 	// how old an unclaimed upload must be before it goes (default 24 hours).
 	FormUploadSweepEvery time.Duration
 	FormUploadMaxAge     time.Duration
+	// FormMediaMaxAge is how long a form keeps its files after it is picked
+	// up or cancelled (default 30 days). The same hourly pass as the upload
+	// sweep removes the files of older forms, FormMediaBatch forms at a time
+	// (default 100).
+	FormMediaMaxAge time.Duration
+	FormMediaBatch  int
 }
 
 type DeletionRunResult struct {
@@ -54,11 +60,15 @@ type DeletionWorker struct {
 	formUploadSweepEvery time.Duration
 	formUploadMaxAge     time.Duration
 	lastFormUploadSweep  time.Time
+	formMediaMaxAge      time.Duration
+	formMediaBatch       int
 }
 
 const (
 	defaultFormUploadSweepEvery = time.Hour
 	defaultFormUploadMaxAge     = 24 * time.Hour
+	defaultFormMediaMaxAge      = 30 * 24 * time.Hour
+	defaultFormMediaBatch       = 100
 )
 
 func NewDeletionWorker(st *store.Store, service *Service, opts DeletionWorkerOptions) *DeletionWorker {
@@ -95,6 +105,12 @@ func NewDeletionWorker(st *store.Store, service *Service, opts DeletionWorkerOpt
 	if opts.FormUploadMaxAge <= 0 {
 		opts.FormUploadMaxAge = defaultFormUploadMaxAge
 	}
+	if opts.FormMediaMaxAge <= 0 {
+		opts.FormMediaMaxAge = defaultFormMediaMaxAge
+	}
+	if opts.FormMediaBatch <= 0 {
+		opts.FormMediaBatch = defaultFormMediaBatch
+	}
 	return &DeletionWorker{
 		store:         st,
 		service:       service,
@@ -109,6 +125,8 @@ func NewDeletionWorker(st *store.Store, service *Service, opts DeletionWorkerOpt
 
 		formUploadSweepEvery: opts.FormUploadSweepEvery,
 		formUploadMaxAge:     opts.FormUploadMaxAge,
+		formMediaMaxAge:      opts.FormMediaMaxAge,
+		formMediaBatch:       opts.FormMediaBatch,
 	}
 }
 
@@ -141,12 +159,34 @@ func (w *DeletionWorker) sweepFormUploadsIfDue(ctx context.Context) {
 	if _, err := w.SweepFormUploads(ctx); err != nil && ctx.Err() == nil {
 		w.logger.Printf("storage deletion worker: sweep form uploads: %v", err)
 	}
+	if _, err := w.ExpireFormMedia(ctx); err != nil && ctx.Err() == nil {
+		w.logger.Printf("storage deletion worker: expire form media: %v", err)
+	}
 }
 
 // SweepFormUploads removes the form uploads no form claimed within the
 // maximum age, and the upload grants that expired that long ago.
 func (w *DeletionWorker) SweepFormUploads(ctx context.Context) (store.FormUploadSweep, error) {
 	return w.store.SweepFormUploads(ctx, w.formUploadMaxAge)
+}
+
+// ExpireFormMedia removes the files of forms picked up or cancelled longer ago
+// than the maximum age, a batch at a time until a run handles fewer forms than
+// a batch. The files are soft-deleted, so RunOnce deletes their bytes like any
+// other removed object. It returns the totals of every run.
+func (w *DeletionWorker) ExpireFormMedia(ctx context.Context) (store.FormMediaExpiry, error) {
+	var total store.FormMediaExpiry
+	for {
+		done, err := w.store.ExpireFormMedia(ctx, w.formMediaMaxAge, w.formMediaBatch)
+		total.Forms += done.Forms
+		total.Files += done.Files
+		if err != nil {
+			return total, err
+		}
+		if done.Forms < w.formMediaBatch {
+			return total, nil
+		}
+	}
 }
 
 func (w *DeletionWorker) RunOnce(ctx context.Context) (DeletionRunResult, error) {

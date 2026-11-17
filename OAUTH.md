@@ -101,9 +101,12 @@ display name is not a credential, so a connector may still change that.
 **A connector cannot answer a form.** A form is how an agent asks a person for a
 decision, so the answer has to come from the person. `answerableFormFromRoute`
 refuses a token whose kind is `oauth` on the routes that save a form's answers,
-submit it and reopen it, even when the connector acts for the form's assignee,
-and MCP has no tool for any of the three. A connector can still create a form,
-read its answers and mark it picked up. Creating one gives it the form's wait
+attach or remove an answer's file, submit it and reopen it, even when the
+connector acts for the form's assignee, and MCP has no tool for any of them.
+Attaching a file is answering. A connector can still create a form, read its
+answers and mark it picked up. It can also make a download URL
+(`track_create_form_file_url`) for a file of a form, the person's answer files
+included, because reading is allowed. Creating one gives it the form's wait
 URL, which tells it when the person has answered and shows only the form's
 status. It can also create an upload URL (`track_create_form_upload_url`) for
 the files a form carries. The URL takes files into the connector's own pending

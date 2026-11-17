@@ -221,6 +221,9 @@ func (s *Server) Router() http.Handler {
 		// a file in its creator's pending uploads. It is registered beside the
 		// wait URL because an agent's shell holds no account token either.
 		r.Post("/form-uploads/{uploadKey}", s.uploadFormMediaWithKey)
+		// A download URL carries its own secret as well, and all it buys is
+		// reading the one file it was made for, for a few minutes.
+		r.Get("/form-files/{fileKey}", s.getFormFileWithKey)
 
 		// The request-deadline middleware exempts this long-lived connection.
 		if s.hub != nil {
@@ -336,6 +339,9 @@ func (s *Server) Router() http.Handler {
 					r.Get("/forms", s.listForms)
 					r.Get("/forms/{formRef}", s.getForm)
 					r.Get("/forms/{formRef}/attachments/{objectRef}/content", s.getFormAttachmentContent)
+					r.Post("/forms/{formRef}/attachments/{objectRef}/url", s.createFormFileURL)
+					r.Post("/forms/{formRef}/answers/{questionID}/files", s.attachFormAnswerFile)
+					r.Delete("/forms/{formRef}/answers/{questionID}/files/{objectRef}", s.removeFormAnswerFile)
 					r.Put("/forms/{formRef}/answers", s.saveFormAnswers)
 					r.Post("/forms/{formRef}/submit", s.submitForm)
 					r.Post("/forms/{formRef}/reopen", s.reopenForm)

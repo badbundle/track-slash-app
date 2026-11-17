@@ -21,6 +21,7 @@
       <div class="markdown-body text-sm leading-6 text-slate-800 dark:text-slate-200">{{.DescriptionHTML}}</div>
     </div>
     {{end}}
+    {{if .Form.MediaRemovedAt}}<p data-form-media-removed-note class="px-1 text-sm text-slate-500 dark:text-slate-400">This form's media was removed on {{template "local-time" (tokenTime .Form.MediaRemovedAt)}}.</p>{{end}}
     {{if or .Unplaced.Images .Unplaced.Others}}
     <div data-form-files class="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <h2 class="text-sm font-medium text-slate-600 dark:text-slate-300">Files</h2>

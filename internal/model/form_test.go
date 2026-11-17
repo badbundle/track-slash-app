@@ -324,7 +324,7 @@ func TestValidateFormDefinitionRefusals(t *testing.T) {
 		{"long label", text(func(q *FormQuestion) { q.Label = strings.Repeat("a", FormMaxLabelLength+1) }), "sections[0].questions[0].label", "at most 300"},
 		{"long help", text(func(q *FormQuestion) { q.Help = strings.Repeat("a", FormMaxHelpLength+1) }), "sections[0].questions[0].help", "at most 2000"},
 		{"long placeholder", text(func(q *FormQuestion) { q.Placeholder = strings.Repeat("a", FormMaxPlaceholderLength+1) }), "sections[0].questions[0].placeholder", "at most 200"},
-		{"unknown type", text(func(q *FormQuestion) { q.Type = "date" }), "sections[0].questions[0].type", "single_choice, multi_choice, confirm or text"},
+		{"unknown type", text(func(q *FormQuestion) { q.Type = "date" }), "sections[0].questions[0].type", "single_choice, multi_choice, confirm, text or file"},
 
 		{"choice with multiline", choice(func(q *FormQuestion) { q.Multiline = true }), "sections[0].questions[0]", "text questions only"},
 		{"choice with placeholder", choice(func(q *FormQuestion) { q.Placeholder = "x" }), "sections[0].questions[0]", "text questions only"},
@@ -795,4 +795,227 @@ func TestFormMediaNumbers(t *testing.T) {
 	}
 	_, err = FormMediaNumbers(valid, append(explicit, 99))
 	wantFormError(t, err, "attachments", "at most 20 files")
+}
+
+func fileQuestion(required *bool) FormQuestion {
+	return FormQuestion{ID: "shot", Type: FormQuestionFile, Label: "Attach a screenshot", Required: required}
+}
+
+func TestValidateFormDefinitionFileQuestion(t *testing.T) {
+	def, err := ValidateFormDefinition(FormDefinition{Sections: []FormSection{{Questions: []FormQuestion{fileQuestion(nil)}}}})
+	if err != nil {
+		t.Fatalf("a plain file question: %v", err)
+	}
+	if q := def.Sections[0].Questions[0]; q.Type != FormQuestionFile || q.Default != nil || len(q.Options) != 0 {
+		t.Fatalf("file question = %+v", q)
+	}
+
+	for name, mutate := range map[string]func(*FormQuestion){
+		"options":       func(q *FormQuestion) { q.Options = []FormOption{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}} },
+		"allow_other":   func(q *FormQuestion) { q.AllowOther = true },
+		"multiline":     func(q *FormQuestion) { q.Multiline = true },
+		"placeholder":   func(q *FormQuestion) { q.Placeholder = "Drop it here" },
+		"default":       func(q *FormQuestion) { q.Default = &FormValue{Text: "x"} },
+		"empty default": func(q *FormQuestion) { q.Default = &FormValue{} },
+	} {
+		q := fileQuestion(nil)
+		mutate(&q)
+		_, err := ValidateFormDefinition(FormDefinition{Sections: []FormSection{{Questions: []FormQuestion{q}}}})
+		var formErr *FormError
+		if !errors.As(err, &formErr) {
+			t.Fatalf("%s: err = %v, want a *FormError", name, err)
+		}
+	}
+	// The type's error names the new type.
+	_, err = ValidateFormDefinition(FormDefinition{Sections: []FormSection{{Questions: []FormQuestion{{ID: "a", Type: "photo", Label: "A"}}}}})
+	wantFormError(t, err, "sections[0].questions[0].type", "file")
+}
+
+func TestFormFileQuestionIsAnsweredByFiles(t *testing.T) {
+	q := fileQuestion(nil)
+	if q.Answered(FormAnswer{}) || q.Answered(FormAnswer{Note: "see below"}) {
+		t.Fatal("a file question with no file is answered")
+	}
+	if !q.Answered(FormAnswer{FormValue: FormValue{Files: []string{"object-3"}}}) {
+		t.Fatal("a file question with a file is not answered")
+	}
+	// On every other type files are extras, like a note.
+	choice := mustValidFormDefinition(t).Sections[0].Questions[0]
+	if choice.Answered(FormAnswer{FormValue: FormValue{Files: []string{"object-3"}}}) {
+		t.Fatal("a file answered a choice question")
+	}
+	text := FormQuestion{ID: "t", Type: FormQuestionText, Label: "T"}
+	if text.Answered(FormAnswer{FormValue: FormValue{Files: []string{"object-3"}}}) {
+		t.Fatal("a file answered a text question")
+	}
+
+	def, err := ValidateFormDefinition(FormDefinition{Sections: []FormSection{
+		{Questions: []FormQuestion{fileQuestion(nil)}},
+		{Title: "More", Questions: []FormQuestion{{ID: "later", Type: FormQuestionFile, Label: "Later", Required: boolPtr(false)}}},
+	}})
+	if err == nil {
+		t.Fatal("a section with no title should have been refused")
+	}
+	def, err = ValidateFormDefinition(FormDefinition{Sections: []FormSection{
+		{Title: "One", Questions: []FormQuestion{fileQuestion(nil)}},
+		{Title: "Two", Questions: []FormQuestion{{ID: "later", Type: FormQuestionFile, Label: "Later", Required: boolPtr(false)}}},
+	}})
+	if err != nil {
+		t.Fatalf("ValidateFormDefinition: %v", err)
+	}
+	empty := FormAnswers{}
+	if got := def.Unanswered(empty); !reflect.DeepEqual(got, []string{"shot"}) {
+		t.Fatalf("Unanswered(no files) = %v, want the required file question", got)
+	}
+	if err := def.CheckComplete(empty); err == nil {
+		t.Fatal("CheckComplete accepted a form with no file")
+	}
+	if got := def.SectionUnanswered(empty); len(got[0]) != 1 || len(got[1]) != 0 {
+		t.Fatalf("SectionUnanswered = %v", got)
+	}
+	if def.FirstIncompleteSection(empty) != 0 {
+		t.Fatal("FirstIncompleteSection missed the file question")
+	}
+	if answered, required := def.Progress(empty); answered != 0 || required != 1 {
+		t.Fatalf("Progress = %d of %d", answered, required)
+	}
+
+	withFile := FormAnswers{"shot": {FormValue: FormValue{Files: []string{"object-3", "object-4"}}}}
+	if got := def.Unanswered(withFile); len(got) != 0 {
+		t.Fatalf("Unanswered(with a file) = %v", got)
+	}
+	if err := def.CheckComplete(withFile); err != nil {
+		t.Fatalf("CheckComplete: %v", err)
+	}
+	if def.FirstIncompleteSection(withFile) != -1 {
+		t.Fatal("FirstIncompleteSection found a gap")
+	}
+	if answered, _ := def.Progress(withFile); answered != 1 {
+		t.Fatalf("Progress answered = %d", answered)
+	}
+	views := def.AnswerViews(withFile)
+	if !views[0].Answered || !reflect.DeepEqual(views[0].Files, []string{"object-3", "object-4"}) || views[0].Type != FormQuestionFile {
+		t.Fatalf("view with files = %+v", views[0])
+	}
+	if views[1].Answered || views[1].Files != nil {
+		t.Fatalf("view without files = %+v", views[1])
+	}
+	// A choice question's files are shown, and don't answer it.
+	choiceDef := mustValidFormDefinition(t)
+	views = choiceDef.AnswerViews(FormAnswers{"channel": {FormValue: FormValue{Files: []string{"object-9"}}}})
+	if views[0].Answered || len(views[0].Files) != 1 {
+		t.Fatalf("choice view = %+v", views[0])
+	}
+}
+
+func TestFormFilesAreDerivedAndIgnoredOnInput(t *testing.T) {
+	def, err := ValidateFormDefinition(FormDefinition{Sections: []FormSection{{Questions: []FormQuestion{
+		fileQuestion(nil),
+		{ID: "notes", Type: FormQuestionText, Label: "Notes", Required: boolPtr(false)},
+		{ID: "ok", Type: FormQuestionConfirm, Label: "OK", Required: boolPtr(false)},
+		{ID: "pick", Type: FormQuestionSingleChoice, Label: "Pick", Required: boolPtr(false), Options: []FormOption{{ID: "a", Label: "A"}, {ID: "b", Label: "B"}}},
+	}}}})
+	if err != nil {
+		t.Fatalf("ValidateFormDefinition: %v", err)
+	}
+
+	// Whatever a client sends in files is dropped, on every type.
+	claimed := []string{"object-99"}
+	cleaned, err := def.CleanAnswers(FormAnswers{
+		"shot":  {FormValue: FormValue{Files: claimed}, Note: "n"},
+		"notes": {FormValue: FormValue{Text: "hi", Files: claimed}},
+		"ok":    {FormValue: FormValue{Checked: true, Files: claimed}},
+		"pick":  {FormValue: FormValue{Selected: []string{"a"}, Files: claimed}},
+	})
+	if err != nil {
+		t.Fatalf("CleanAnswers: %v", err)
+	}
+	for id, answer := range cleaned {
+		if answer.Files != nil {
+			t.Fatalf("CleanAnswers kept files on %s: %v", id, answer.Files)
+		}
+	}
+	// A file question's value is empty.
+	if _, err := def.CleanAnswers(FormAnswers{"shot": {FormValue: FormValue{Text: "no"}}}); err == nil {
+		t.Fatal("a file question took text")
+	}
+
+	// Merged keeps the files an answer has and ignores the changes' own.
+	current := FormAnswers{
+		"shot":  {FormValue: FormValue{Files: []string{"object-1"}}},
+		"notes": {FormValue: FormValue{Text: "old", Files: []string{"object-2"}}},
+		"ok":    {FormValue: FormValue{Checked: true}},
+	}
+	merged := current.Merged(FormAnswers{
+		"shot":  {Note: "a note", FormValue: FormValue{Files: claimed}},
+		"notes": {FormValue: FormValue{Text: "new", Files: claimed}},
+		"pick":  {FormValue: FormValue{Selected: []string{"a"}, Files: claimed}},
+		"ok":    {},
+	})
+	if !reflect.DeepEqual(merged["shot"].Files, []string{"object-1"}) || merged["shot"].Note != "a note" {
+		t.Fatalf("merged shot = %+v", merged["shot"])
+	}
+	if !reflect.DeepEqual(merged["notes"].Files, []string{"object-2"}) || merged["notes"].Text != "new" {
+		t.Fatalf("merged notes = %+v", merged["notes"])
+	}
+	if merged["pick"].Files != nil || merged["pick"].Selected[0] != "a" {
+		t.Fatalf("merged pick = %+v", merged["pick"])
+	}
+	if _, ok := merged["ok"]; ok {
+		t.Fatal("an emptied answer with no files kept its entry")
+	}
+	// Emptying an answer that has files leaves the files and nothing else.
+	merged = current.Merged(FormAnswers{"notes": {}})
+	if got := merged["notes"]; got.Text != "" || !reflect.DeepEqual(got.Files, []string{"object-2"}) {
+		t.Fatalf("emptied answer with files = %+v", got)
+	}
+	// The input maps are not changed.
+	if current["notes"].Text != "old" {
+		t.Fatal("Merged changed its receiver")
+	}
+}
+
+func TestFormAnswersWithoutFiles(t *testing.T) {
+	in := FormAnswers{
+		"a": {FormValue: FormValue{Text: "x", Files: []string{"object-1"}}},
+		"b": {FormValue: FormValue{Files: []string{"object-2"}}},
+		"c": {Note: "n", FormValue: FormValue{Files: []string{"object-3"}}},
+		"d": {},
+	}
+	got := in.WithoutFiles()
+	want := FormAnswers{"a": {FormValue: FormValue{Text: "x"}}, "c": {Note: "n"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WithoutFiles = %+v, want %+v", got, want)
+	}
+	if in["a"].Files == nil {
+		t.Fatal("WithoutFiles changed its receiver")
+	}
+	if got := FormAnswers(nil).WithoutFiles(); got == nil || len(got) != 0 {
+		t.Fatalf("WithoutFiles(nil) = %#v, want an empty map", got)
+	}
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "files") {
+		t.Fatalf("stored answers hold files: %s", raw)
+	}
+}
+
+func TestFormAttachmentsSplitAskerAndAnswerFiles(t *testing.T) {
+	asked := FormAttachment{Object: StorageObject{Ref: "object-1"}}
+	one := FormAttachment{AnswerQuestionID: "shot", Object: StorageObject{Ref: "object-2"}}
+	two := FormAttachment{AnswerQuestionID: "shot", Object: StorageObject{Ref: "object-3"}}
+	other := FormAttachment{AnswerQuestionID: "notes", Object: StorageObject{Ref: "object-4"}}
+	form := Form{Attachments: []FormAttachment{asked, one, two, other}}
+
+	if asked.IsAnswerFile() || !one.IsAnswerFile() {
+		t.Fatal("IsAnswerFile is wrong")
+	}
+	if got := form.AskerAttachments(); len(got) != 1 || got[0].Object.Ref != "object-1" {
+		t.Fatalf("AskerAttachments = %+v", got)
+	}
+	if form.AnswerFileCount("") != 3 || form.AnswerFileCount("shot") != 2 || form.AnswerFileCount("notes") != 1 || form.AnswerFileCount("none") != 0 {
+		t.Fatal("AnswerFileCount is wrong")
+	}
+	if (Form{}).AskerAttachments() != nil {
+		t.Fatal("a form with no files has asker attachments")
+	}
 }

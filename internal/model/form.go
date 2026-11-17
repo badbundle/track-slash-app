@@ -36,6 +36,11 @@ const (
 	// FormMaxAttachments is how many distinct files one form can carry,
 	// counting question media, option media and its explicit attachments.
 	FormMaxAttachments = 20
+	// FormMaxAnswerFiles is how many files the person can attach to one
+	// answer, and FormMaxAnswerFilesPerForm how many they can attach to a form
+	// in all. Both are apart from the asker's FormMaxAttachments.
+	FormMaxAnswerFiles        = 6
+	FormMaxAnswerFilesPerForm = 20
 )
 
 // FormOtherOptionID is the id a choice answer uses for the "Other" option that
@@ -115,6 +120,8 @@ const (
 	FormQuestionMultiChoice  FormQuestionType = "multi_choice"
 	FormQuestionConfirm      FormQuestionType = "confirm"
 	FormQuestionText         FormQuestionType = "text"
+	// FormQuestionFile is answered by attaching at least one file.
+	FormQuestionFile FormQuestionType = "file"
 )
 
 // FormDefinition is a form's questions, grouped into sections. It is written
@@ -131,7 +138,7 @@ type FormSection struct {
 
 type FormQuestion struct {
 	ID          string           `json:"id" jsonschema:"unique in the form: 1 to 40 lowercase letters, digits, - or _"`
-	Type        FormQuestionType `json:"type" jsonschema:"single_choice, multi_choice, confirm or text"`
+	Type        FormQuestionType `json:"type" jsonschema:"single_choice, multi_choice, confirm, text or file"`
 	Label       string           `json:"label" jsonschema:"the question as the person reads it"`
 	Help        string           `json:"help,omitempty" jsonschema:"optional Markdown under the label"`
 	Required    *bool            `json:"required,omitempty" jsonschema:"defaults to true; false lets the person skip the question"`
@@ -157,6 +164,13 @@ type FormValue struct {
 	Other    string   `json:"other,omitempty" jsonschema:"choice questions: the text for the Other option"`
 	Checked  bool     `json:"checked,omitempty" jsonschema:"confirm questions: whether the box is ticked"`
 	Text     string   `json:"text,omitempty" jsonschema:"text questions: the answer"`
+	// Files are the object refs of the files the person attached to this
+	// answer. They are derived: the store fills them in from the form's
+	// attachments whenever it reads a form, they are never saved in the
+	// answers, and they are ignored on input (CleanAnswers drops them and
+	// Merged keeps the ones already there). Only the person answering adds or
+	// removes a file, through the form's file routes.
+	Files []string `json:"files,omitempty" jsonschema:"read-only: the files the person attached to their answer, filled in by the server and ignored on input"`
 }
 
 func (v FormValue) isZero() bool {
@@ -352,8 +366,18 @@ func validateFormQuestion(path string, q FormQuestion) (FormQuestion, error) {
 		if len(q.Options) > 0 || q.AllowOther {
 			return FormQuestion{}, formError(path, "options and allow_other apply to choice questions only")
 		}
+	case FormQuestionFile:
+		if len(q.Options) > 0 || q.AllowOther {
+			return FormQuestion{}, formError(path, "options and allow_other apply to choice questions only")
+		}
+		if q.Multiline || q.Placeholder != "" {
+			return FormQuestion{}, formError(path, "multiline and placeholder apply to text questions only")
+		}
+		if q.Default != nil {
+			return FormQuestion{}, formError(path+".default", "a file question has no default: the person answers it by attaching a file")
+		}
 	default:
-		return FormQuestion{}, formError(path+".type", "must be single_choice, multi_choice, confirm or text")
+		return FormQuestion{}, formError(path+".type", "must be single_choice, multi_choice, confirm, text or file")
 	}
 
 	if q.Default != nil {
@@ -480,6 +504,11 @@ func (q FormQuestion) cleanValue(v FormValue) (FormValue, string) {
 			return FormValue{}, "a confirm question takes checked"
 		}
 		return FormValue{Checked: v.Checked}, ""
+	case FormQuestionFile:
+		if !v.isZero() {
+			return FormValue{}, "a file question is answered by attaching a file"
+		}
+		return FormValue{}, ""
 	default:
 		if len(v.Selected) > 0 || v.Other != "" || v.Checked {
 			return FormValue{}, "a text question takes text"
@@ -494,9 +523,12 @@ func (q FormQuestion) cleanValue(v FormValue) (FormValue, string) {
 
 // Answered reports whether the answer counts as an answer to the question: an
 // option chosen (with its text, if that option is Other), the box ticked, or
-// some text written.
+// some text written, or, for a file question, at least one file attached. On
+// every other question, files are extras, like a note.
 func (q FormQuestion) Answered(a FormAnswer) bool {
 	switch q.Type {
+	case FormQuestionFile:
+		return len(a.Files) > 0
 	case FormQuestionConfirm:
 		return a.Checked
 	case FormQuestionText:
@@ -552,7 +584,8 @@ func (d FormDefinition) StartingAnswers() FormAnswers {
 // CleanAnswers checks answers against the questions they are for and returns
 // them tidied. It accepts answers to some of the questions, and incomplete
 // ones, so it suits saving a form as it is filled in; Unanswered says what a
-// submit still needs.
+// submit still needs. Files are never taken from the input: they are derived
+// from the form's attachments.
 func (d FormDefinition) CleanAnswers(in FormAnswers) (FormAnswers, error) {
 	ids := make([]string, 0, len(in))
 	for id := range in {
@@ -579,15 +612,37 @@ func (d FormDefinition) CleanAnswers(in FormAnswers) (FormAnswers, error) {
 }
 
 // Merged returns the answers with changes laid over them, one whole question
-// at a time. A change that empties a question removes its entry.
+// at a time. A change that empties a question removes its entry. The files of
+// an answer are not the changes' to set: each answer keeps the files it
+// already has, and a change's own files are ignored.
 func (a FormAnswers) Merged(changes FormAnswers) FormAnswers {
 	out := FormAnswers{}
 	for id, answer := range a {
 		out[id] = answer
 	}
 	for id, answer := range changes {
+		files := a[id].Files
 		if answer.isZero() && answer.Note == "" {
 			delete(out, id)
+			if len(files) > 0 {
+				out[id] = FormAnswer{FormValue: FormValue{Files: files}}
+			}
+			continue
+		}
+		answer.Files = files
+		out[id] = answer
+	}
+	return out
+}
+
+// WithoutFiles returns the answers as they are stored: with each answer's
+// Files cleared, and an answer that held nothing else left out. It copies the
+// map, so the caller's answers keep their files. A nil map gives an empty one.
+func (a FormAnswers) WithoutFiles() FormAnswers {
+	out := FormAnswers{}
+	for id, answer := range a {
+		answer.Files = nil
+		if answer.isZero() && answer.Note == "" {
 			continue
 		}
 		out[id] = answer
@@ -678,6 +733,9 @@ type FormAnswerView struct {
 	Text               string               `json:"text,omitempty"`
 	Note               string               `json:"note,omitempty"`
 	ChangedFromDefault bool                 `json:"changed_from_default"`
+	// Files are the object refs of the files attached to the answer. The API
+	// and MCP describe each file their own way.
+	Files []string `json:"files,omitempty"`
 }
 
 // AnswerViews returns every question with its answer, in form order. A
@@ -697,6 +755,7 @@ func (d FormDefinition) AnswerViews(a FormAnswers) []FormAnswerView {
 				Other:    answer.Other,
 				Text:     answer.Text,
 				Note:     answer.Note,
+				Files:    answer.Files,
 			}
 			for _, id := range answer.Selected {
 				view.Selected = append(view.Selected, FormSelectedOption{ID: id, Label: q.optionLabel(id)})
@@ -739,8 +798,11 @@ type Form struct {
 	SubmittedAt     *time.Time         `json:"submitted_at"`
 	AcknowledgedAt  *time.Time         `json:"acknowledged_at"`
 	CancelledAt     *time.Time         `json:"cancelled_at"`
-	CreatedAt       time.Time          `json:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
+	// MediaRemovedAt is when the form's files were deleted, 30 days after it
+	// was picked up or cancelled. It is nil while the files are kept.
+	MediaRemovedAt *time.Time `json:"media_removed_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 	// Attachments are the files the form carries, by object number. The
 	// store fills them in when it reads one form; a list row has none. They
 	// are left out of the JSON because the API describes them its own way
@@ -749,14 +811,46 @@ type Form struct {
 }
 
 // FormAttachment is a file a form carries: an upload a form's creator named
-// when they created it.
+// when they created it, or a file the assignee attached to an answer.
 type FormAttachment struct {
-	ID              uuid.UUID     `json:"id"`
-	FormID          uuid.UUID     `json:"form_id"`
-	StorageObjectID uuid.UUID     `json:"storage_object_id"`
-	Object          StorageObject `json:"object"`
-	CreatedByID     uuid.UUID     `json:"created_by_id"`
-	CreatedAt       time.Time     `json:"created_at"`
+	ID              uuid.UUID `json:"id"`
+	FormID          uuid.UUID `json:"form_id"`
+	StorageObjectID uuid.UUID `json:"storage_object_id"`
+	// AnswerQuestionID is empty for a file the asker put in the form, and the
+	// id of the question for a file the assignee attached to their answer to
+	// it.
+	AnswerQuestionID string        `json:"answer_question_id,omitempty"`
+	Object           StorageObject `json:"object"`
+	CreatedByID      uuid.UUID     `json:"created_by_id"`
+	CreatedAt        time.Time     `json:"created_at"`
+}
+
+// IsAnswerFile reports whether the file is one the assignee attached to an
+// answer, as opposed to one the asker put in the form.
+func (a FormAttachment) IsAnswerFile() bool { return a.AnswerQuestionID != "" }
+
+// AskerAttachments are the files the asker put in the form: its media. The
+// files the assignee attached to their answers are not among them.
+func (f Form) AskerAttachments() []FormAttachment {
+	var out []FormAttachment
+	for _, attachment := range f.Attachments {
+		if !attachment.IsAnswerFile() {
+			out = append(out, attachment)
+		}
+	}
+	return out
+}
+
+// AnswerFileCount is how many files the assignee attached to answers, in all
+// when questionID is empty and otherwise to that question's answer.
+func (f Form) AnswerFileCount(questionID string) int {
+	n := 0
+	for _, attachment := range f.Attachments {
+		if attachment.IsAnswerFile() && (questionID == "" || attachment.AnswerQuestionID == questionID) {
+			n++
+		}
+	}
+	return n
 }
 
 // FormSummary is a list row: a form without its questions and answers, with
@@ -782,6 +876,7 @@ type FormSummary struct {
 	SubmittedAt      *time.Time `json:"submitted_at"`
 	AcknowledgedAt   *time.Time `json:"acknowledged_at"`
 	CancelledAt      *time.Time `json:"cancelled_at"`
+	MediaRemovedAt   *time.Time `json:"media_removed_at"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
@@ -810,6 +905,7 @@ func (f Form) Summary() FormSummary {
 		SubmittedAt:      f.SubmittedAt,
 		AcknowledgedAt:   f.AcknowledgedAt,
 		CancelledAt:      f.CancelledAt,
+		MediaRemovedAt:   f.MediaRemovedAt,
 		CreatedAt:        f.CreatedAt,
 		UpdatedAt:        f.UpdatedAt,
 	}
