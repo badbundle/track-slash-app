@@ -479,3 +479,20 @@ func TestAuthCredentialKindValid(t *testing.T) {
 		})
 	}
 }
+
+func TestParseStorageObjectRef(t *testing.T) {
+	for _, number := range []int{1, 9, 12, 100000} {
+		got, ok := ParseStorageObjectRef(StorageObjectRef(number))
+		if !ok || got != number {
+			t.Fatalf("ParseStorageObjectRef(%q) = %d, %v", StorageObjectRef(number), got, ok)
+		}
+	}
+	for _, raw := range []string{
+		"", "object", "object-", "object-0", "object--1", "object-+1", "object-01", "object-1 ", " object-1",
+		"Object-1", "issue-1", "object-1.5", "object-x", "object-99999999999999999999", "1",
+	} {
+		if got, ok := ParseStorageObjectRef(raw); ok {
+			t.Fatalf("ParseStorageObjectRef(%q) = %d, true; want false", raw, got)
+		}
+	}
+}

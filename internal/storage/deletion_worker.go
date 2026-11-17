@@ -22,6 +22,11 @@ type DeletionWorkerOptions struct {
 	MinBackoff    time.Duration
 	MaxBackoff    time.Duration
 	Logger        *log.Logger
+	// FormUploadSweepEvery is how often Run sweeps away the files uploaded
+	// for forms that no form claimed (default one hour), and FormUploadMaxAge
+	// how old an unclaimed upload must be before it goes (default 24 hours).
+	FormUploadSweepEvery time.Duration
+	FormUploadMaxAge     time.Duration
 }
 
 type DeletionRunResult struct {
@@ -45,7 +50,16 @@ type DeletionWorker struct {
 	minBackoff    time.Duration
 	maxBackoff    time.Duration
 	logger        *log.Logger
+
+	formUploadSweepEvery time.Duration
+	formUploadMaxAge     time.Duration
+	lastFormUploadSweep  time.Time
 }
+
+const (
+	defaultFormUploadSweepEvery = time.Hour
+	defaultFormUploadMaxAge     = 24 * time.Hour
+)
 
 func NewDeletionWorker(st *store.Store, service *Service, opts DeletionWorkerOptions) *DeletionWorker {
 	if opts.BatchSize <= 0 {
@@ -75,6 +89,12 @@ func NewDeletionWorker(st *store.Store, service *Service, opts DeletionWorkerOpt
 	if opts.Logger == nil {
 		opts.Logger = log.Default()
 	}
+	if opts.FormUploadSweepEvery <= 0 {
+		opts.FormUploadSweepEvery = defaultFormUploadSweepEvery
+	}
+	if opts.FormUploadMaxAge <= 0 {
+		opts.FormUploadMaxAge = defaultFormUploadMaxAge
+	}
 	return &DeletionWorker{
 		store:         st,
 		service:       service,
@@ -86,6 +106,9 @@ func NewDeletionWorker(st *store.Store, service *Service, opts DeletionWorkerOpt
 		minBackoff:    opts.MinBackoff,
 		maxBackoff:    opts.MaxBackoff,
 		logger:        opts.Logger,
+
+		formUploadSweepEvery: opts.FormUploadSweepEvery,
+		formUploadMaxAge:     opts.FormUploadMaxAge,
 	}
 }
 
@@ -94,6 +117,7 @@ func (w *DeletionWorker) Run(ctx context.Context) {
 		if _, err := w.RunOnce(ctx); err != nil && ctx.Err() == nil {
 			w.logger.Printf("storage deletion worker: %v", err)
 		}
+		w.sweepFormUploadsIfDue(ctx)
 		timer := time.NewTimer(w.pollInterval)
 		select {
 		case <-ctx.Done():
@@ -104,6 +128,25 @@ func (w *DeletionWorker) Run(ctx context.Context) {
 		case <-timer.C:
 		}
 	}
+}
+
+// sweepFormUploadsIfDue sweeps the unclaimed form uploads when one sweep
+// interval has passed since the last. The files it removes are soft-deleted,
+// so the next RunOnce deletes their bytes like any other removed object.
+func (w *DeletionWorker) sweepFormUploadsIfDue(ctx context.Context) {
+	if w.store == nil || time.Since(w.lastFormUploadSweep) < w.formUploadSweepEvery {
+		return
+	}
+	w.lastFormUploadSweep = time.Now()
+	if _, err := w.SweepFormUploads(ctx); err != nil && ctx.Err() == nil {
+		w.logger.Printf("storage deletion worker: sweep form uploads: %v", err)
+	}
+}
+
+// SweepFormUploads removes the form uploads no form claimed within the
+// maximum age, and the upload grants that expired that long ago.
+func (w *DeletionWorker) SweepFormUploads(ctx context.Context) (store.FormUploadSweep, error) {
+	return w.store.SweepFormUploads(ctx, w.formUploadMaxAge)
 }
 
 func (w *DeletionWorker) RunOnce(ctx context.Context) (DeletionRunResult, error) {

@@ -35,6 +35,11 @@ type CreateFormParams struct {
 	// WaitKeyHash is the SHA-256 of the form's wait key, or nil for a form
 	// that has none. See GetFormWait.
 	WaitKeyHash []byte
+	// AttachmentObjectNumbers are the files the form carries besides the ones
+	// its questions and options show, as object numbers. Each, and each file
+	// the definition shows, must be a pending upload of CreatedByID in this
+	// project: creating the form claims them. See model.FormMediaNumbers.
+	AttachmentObjectNumbers []int
 }
 
 // FormWait is all a wait key shows: which form it belongs to and that form's
@@ -95,6 +100,7 @@ type formScanner interface {
 
 type formQueryer interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 func scanForm(row formScanner) (model.Form, error) {
@@ -144,13 +150,18 @@ func getForm(ctx context.Context, q formQueryer, id uuid.UUID, lock bool) (model
 		}
 		return model.Form{}, err // defensive: DB outage past the no-rows branch
 	}
+	if out.Attachments, err = listFormAttachments(ctx, q, out.ID); err != nil {
+		return model.Form{}, err // defensive: DB outage
+	}
 	return out, nil
 }
 
 // CreateForm adds a form to a live project and allocates its project-scoped
 // form-N ref under the project row lock. The form starts open, holding each
 // question's suggested answer. A details or definition problem comes back as
-// a *model.FormError.
+// a *model.FormError. The files it shows or names are claimed from the
+// creator's pending uploads; if any is not one, the error is a
+// *FormMediaNotClaimableError and the uploads stay pending.
 func (s *Store) CreateForm(ctx context.Context, p CreateFormParams) (model.Form, error) {
 	details, err := model.ValidateFormDetails(model.FormDetails{
 		Title:       p.Title,
@@ -162,6 +173,10 @@ func (s *Store) CreateForm(ctx context.Context, p CreateFormParams) (model.Form,
 		return model.Form{}, err
 	}
 	definition, err := model.ValidateFormDefinition(p.Definition)
+	if err != nil {
+		return model.Form{}, err
+	}
+	mediaNumbers, err := model.FormMediaNumbers(definition, p.AttachmentObjectNumbers)
 	if err != nil {
 		return model.Form{}, err
 	}
@@ -225,6 +240,11 @@ func (s *Store) CreateForm(ctx context.Context, p CreateFormParams) (model.Form,
 			p.AssigneeID, p.CreatedByID, details.OriginLabel, details.OriginURL, p.WaitKeyHash).Scan(&id); err != nil {
 			return mapFormWriteError(err)
 		}
+		if len(mediaNumbers) > 0 {
+			if err := claimFormMedia(ctx, tx, p.ProjectID, id, p.CreatedByID, mediaNumbers); err != nil {
+				return err
+			}
+		}
 
 		if _, err := tx.Exec(ctx, `
 			UPDATE projects
@@ -260,6 +280,9 @@ func (s *Store) GetFormByProjectNumber(ctx context.Context, projectID uuid.UUID,
 			return model.Form{}, ErrNotFound
 		}
 		return model.Form{}, err // defensive: DB outage past the no-rows branch
+	}
+	if out.Attachments, err = listFormAttachments(ctx, s.db, out.ID); err != nil {
+		return model.Form{}, err // defensive: DB outage
 	}
 	return out, nil
 }

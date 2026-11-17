@@ -215,17 +215,25 @@ func (s *Server) getFormWait(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, formWaitResponse{Status: status})
 }
 
-// logRequests is the request log, with the wait key of a wait URL left out: a
-// secret in a URL should not be written to the log.
+// formSecretRoutes are the routes whose path holds a secret key. The request
+// log shows their path without it.
+var formSecretRoutes = []struct{ prefix, placeholder string }{
+	{formWaitRoutePrefix, "[wait-key]"},
+	{formUploadRoutePrefix, "[upload-key]"},
+}
+
+// logRequests is the request log, with the key of a wait URL or an upload URL
+// left out: a secret in a URL should not be written to the log.
 func logRequests(next http.Handler) http.Handler {
 	logged := middleware.Logger(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isFormWaitRequest(r) {
+		uri, secret := redactedSecretRouteURI(r)
+		if !secret {
 			logged.ServeHTTP(w, r)
 			return
 		}
 		shown := r.Clone(r.Context())
-		shown.RequestURI = redactedFormWaitURI(r)
+		shown.RequestURI = uri
 		middleware.Logger(http.HandlerFunc(func(w http.ResponseWriter, entry *http.Request) {
 			// The handler gets the real request, with the log entry's context.
 			next.ServeHTTP(w, r.WithContext(entry.Context()))
@@ -233,11 +241,17 @@ func logRequests(next http.Handler) http.Handler {
 	})
 }
 
-// redactedFormWaitURI is a wait URL's request line without its wait key.
-func redactedFormWaitURI(r *http.Request) string {
-	uri := formWaitRoutePrefix + "[wait-key]"
-	if r.URL.RawQuery != "" {
-		uri += "?" + r.URL.RawQuery
+// redactedSecretRouteURI is a request line without its secret key, and
+// whether the request was for a route that holds one.
+func redactedSecretRouteURI(r *http.Request) (string, bool) {
+	for _, route := range formSecretRoutes {
+		if strings.HasPrefix(r.URL.Path, route.prefix) {
+			uri := route.prefix + route.placeholder
+			if r.URL.RawQuery != "" {
+				uri += "?" + r.URL.RawQuery
+			}
+			return uri, true
+		}
 	}
-	return uri
+	return "", false
 }

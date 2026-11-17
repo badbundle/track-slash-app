@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -1058,6 +1059,21 @@ func ProjectContextRef(number int) string {
 
 func StorageObjectRef(number int) string {
 	return fmt.Sprintf("object-%d", number)
+}
+
+// ParseStorageObjectRef reads an object ref written exactly as
+// StorageObjectRef writes it: object-N with N a whole number from 1, and no
+// sign, leading zero or spaces. It reports false for anything else.
+func ParseStorageObjectRef(raw string) (int, bool) {
+	digits, ok := strings.CutPrefix(raw, "object-")
+	if !ok {
+		return 0, false
+	}
+	number, err := strconv.Atoi(digits)
+	if err != nil || number < 1 || StorageObjectRef(number) != raw {
+		return 0, false
+	}
+	return number, true
 }
 
 // WhiteboardPage is a free-form Markdown note on a project's Whiteboard. Pages

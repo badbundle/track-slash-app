@@ -1167,6 +1167,15 @@
       if (toggle instanceof HTMLElement) toggle.click();
     });
   };
+  // The seek and volume sliders inside a browser's own audio and video controls
+  // fire input and change events that bubble out of the player to the form
+  // around it, which autosaves on both. A player is never an answer, so stop
+  // them here, before the form sees them.
+  for (const type of ["input", "change"]) {
+    document.addEventListener(type, (event) => {
+      if (event.target instanceof HTMLMediaElement) event.stopPropagation();
+    }, true);
+  }
   document.body.addEventListener("input", (event) => {
     if (!(event.target instanceof Element)) return;
     const textarea = event.target.closest("[data-autogrow-textarea]");

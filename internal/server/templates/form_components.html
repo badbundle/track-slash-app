@@ -45,15 +45,54 @@
 {{/* What an autosave answers with: out-of-band swaps of the footer and the saved field's error slot. */}}
 {{define "form-save-response"}}{{template "form-footer" .Footer}}<p id="{{.SlotID}}" hx-swap-oob="true" role="alert" class="mt-2 text-sm text-rose-700 empty:hidden dark:text-rose-300">{{.Message}}</p>{{end}}
 
+{{/* A choice option. An option with an image is a picture card: the image sits inside the label, so tapping it picks the option, and a small Open link shows it full size without picking. An option with audio, video or a file shows it under its label; the player's own controls do not pick the option. Data is uiFormOptionData. */}}
 {{define "form-choice-option"}}
-<label data-form-option class="grid min-h-11 cursor-pointer grid-cols-[auto_1fr] items-start gap-x-3 rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 hover:bg-slate-50 has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800 dark:has-[:checked]:border-indigo-400 dark:has-[:checked]:bg-indigo-950/50">
+{{$image := and .Media (eq .Media.Kind "image")}}
+<label data-form-option {{if $image}}data-form-option-image{{end}} class="grid min-h-11 cursor-pointer grid-cols-[auto_1fr] items-start gap-x-3 rounded-md border border-slate-200 bg-white text-sm text-slate-900 hover:bg-slate-50 has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-50 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800 dark:has-[:checked]:border-indigo-400 dark:has-[:checked]:bg-indigo-950/50 {{if $image}}px-2.5 pb-1 pt-2.5{{else}}px-3 py-2.5{{end}}">
+  {{if $image}}<span class="col-span-2 mb-2 block overflow-hidden rounded bg-slate-100 dark:bg-slate-900"><img src="{{.Media.Href}}" alt="{{.Media.Filename}}" loading="lazy" class="aspect-[4/3] w-full object-contain"></span>{{end}}
   <input type="{{.Input}}" name="selected" value="{{.ID}}" {{if .Checked}}checked{{end}} class="peer mt-0.5 h-4 w-4 accent-indigo-600 focus:outline-none">
   <span class="min-w-0">
     <span class="flex flex-wrap items-center gap-2 font-medium">{{.Label}}{{if .Suggested}}<span data-form-suggested class="rounded border border-indigo-200 px-1.5 py-0.5 text-[11px] font-semibold leading-4 text-indigo-700 dark:border-indigo-800 dark:text-indigo-200">Suggested</span>{{end}}</span>
     {{if .Description}}<span class="mt-0.5 block text-slate-600 dark:text-slate-400">{{.Description}}</span>{{end}}
+    {{if and .Media (not $image)}}{{template "form-option-media" .Media}}{{end}}
   </span>
-  {{if .IsOther}}<input type="text" name="other" value="{{.OtherText}}" placeholder="Type your answer" aria-label="Other answer" class="col-start-2 mt-2 hidden w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 peer-checked:block dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">{{end}}
+  {{if $image}}<a href="{{.Media.Href}}" target="_blank" rel="noopener noreferrer" data-form-option-open class="col-span-2 -ml-1 inline-flex min-h-11 w-fit items-center gap-1 rounded-md px-1 text-sm font-medium text-indigo-700 hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-indigo-300 dark:hover:text-indigo-200"><i data-lucide="external-link" class="h-3.5 w-3.5" aria-hidden="true"></i>Open<span class="sr-only"> {{.Media.Filename}} full size</span></a>{{end}}
+  {{if .IsOther}}<input type="text" name="other" value="{{.OtherText}}" placeholder="Type your answer" aria-label="Other answer" class="col-start-2 mb-2.5 mt-2 hidden w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950 outline-none ring-indigo-500 focus:ring-2 peer-checked:block dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">{{end}}
 </label>
+{{end}}
+
+{{/* An option's audio, video or file, inside its label. Data is uiFormMediaItem. */}}
+{{define "form-option-media"}}
+{{if eq .Kind "audio"}}<span data-form-media-audio class="mt-2 block"><audio controls preload="metadata" src="{{.Href}}" class="w-full"></audio></span>
+{{else if eq .Kind "video"}}<span data-form-media-video class="mt-2 block"><video controls playsinline preload="metadata" src="{{.Href}}" class="max-h-64 w-full rounded-md bg-black"></video></span>
+{{else}}<span class="mt-2 block">{{template "form-media-file" .}}</span>{{end}}
+{{end}}
+
+{{/* A file to download: icon, name and size. Data is uiFormMediaItem. */}}
+{{define "form-media-file"}}
+<a href="{{.Href}}" data-form-media-file class="flex min-h-11 min-w-0 items-center gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800"><i data-lucide="file" class="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true"></i><span class="min-w-0 flex-1 truncate font-medium">{{.Filename}}</span><span class="shrink-0 text-xs text-slate-500 dark:text-slate-400">{{.Size}}</span><i data-lucide="download" class="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" aria-hidden="true"></i></a>
+{{end}}
+
+{{/* The files shown with a question, or the files nothing places. Images come first, one at its own size or two to a row, each opening full size in a new tab; then audio and video with the browser's own controls and the filename under them, and any other file as a download row. Nothing autoplays. Renders nothing when empty. Data is uiFormMedia. */}}
+{{define "form-media"}}
+{{if or .Images .Others}}
+<div data-form-media class="mt-3 min-w-0 space-y-3">
+  {{if .Images}}
+  <div class="grid gap-2 {{if gt (len .Images) 1}}grid-cols-2{{end}}">
+    {{range .Images}}<a href="{{.Href}}" target="_blank" rel="noopener noreferrer" data-form-media-image class="flex min-w-0 items-center justify-center overflow-hidden rounded-md border border-slate-200 bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-950"><img src="{{.Href}}" alt="{{.Filename}}" loading="lazy" class="max-h-80 w-auto max-w-full object-contain"></a>{{end}}
+  </div>
+  {{end}}
+  {{range .Others}}
+  {{if eq .Kind "audio"}}
+  <figure data-form-media-audio class="min-w-0"><audio controls preload="metadata" src="{{.Href}}" class="w-full"></audio><figcaption class="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{{.Filename}}</figcaption></figure>
+  {{else if eq .Kind "video"}}
+  <figure data-form-media-video class="min-w-0"><video controls playsinline preload="metadata" src="{{.Href}}" class="max-h-96 w-full rounded-md bg-black"></video><figcaption class="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">{{.Filename}}</figcaption></figure>
+  {{else}}
+  {{template "form-media-file" .}}
+  {{end}}
+  {{end}}
+</div>
+{{end}}
 {{end}}
 
 {{define "form-question"}}
@@ -62,7 +101,8 @@
     <fieldset>
       <legend class="text-base font-semibold text-slate-950 dark:text-slate-100">{{.Question.Label}}{{if not .Question.IsRequired}} <span class="text-sm font-normal text-slate-500 dark:text-slate-400">Optional</span>{{end}}</legend>
       {{if .HelpHTML}}<div class="markdown-body mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">{{.HelpHTML}}</div>{{end}}
-      <div class="mt-3 space-y-2">
+      {{template "form-media" .Media}}
+      <div class="mt-3 {{if .HasPictures}}grid grid-cols-2 gap-2{{if gt (len .Options) 2}} sm:grid-cols-3{{end}}{{else}}space-y-2{{end}}">
         {{if .Options}}
         {{range .Options}}{{template "form-choice-option" .}}{{end}}
         {{else if eq .Type "confirm"}}
@@ -151,6 +191,7 @@
   <div class="py-3 first:pt-0 last:pb-0">
     <dt class="text-sm font-medium text-slate-600 dark:text-slate-300">{{.Label}}</dt>
     <dd class="mt-1 text-sm text-slate-950 dark:text-slate-100">
+      {{if .Thumbs}}<span data-form-thumbs class="mr-2 inline-flex items-center gap-1 align-middle">{{range .Thumbs}}<img src="{{.Href}}" alt="" loading="lazy" class="h-8 w-8 rounded border border-slate-200 object-cover dark:border-slate-700">{{end}}</span>{{end}}
       {{if .Answered}}<span class="whitespace-pre-wrap break-words">{{.Answer}}</span>{{else if .Missing}}<span data-form-missing class="font-medium text-rose-700 dark:text-rose-300">Needs an answer</span>{{else}}<span class="text-slate-500 dark:text-slate-400">No answer</span>{{end}}
       {{if .Changed}}<span data-form-changed class="ml-2 inline-flex items-center rounded-md border border-slate-300 px-1.5 py-0.5 text-[11px] font-medium leading-4 text-slate-600 dark:border-slate-700 dark:text-slate-300">Changed from suggestion</span>{{end}}
       {{if .Note}}<p class="mt-1 whitespace-pre-wrap break-words text-slate-600 dark:text-slate-300">Note: {{.Note}}</p>{{end}}
