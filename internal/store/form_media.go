@@ -242,7 +242,8 @@ const formAttachmentSelect = `
 	SELECT fa.id, fa.project_id, fa.form_id, fa.storage_object_id, fa.created_by_id, fa.created_at, fa.created_at,
 	       so.id, so.project_id, so.number, so.owner_user_id, so.backend, so.bucket, so.object_key,
 	       so.filename, so.content_type, so.byte_size, so.sha256, so.created_by_id,
-	       so.created_at, so.updated_at, so.deleted_at
+	       so.created_at, so.updated_at, so.deleted_at,
+	       fa.answer_question_id
 	FROM form_attachments fa
 	JOIN projects p ON p.id = fa.project_id AND p.deleted_at IS NULL
 	JOIN storage_objects so ON so.id = fa.storage_object_id AND so.deleted_at IS NULL
@@ -252,15 +253,32 @@ type formAttachmentQueryer interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
+// formAttachmentRow adds formAttachmentSelect's last column, the question an
+// answer file belongs to (NULL for the asker's media), to the columns the
+// shared attachment scanner reads.
+type formAttachmentRow struct {
+	row      descriptionAttachmentScanner
+	question *string
+}
+
+func (r *formAttachmentRow) Scan(dest ...any) error {
+	return r.row.Scan(append(dest, &r.question)...)
+}
+
 func scanFormAttachment(row descriptionAttachmentScanner) (model.FormAttachment, error) {
-	fields, err := scanDescriptionAttachmentFields(row)
+	wrapped := &formAttachmentRow{row: row}
+	fields, err := scanDescriptionAttachmentFields(wrapped)
 	if err != nil {
 		return model.FormAttachment{}, err
 	}
-	return model.FormAttachment{
+	out := model.FormAttachment{
 		ID: fields.ID, FormID: fields.ParentID, StorageObjectID: fields.StorageObjectID,
 		Object: fields.Object, CreatedByID: fields.CreatedByID, CreatedAt: fields.CreatedAt,
-	}, nil
+	}
+	if wrapped.question != nil {
+		out.AnswerQuestionID = *wrapped.question
+	}
+	return out, nil
 }
 
 func listFormAttachments(ctx context.Context, q formAttachmentQueryer, formID uuid.UUID) ([]model.FormAttachment, error) {
@@ -307,12 +325,15 @@ func (s *Store) GetFormAttachmentByObjectNumber(ctx context.Context, formID uuid
 type FormUploadSweep struct {
 	Uploads int
 	Grants  int
+	// FileGrants are the expired download grants removed.
+	FileGrants int
 }
 
 // SweepFormUploads deletes the pending uploads older than olderThan, which no
 // form claimed: each storage object is soft-deleted, which queues its bytes
 // for deletion, and its pending row goes. It also deletes the upload grants
-// that expired more than olderThan ago. Claimed files and young uploads stay.
+// that expired more than olderThan ago, and the file download grants that
+// expired that long ago. Claimed files and young uploads stay.
 func (s *Store) SweepFormUploads(ctx context.Context, olderThan time.Duration) (FormUploadSweep, error) {
 	var out FormUploadSweep
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
@@ -349,6 +370,15 @@ func (s *Store) SweepFormUploads(ctx context.Context, olderThan time.Duration) (
 			return err // defensive: DB outage
 		}
 		out.Grants = int(tag.RowsAffected())
+
+		tag, err = tx.Exec(ctx, `
+			DELETE FROM form_file_grants
+			WHERE expires_at < now() - $1::interval
+		`, olderThan)
+		if err != nil {
+			return err // defensive: DB outage
+		}
+		out.FileGrants = int(tag.RowsAffected())
 		return nil
 	})
 	if err != nil {

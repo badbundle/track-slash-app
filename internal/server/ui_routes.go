@@ -209,6 +209,8 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 		r.Get("/{owner}/projects/{key}/forms/{formRef}/panel", s.uiViewFormPanel)
 		r.Get("/{owner}/projects/{key}/forms/{formRef}/attachments/{objectRef}/content", s.uiGetFormAttachmentContent)
 		r.Post("/{owner}/projects/{key}/forms/{formRef}/answers/{questionID}", s.uiSaveFormAnswer)
+		r.Post("/{owner}/projects/{key}/forms/{formRef}/answers/{questionID}/files", s.uiAttachFormAnswerFile)
+		r.Post("/{owner}/projects/{key}/forms/{formRef}/answers/{questionID}/files/{objectRef}/remove", s.uiRemoveFormAnswerFile)
 		r.Post("/{owner}/projects/{key}/forms/{formRef}/comment", s.uiSaveFormComment)
 		r.Post("/{owner}/projects/{key}/forms/{formRef}/submit", s.uiSubmitForm)
 		r.Post("/{owner}/projects/{key}/forms/{formRef}/reopen", s.uiReopenForm)

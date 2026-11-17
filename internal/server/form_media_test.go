@@ -71,6 +71,8 @@ func TestRequestLogLeavesOutUploadKeys(t *testing.T) {
 		"/api/v1/form-uploads/SECRETKEY":      "/api/v1/form-uploads/[upload-key]",
 		"/api/v1/form-uploads/SECRETKEY?x=1":  "/api/v1/form-uploads/[upload-key]?x=1",
 		"/api/v1/form-waits/SECRETKEY?wait=5": "/api/v1/form-waits/[wait-key]?wait=5",
+		"/api/v1/form-files/SECRETKEY":        "/api/v1/form-files/[file-key]",
+		"/api/v1/form-files/SECRETKEY?x=1":    "/api/v1/form-files/[file-key]?x=1",
 	} {
 		got, secret := redactedSecretRouteURI(httptest.NewRequest(http.MethodPost, target, nil))
 		if !secret || got != want {

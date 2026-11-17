@@ -45,11 +45,14 @@ func TestMCPFormParity(t *testing.T) {
 		// A connector can get an upload URL for a form it is about to ask,
 		// but still cannot answer one.
 		"track_create_form_upload_url": false,
-		"track_get_form":               true,
-		"track_list_forms":             true,
-		"track_list_inbox":             true,
-		"track_acknowledge_form":       false,
-		"track_cancel_form":            false,
+		// Reading a file is allowed to anyone who can read the form, so the
+		// tool is read-only; there is still no tool that attaches one.
+		"track_create_form_file_url": true,
+		"track_get_form":             true,
+		"track_list_forms":           true,
+		"track_list_inbox":           true,
+		"track_acknowledge_form":     false,
+		"track_cancel_form":          false,
 	}
 	found := 0
 	for _, tool := range tools.Tools {

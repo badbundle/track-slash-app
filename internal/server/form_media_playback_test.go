@@ -245,7 +245,7 @@ func TestUIFormMediaLookup(t *testing.T) {
 	base := "/o/projects/P/forms/form-1"
 	lookup := newUIFormMediaLookup(base, form)
 
-	if item := lookup.item("object-2"); item == nil || *item != (uiFormMediaItem{Kind: "audio", Href: base + "/attachments/object-2/content", Filename: "two.m4a", Size: "2.0 KB"}) {
+	if item := lookup.item("object-2"); item == nil || *item != (uiFormMediaItem{Kind: "audio", Href: base + "/attachments/object-2/content", Filename: "two.m4a", Size: "2.0 KB", Ref: "object-2"}) {
 		t.Fatalf("item = %+v", item)
 	}
 	if lookup.item("object-404") != nil || lookup.item("") != nil {

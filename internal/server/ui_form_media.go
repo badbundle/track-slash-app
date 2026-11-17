@@ -26,6 +26,11 @@ type uiFormMediaItem struct {
 	Href     string
 	Filename string
 	Size     string
+	// Ref is the file's object ref. Remove is the route that removes it from
+	// the person's answer, set only for an answer file the signed-in person
+	// can still remove.
+	Ref    string
+	Remove string
 }
 
 // uiFormMedia is the files shown together. Images come first, as a grid when
@@ -53,6 +58,7 @@ func newUIFormMediaLookup(base string, form model.Form) uiFormMediaLookup {
 			Href:     base + "/attachments/" + object.Ref + "/content",
 			Filename: object.Filename,
 			Size:     uiByteSize(object.ByteSize),
+			Ref:      object.Ref,
 		}
 	}
 	return lookup
@@ -105,7 +111,7 @@ func (l uiFormMediaLookup) unplaced(form model.Form) uiFormMedia {
 		}
 	}
 	var refs []string
-	for _, attachment := range form.Attachments {
+	for _, attachment := range form.AskerAttachments() {
 		if ref := attachment.Object.Ref; !placed[ref] {
 			refs = append(refs, ref)
 		}
@@ -139,11 +145,13 @@ func uiFormHasPictures(options []uiFormOptionData) bool {
 }
 
 // renderFormMarkdown renders form text so that object-N in an image or link
-// resolves against the form's own files, as an issue's description does against
-// its attachments.
+// resolves against the files the asker put in the form, as an issue's
+// description does against its attachments. The files the person attached to
+// their answers are not the asker's to place.
 func renderFormMarkdown(base string, form model.Form, source string) template.HTML {
-	objects := make([]model.StorageObject, 0, len(form.Attachments))
-	for _, attachment := range form.Attachments {
+	asked := form.AskerAttachments()
+	objects := make([]model.StorageObject, 0, len(asked))
+	for _, attachment := range asked {
 		objects = append(objects, attachment.Object)
 	}
 	return renderDescriptionMarkdown(source, objects, func(object model.StorageObject) string {
@@ -180,4 +188,56 @@ func markdownObjectRefs(source string) []string {
 		return ast.WalkContinue, nil
 	})
 	return refs
+}
+
+// uiFormAnswerFiles backs the form-answer-files component: the files attached
+// to one answer, with the picker and Remove while the person can still change
+// them.
+type uiFormAnswerFiles struct {
+	CSRFToken  string
+	QuestionID string
+	Label      string
+	// Action posts a file; Step is the step the card is on, posted back so the
+	// footer that answers is the one for that step.
+	Action string
+	Step   string
+	Media  uiFormMedia
+	Count  int
+	// Editable shows the picker and Remove. Full hides the picker because the
+	// answer has all the files it can take.
+	Editable bool
+	Full     bool
+	// OOB marks the copy an upload or removal sends back, which replaces the
+	// component on the page.
+	OOB bool
+}
+
+// answerFiles prepares the files the refs name, which are one answer's. A ref
+// that is not one of the form's files is left out. With editable set, each file
+// can be removed.
+func (l uiFormMediaLookup) answerFiles(base, token string, question model.FormQuestion, refs []string, editable bool) uiFormAnswerFiles {
+	data := uiFormAnswerFiles{
+		CSRFToken:  token,
+		QuestionID: question.ID,
+		Label:      question.Label,
+		Action:     base + "/answers/" + question.ID + "/files",
+		Editable:   editable,
+	}
+	for _, ref := range refs {
+		item, ok := l[ref]
+		if !ok {
+			continue
+		}
+		if editable {
+			item.Remove = data.Action + "/" + ref + "/remove"
+		}
+		if item.Kind == "image" {
+			data.Media.Images = append(data.Media.Images, item)
+		} else {
+			data.Media.Others = append(data.Media.Others, item)
+		}
+		data.Count++
+	}
+	data.Full = data.Count >= model.FormMaxAnswerFiles
+	return data
 }

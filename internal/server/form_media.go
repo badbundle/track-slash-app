@@ -43,7 +43,11 @@ const (
 	// defaultFormUploadGrantFiles is how many files an upload URL takes.
 	defaultFormUploadGrantFiles = 20
 
+	// defaultFormFileURLTTL is how long a file's download URL works.
+	defaultFormFileURLTTL = 10 * time.Minute
+
 	formUploadRoutePrefix = "/api/v1/form-uploads/"
+	formFileRoutePrefix   = "/api/v1/form-files/"
 )
 
 // FormMediaOptions are the limits on form media. Zero values use the
@@ -56,6 +60,8 @@ type FormMediaOptions struct {
 	// files it takes.
 	GrantTTL      time.Duration
 	GrantMaxFiles int
+	// FileURLTTL is how long a file's download URL works.
+	FileURLTTL time.Duration
 }
 
 func (o FormMediaOptions) withDefaults() FormMediaOptions {
@@ -67,6 +73,9 @@ func (o FormMediaOptions) withDefaults() FormMediaOptions {
 	}
 	if o.GrantMaxFiles <= 0 {
 		o.GrantMaxFiles = defaultFormUploadGrantFiles
+	}
+	if o.FileURLTTL <= 0 {
+		o.FileURLTTL = defaultFormFileURLTTL
 	}
 	return o
 }
@@ -294,20 +303,26 @@ type formAttachmentResponse struct {
 	URL         string `json:"url"`
 }
 
+// formAttachmentResponses are the files the asker put in the form. The files
+// the person attached to their answers are listed with those answers instead.
 func (s *Server) formAttachmentResponses(form model.Form) []formAttachmentResponse {
-	out := make([]formAttachmentResponse, len(form.Attachments))
-	for i, attachment := range form.Attachments {
-		object := attachment.Object
-		out[i] = formAttachmentResponse{
-			Object:      object.Ref,
-			Filename:    object.Filename,
-			ContentType: object.ContentType,
-			ByteSize:    object.ByteSize,
-			Kind:        formAttachmentKind(object),
-			URL:         strings.TrimSuffix(s.publicOrigin, "/") + formAttachmentPath(form.OwnerUsername, form.ProjectKey, form.Ref, object.Ref),
-		}
+	asked := form.AskerAttachments()
+	out := make([]formAttachmentResponse, len(asked))
+	for i, attachment := range asked {
+		out[i] = s.formAttachmentResponse(form, attachment.Object)
 	}
 	return out
+}
+
+func (s *Server) formAttachmentResponse(form model.Form, object model.StorageObject) formAttachmentResponse {
+	return formAttachmentResponse{
+		Object:      object.Ref,
+		Filename:    object.Filename,
+		ContentType: object.ContentType,
+		ByteSize:    object.ByteSize,
+		Kind:        formAttachmentKind(object),
+		URL:         strings.TrimSuffix(s.publicOrigin, "/") + formAttachmentPath(form.OwnerUsername, form.ProjectKey, form.Ref, object.Ref),
+	}
 }
 
 // getFormAttachmentContent serves a file of a form to a member of its

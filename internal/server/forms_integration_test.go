@@ -16,29 +16,36 @@ import (
 
 // formJSON is a form as the API returns it.
 type formJSON struct {
-	Ref          string                 `json:"ref"`
-	URL          string                 `json:"url"`
-	WaitURL      string                 `json:"wait_url"`
-	Title        string                 `json:"title"`
-	Description  string                 `json:"description"`
-	Status       model.FormStatus       `json:"status"`
-	AssigneeID   uuid.UUID              `json:"assignee_id"`
-	CreatedByID  uuid.UUID              `json:"created_by_id"`
-	Issue        *string                `json:"issue"`
-	OriginLabel  string                 `json:"origin_label"`
-	OriginURL    string                 `json:"origin_url"`
-	Comment      string                 `json:"comment"`
-	SubmittedVia *string                `json:"submitted_via"`
-	Definition   *model.FormDefinition  `json:"definition"`
-	Answers      model.FormAnswers      `json:"answers"`
-	Responses    []model.FormAnswerView `json:"responses"`
-	Attachments  []formAttachmentJSON   `json:"attachments"`
+	Ref          string                `json:"ref"`
+	URL          string                `json:"url"`
+	WaitURL      string                `json:"wait_url"`
+	Title        string                `json:"title"`
+	Description  string                `json:"description"`
+	Status       model.FormStatus      `json:"status"`
+	AssigneeID   uuid.UUID             `json:"assignee_id"`
+	CreatedByID  uuid.UUID             `json:"created_by_id"`
+	Issue        *string               `json:"issue"`
+	OriginLabel  string                `json:"origin_label"`
+	OriginURL    string                `json:"origin_url"`
+	Comment      string                `json:"comment"`
+	SubmittedVia *string               `json:"submitted_via"`
+	Definition   *model.FormDefinition `json:"definition"`
+	Answers      model.FormAnswers     `json:"answers"`
+	Responses    []formResponseJSON    `json:"responses"`
+	Attachments  []formAttachmentJSON  `json:"attachments"`
 	// MediaRemovedAt is when the form's files were deleted.
 	MediaRemovedAt *time.Time `json:"media_removed_at"`
 	// Counts are only on list rows and the MCP's brief form.
 	QuestionCount    int `json:"question_count"`
 	RequiredCount    int `json:"required_count"`
 	RequiredAnswered int `json:"required_answered"`
+}
+
+// formResponseJSON is a question with its answer as the API returns it: the
+// files the person attached are described, not just named.
+type formResponseJSON struct {
+	model.FormAnswerView
+	Files []formAttachmentJSON `json:"files"`
 }
 
 func (e *httpEnv) formsPath() string {

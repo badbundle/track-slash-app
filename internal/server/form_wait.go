@@ -220,10 +220,11 @@ func (s *Server) getFormWait(w http.ResponseWriter, r *http.Request) {
 var formSecretRoutes = []struct{ prefix, placeholder string }{
 	{formWaitRoutePrefix, "[wait-key]"},
 	{formUploadRoutePrefix, "[upload-key]"},
+	{formFileRoutePrefix, "[file-key]"},
 }
 
-// logRequests is the request log, with the key of a wait URL or an upload URL
-// left out: a secret in a URL should not be written to the log.
+// logRequests is the request log, with the key of a wait URL, an upload URL or
+// a download URL left out: a secret in a URL should not be written to the log.
 func logRequests(next http.Handler) http.Handler {
 	logged := middleware.Logger(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

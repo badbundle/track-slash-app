@@ -150,10 +150,31 @@ func getForm(ctx context.Context, q formQueryer, id uuid.UUID, lock bool) (model
 		}
 		return model.Form{}, err // defensive: DB outage past the no-rows branch
 	}
-	if out.Attachments, err = listFormAttachments(ctx, q, out.ID); err != nil {
+	if err = loadFormAttachments(ctx, q, &out); err != nil {
 		return model.Form{}, err // defensive: DB outage
 	}
 	return out, nil
+}
+
+// loadFormAttachments fills the files a form carries, and with them each
+// answer's Files. Files are derived data: whatever the stored answers held is
+// cleared first, and they are never written back (see FormAnswers.WithoutFiles).
+func loadFormAttachments(ctx context.Context, q formAttachmentQueryer, form *model.Form) error {
+	attachments, err := listFormAttachments(ctx, q, form.ID)
+	if err != nil {
+		return err
+	}
+	form.Attachments = attachments
+	form.Answers = form.Answers.WithoutFiles()
+	for _, attachment := range attachments {
+		if !attachment.IsAnswerFile() {
+			continue
+		}
+		answer := form.Answers[attachment.AnswerQuestionID]
+		answer.Files = append(answer.Files, attachment.Object.Ref)
+		form.Answers[attachment.AnswerQuestionID] = answer
+	}
+	return nil
 }
 
 // CreateForm adds a form to a live project and allocates its project-scoped
@@ -281,7 +302,7 @@ func (s *Store) GetFormByProjectNumber(ctx context.Context, projectID uuid.UUID,
 		}
 		return model.Form{}, err // defensive: DB outage past the no-rows branch
 	}
-	if out.Attachments, err = listFormAttachments(ctx, s.db, out.ID); err != nil {
+	if err = loadFormAttachments(ctx, s.db, &out); err != nil {
 		return model.Form{}, err // defensive: DB outage
 	}
 	return out, nil
@@ -361,22 +382,74 @@ func (s *Store) ListProjectForms(ctx context.Context, p ListProjectFormsParams) 
 	}
 	defer rows.Close()
 
-	out := make([]model.FormSummary, 0, p.Limit)
+	forms := make([]model.Form, 0, p.Limit)
 	for rows.Next() {
 		form, err := scanForm(rows)
 		if err != nil {
 			return nil, false, err // defensive: columns match the fixed SELECT list
 		}
-		out = append(out, form.Summary())
+		forms = append(forms, form)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, false, err // defensive: connection lost mid-read
 	}
-	hasMore := len(out) > p.Limit
+	rows.Close()
+	hasMore := len(forms) > p.Limit
 	if hasMore {
-		out = out[:p.Limit]
+		forms = forms[:p.Limit]
+	}
+	out, err := summariesOf(ctx, s.db, forms)
+	if err != nil {
+		return nil, false, err // defensive: DB outage
 	}
 	return out, hasMore, nil
+}
+
+// summariesOf reduces list rows to their summaries. A list row carries no
+// files, but a file question counts as answered by its files, so the page's
+// answer files are read first, in one query.
+func summariesOf(ctx context.Context, q formQueryer, forms []model.Form) ([]model.FormSummary, error) {
+	out := make([]model.FormSummary, len(forms))
+	if len(forms) == 0 {
+		return out, nil
+	}
+	ids := make([]uuid.UUID, len(forms))
+	index := make(map[uuid.UUID]int, len(forms))
+	for i, form := range forms {
+		ids[i] = form.ID
+		index[form.ID] = i
+		forms[i].Answers = form.Answers.WithoutFiles()
+	}
+	rows, err := q.Query(ctx, `
+		SELECT fa.form_id, fa.answer_question_id, so.number
+		FROM form_attachments fa
+		JOIN storage_objects so ON so.id = fa.storage_object_id AND so.deleted_at IS NULL
+		WHERE fa.form_id = ANY($1) AND fa.answer_question_id IS NOT NULL
+		ORDER BY so.number
+	`, ids)
+	if err != nil {
+		return nil, err // defensive: DB outage
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var formID uuid.UUID
+		var question string
+		var number int
+		if err := rows.Scan(&formID, &question, &number); err != nil {
+			return nil, err // defensive: columns match the fixed SELECT list
+		}
+		answers := forms[index[formID]].Answers
+		answer := answers[question]
+		answer.Files = append(answer.Files, model.StorageObjectRef(number))
+		answers[question] = answer
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err // defensive: connection lost mid-read
+	}
+	for i, form := range forms {
+		out[i] = form.Summary()
+	}
+	return out, nil
 }
 
 // InboxState picks which half of a person's Inbox to list.
@@ -448,20 +521,25 @@ func (s *Store) ListInboxForms(ctx context.Context, p ListInboxFormsParams) ([]m
 	}
 	defer rows.Close()
 
-	out := make([]model.FormSummary, 0, p.Limit)
+	forms := make([]model.Form, 0, p.Limit)
 	for rows.Next() {
 		form, err := scanForm(rows)
 		if err != nil {
 			return nil, false, err // defensive: columns match the fixed SELECT list
 		}
-		out = append(out, form.Summary())
+		forms = append(forms, form)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, false, err // defensive: connection lost mid-read
 	}
-	hasMore := len(out) > p.Limit
+	rows.Close()
+	hasMore := len(forms) > p.Limit
 	if hasMore {
-		out = out[:p.Limit]
+		forms = forms[:p.Limit]
+	}
+	out, err := summariesOf(ctx, s.db, forms)
+	if err != nil {
+		return nil, false, err // defensive: DB outage
 	}
 	return out, hasMore, nil
 }
@@ -503,7 +581,7 @@ func (s *Store) SaveFormAnswers(ctx context.Context, p SaveFormAnswersParams) (m
 				return err
 			}
 		}
-		rawAnswers, _ := json.Marshal(form.Answers.Merged(changes))
+		rawAnswers, _ := json.Marshal(form.Answers.Merged(changes).WithoutFiles())
 		if _, err := tx.Exec(ctx, `
 			UPDATE forms
 			SET answers = $2, comment = $3, version = version + 1, updated_at = now()

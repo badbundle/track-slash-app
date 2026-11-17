@@ -45,8 +45,16 @@ type formResponse struct {
 	model.Form
 	URL         string                   `json:"url"`
 	WaitURL     string                   `json:"wait_url,omitempty"`
-	Responses   []model.FormAnswerView   `json:"responses"`
+	Responses   []formAnswerViewResponse `json:"responses"`
 	Attachments []formAttachmentResponse `json:"attachments"`
+}
+
+// formAnswerViewResponse is a question with its answer, as the API and MCP
+// return it. Files describes each file the person attached to the answer; it
+// replaces the plain refs the model's view carries.
+type formAnswerViewResponse struct {
+	model.FormAnswerView
+	Files []formAttachmentResponse `json:"files"`
 }
 
 type formSummaryResponse struct {
@@ -69,9 +77,31 @@ func (s *Server) formResponse(form model.Form) formResponse {
 	return formResponse{
 		Form:        form,
 		URL:         s.formURL(form.OwnerUsername, form.ProjectKey, form.Ref),
-		Responses:   form.Definition.AnswerViews(form.Answers),
+		Responses:   s.formAnswerViewResponses(form),
 		Attachments: s.formAttachmentResponses(form),
 	}
+}
+
+// formAnswerViewResponses lists every question with its answer, in form order,
+// each with the files attached to the answer.
+func (s *Server) formAnswerViewResponses(form model.Form) []formAnswerViewResponse {
+	byRef := map[string]model.StorageObject{}
+	for _, attachment := range form.Attachments {
+		if attachment.IsAnswerFile() {
+			byRef[attachment.Object.Ref] = attachment.Object
+		}
+	}
+	views := form.Definition.AnswerViews(form.Answers)
+	out := make([]formAnswerViewResponse, len(views))
+	for i, view := range views {
+		files := make([]formAttachmentResponse, 0, len(view.Files))
+		for _, ref := range view.Files {
+			files = append(files, s.formAttachmentResponse(form, byRef[ref]))
+		}
+		view.Files = nil
+		out[i] = formAnswerViewResponse{FormAnswerView: view, Files: files}
+	}
+	return out
 }
 
 func (s *Server) formSummaryResponses(forms []model.FormSummary) []formSummaryResponse {

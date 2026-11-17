@@ -20,7 +20,7 @@ const mcpCreateFormDescription = "Ask a person for decisions through a form they
 	"Give the person the url from the result, and read the answers later with track_get_form. " +
 	"You don't need the person to tell you they have answered. The result's wait_url says when the form is no longer open: GET it with ?wait=50 from a background command, and again while its status is still open. It needs no credentials and returns only {\"status\"}. Keep wait_url, because it is shown only once. Without a way to run a command, call track_get_form with wait_seconds instead. " +
 	"Never ask for a password, key or token: every member of the project can read a form's answers. " +
-	"Question types: single_choice and multi_choice (each with options, and allow_other for a free-text Other), confirm (one checkbox, for \"I've done this\" or \"Go ahead\") and text. " +
+	"Question types: single_choice and multi_choice (each with options, and allow_other for a free-text Other), confirm (one checkbox, for \"I've done this\" or \"Go ahead\"), text, and file (answered by attaching at least one file: a photo, a recording or a document; it takes no options and no default). Every question also lets the person attach files to their answer. Fetch them later with track_create_form_file_url. " +
 	"A question can show up to 6 files (media: object refs such as object-12) and each option of a choice question can show one (media on the option), for example screenshots, design options or a recording to listen to; attachments adds files that belong to the form as a whole. Upload the files first: call track_create_form_upload_url and put the object refs its uploads return here. A form carries at most 20 files, and every file must be one you uploaded for it. " +
 	"A form's questions can't be edited after it is created."
 
@@ -31,6 +31,17 @@ const mcpCreateFormUploadURLDescription = "Get a URL to upload images, audio, vi
 	"Put those refs in a question's media, an option's media or the form's attachments when you call track_create_form. " +
 	"The URL needs no credentials, lasts 30 minutes and takes 20 files of up to 25 MB each. Uploads that no form uses within a day are deleted. " +
 	"Keep the URL to yourself: whoever holds it can add files to your uploads until it expires, and it is shown only once."
+
+// mcpCreateFormFileURLDescription says how to fetch a file of a form, because
+// an agent can't receive a file through a tool result.
+const mcpCreateFormFileURLDescription = "Get a short-lived URL for one file of a form: a file the person attached to their answer, or one of your own media. " +
+	"Fetch it from a shell with `curl -sS -o FILE \"$download_url\"` and open the saved file. " +
+	"The URL needs no credentials and lasts 10 minutes. Keep it to yourself: whoever holds it can read that one file until it expires, and it is shown only once."
+
+type mcpFormFileURLInput struct {
+	mcpFormInput
+	Object string `json:"object" jsonschema:"object ref of the file, for example object-12, as listed in responses[].files or attachments of track_get_form"`
+}
 
 type mcpFormInput struct {
 	mcpProjectInput
@@ -78,7 +89,7 @@ type mcpFormBrief struct {
 	SubmittedVia *model.FormSubmitSurface `json:"submitted_via"`
 	URL          string                   `json:"url"`
 	WaitURL      string                   `json:"wait_url,omitempty"`
-	Responses    []model.FormAnswerView   `json:"responses"`
+	Responses    []formAnswerViewResponse `json:"responses"`
 	Attachments  []formAttachmentResponse `json:"attachments"`
 }
 
@@ -243,6 +254,32 @@ func (s *Server) mcpCreateFormUploadURL(ctx context.Context, req *mcp.CallToolRe
 		"expires_at":     created.ExpiresAt,
 		"max_files":      created.MaxFiles,
 		"max_file_bytes": created.MaxFileBytes,
+	}, nil
+}
+
+func (s *Server) mcpCreateFormFileURL(ctx context.Context, req *mcp.CallToolRequest, input mcpFormFileURLInput) (mcpToolOutput, error) {
+	ctx, auth, err := s.mcpAuth(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	form, _, err := s.mcpForm(ctx, auth, input.mcpFormInput)
+	if err != nil {
+		return nil, err
+	}
+	number, err := mcpTypedRef(input.Object, "object")
+	if err != nil {
+		return nil, err
+	}
+	created, err := s.newFormFileURL(ctx, form, number, auth.User.ID)
+	if err != nil {
+		return nil, err
+	}
+	return mcpToolOutput{
+		"download_url": created.DownloadURL,
+		"expires_at":   created.ExpiresAt,
+		"filename":     created.Filename,
+		"content_type": created.ContentType,
+		"byte_size":    created.ByteSize,
 	}, nil
 }
 
