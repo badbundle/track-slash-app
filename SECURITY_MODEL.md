@@ -104,7 +104,8 @@ source of a user's rights in a project.
   made it: only a form created by that same person can claim it, and a ref that
   names someone else's, a deleted one or one that is not a pending upload is
   refused with one message, and nothing is claimed. Uploads that no form claims
-  within a day are deleted.
+  within a day are deleted, and the files of a form that was picked up or
+  cancelled are deleted 30 days later (the form keeps `media_removed_at`).
   An upload URL (`/api/v1/form-uploads/{key}`) is how an agent gets files in,
   because a tool call can't carry a file and the agent's shell holds no account
   token. Like the wait URL it carries its own secret. All it buys is adding a
@@ -204,7 +205,8 @@ These are known and left as they are. Change one only with that in mind.
   limits (20 files, 25 MB each), and it can't be revoked on its own. It is
   write-only: it reads nothing, and a file it adds does nothing until its
   creator puts it in a form. The files count as the creator's. A pending upload
-  that no form claims is deleted after a day. The server's own request log leaves the key out, but a
+  that no form claims is deleted after a day, and a closed form's files go 30
+  days after it is picked up or cancelled. The server's own request log leaves the key out, but a
   proxy in front of it may log the full path.
 - **Images are stored as uploaded,** metadata included.
 - **Session cookies do not use the `__Host-` prefix.** They are HttpOnly,

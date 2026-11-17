@@ -357,6 +357,62 @@ func (s *Store) SweepFormUploads(ctx context.Context, olderThan time.Duration) (
 	return out, nil
 }
 
+// FormMediaExpiry says what ExpireFormMedia removed.
+type FormMediaExpiry struct {
+	Forms int
+	Files int
+}
+
+// ExpireFormMedia deletes the files of forms that were picked up or cancelled
+// more than olderThan ago, at most limit forms at a time, and records when on
+// each form (media_removed_at). A form that is open or submitted is never
+// touched, however old, and a form with no files is not marked.
+//
+// For each form, in one transaction: its storage objects are soft-deleted,
+// which queues their bytes for deletion exactly as SweepFormUploads does, its
+// attachment rows go and the form is marked. The form's updated_at is left
+// alone, because the Inbox orders finished forms by it. Forms that another
+// transaction holds are skipped and picked up by a later run.
+func (s *Store) ExpireFormMedia(ctx context.Context, olderThan time.Duration, limit int) (FormMediaExpiry, error) {
+	var out FormMediaExpiry
+	err := s.db.QueryRow(ctx, `
+		WITH due AS (
+			SELECT f.id
+			FROM forms f
+			WHERE f.status IN ('acknowledged', 'cancelled')
+			  AND f.media_removed_at IS NULL
+			  AND CASE f.status WHEN 'acknowledged' THEN f.acknowledged_at ELSE f.cancelled_at END < now() - $1::interval
+			  AND EXISTS (SELECT 1 FROM form_attachments fa WHERE fa.form_id = f.id)
+			ORDER BY CASE f.status WHEN 'acknowledged' THEN f.acknowledged_at ELSE f.cancelled_at END, f.id
+			LIMIT $2
+			FOR UPDATE OF f SKIP LOCKED
+		), removed AS (
+			DELETE FROM form_attachments fa
+			USING due
+			WHERE fa.form_id = due.id
+			RETURNING fa.storage_object_id
+		), deleted AS (
+			UPDATE storage_objects so
+			SET deleted_at = now(),
+			    updated_at = GREATEST(clock_timestamp(), so.updated_at + interval '1 microsecond')
+			FROM removed
+			WHERE so.id = removed.storage_object_id AND so.deleted_at IS NULL
+			RETURNING so.id
+		), marked AS (
+			UPDATE forms f
+			SET media_removed_at = now()
+			FROM due
+			WHERE f.id = due.id
+			RETURNING f.id
+		)
+		SELECT (SELECT count(*) FROM marked), (SELECT count(*) FROM removed)
+	`, olderThan, limit).Scan(&out.Forms, &out.Files)
+	if err != nil {
+		return FormMediaExpiry{}, err // defensive: the statement has no expected failure; only a DB outage gets here
+	}
+	return out, nil
+}
+
 // mapFormUploadGrantWriteError maps a failure creating a grant. A foreign-key
 // failure is a creator who doesn't exist, because the project is checked in the
 // same statement. A unique failure is a key hash another grant holds, and a

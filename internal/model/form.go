@@ -739,8 +739,11 @@ type Form struct {
 	SubmittedAt     *time.Time         `json:"submitted_at"`
 	AcknowledgedAt  *time.Time         `json:"acknowledged_at"`
 	CancelledAt     *time.Time         `json:"cancelled_at"`
-	CreatedAt       time.Time          `json:"created_at"`
-	UpdatedAt       time.Time          `json:"updated_at"`
+	// MediaRemovedAt is when the form's files were deleted, 30 days after it
+	// was picked up or cancelled. It is nil while the files are kept.
+	MediaRemovedAt *time.Time `json:"media_removed_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 	// Attachments are the files the form carries, by object number. The
 	// store fills them in when it reads one form; a list row has none. They
 	// are left out of the JSON because the API describes them its own way
@@ -782,6 +785,7 @@ type FormSummary struct {
 	SubmittedAt      *time.Time `json:"submitted_at"`
 	AcknowledgedAt   *time.Time `json:"acknowledged_at"`
 	CancelledAt      *time.Time `json:"cancelled_at"`
+	MediaRemovedAt   *time.Time `json:"media_removed_at"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
@@ -810,6 +814,7 @@ func (f Form) Summary() FormSummary {
 		SubmittedAt:      f.SubmittedAt,
 		AcknowledgedAt:   f.AcknowledgedAt,
 		CancelledAt:      f.CancelledAt,
+		MediaRemovedAt:   f.MediaRemovedAt,
 		CreatedAt:        f.CreatedAt,
 		UpdatedAt:        f.UpdatedAt,
 	}

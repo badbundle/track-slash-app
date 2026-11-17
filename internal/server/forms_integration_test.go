@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -32,6 +33,8 @@ type formJSON struct {
 	Answers      model.FormAnswers      `json:"answers"`
 	Responses    []model.FormAnswerView `json:"responses"`
 	Attachments  []formAttachmentJSON   `json:"attachments"`
+	// MediaRemovedAt is when the form's files were deleted.
+	MediaRemovedAt *time.Time `json:"media_removed_at"`
 	// Counts are only on list rows and the MCP's brief form.
 	QuestionCount    int `json:"question_count"`
 	RequiredCount    int `json:"required_count"`

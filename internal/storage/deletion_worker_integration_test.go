@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/bradleymackey/track-slash/internal/model"
 	"github.com/bradleymackey/track-slash/internal/store"
 	"github.com/bradleymackey/track-slash/internal/testutil"
 )
@@ -378,7 +380,7 @@ func TestDeletionWorkerLogsAFailedSweepUnlessCanceled(t *testing.T) {
 	var logs bytes.Buffer
 	worker := NewDeletionWorker(st, nil, DeletionWorkerOptions{Logger: log.New(&logs, "", 0)})
 	worker.sweepFormUploadsIfDue(ctx)
-	if !strings.Contains(logs.String(), "sweep form uploads") {
+	if !strings.Contains(logs.String(), "sweep form uploads") || !strings.Contains(logs.String(), "expire form media") {
 		t.Fatalf("failed sweep log = %q", logs.String())
 	}
 
@@ -390,5 +392,94 @@ func TestDeletionWorkerLogsAFailedSweepUnlessCanceled(t *testing.T) {
 	worker.sweepFormUploadsIfDue(canceled)
 	if logs.Len() != 0 {
 		t.Fatalf("canceled sweep logged %q", logs.String())
+	}
+}
+
+func TestNewDeletionWorkerFormMediaOptions(t *testing.T) {
+	t.Parallel()
+	defaults := NewDeletionWorker(nil, nil, DeletionWorkerOptions{})
+	if defaults.formMediaMaxAge != 30*24*time.Hour || defaults.formMediaBatch != 100 {
+		t.Fatalf("default form media = after %v, batch %d", defaults.formMediaMaxAge, defaults.formMediaBatch)
+	}
+	configured := NewDeletionWorker(nil, nil, DeletionWorkerOptions{FormMediaMaxAge: time.Hour, FormMediaBatch: 3})
+	if configured.formMediaMaxAge != time.Hour || configured.formMediaBatch != 3 {
+		t.Fatalf("configured form media = after %v, batch %d", configured.formMediaMaxAge, configured.formMediaBatch)
+	}
+}
+
+// closedFormWithFile makes a form that was cancelled the given time ago and
+// carries one file, and returns the file's storage object id.
+func (e *deletionWorkerTestEnv) closedFormWithFile(t *testing.T, key string, age time.Duration) uuid.UUID {
+	t.Helper()
+	object, err := e.store.CreateFormUpload(e.ctx, store.CreateFormUploadParams{Object: store.CreateStorageObjectParams{
+		ID: uuid.New(), ProjectID: e.projectID, Backend: "local", Bucket: "local", ObjectKey: key,
+		Filename: "form.png", ContentType: "image/png", ByteSize: 1,
+		SHA256: strings.Repeat("a", 64), CreatedByID: e.userID,
+	}})
+	if err != nil {
+		t.Fatalf("CreateFormUpload: %v", err)
+	}
+	form, err := e.store.CreateForm(e.ctx, store.CreateFormParams{
+		ProjectID: e.projectID, Title: "Closed", AssigneeID: e.userID, CreatedByID: e.userID,
+		Definition:              model.FormDefinition{Sections: []model.FormSection{{Questions: []model.FormQuestion{{ID: "q", Type: model.FormQuestionText, Label: "Q"}}}}},
+		AttachmentObjectNumbers: []int{object.Number},
+	})
+	if err != nil {
+		t.Fatalf("CreateForm: %v", err)
+	}
+	if _, err := e.store.CancelForm(e.ctx, form.ID); err != nil {
+		t.Fatalf("CancelForm: %v", err)
+	}
+	if _, err := e.pool.Exec(e.ctx, `UPDATE forms SET cancelled_at = now() - $2::interval WHERE id = $1`, form.ID, age.String()); err != nil {
+		t.Fatalf("age the form: %v", err)
+	}
+	return object.ID
+}
+
+func TestDeletionWorkerExpiresFormMediaInBatchesThenDeletesTheBytes(t *testing.T) {
+	t.Parallel()
+	env := newDeletionWorkerTestEnv(t)
+	for i := 0; i < 3; i++ {
+		env.closedFormWithFile(t, fmt.Sprintf("form/old-%d", i), 31*24*time.Hour)
+	}
+	env.closedFormWithFile(t, "form/recent", 29*24*time.Hour)
+	var mu sync.Mutex
+	deleted := map[string]bool{}
+	service := newDeletionWorkerService(t, &deletionWorkerBackend{delete: func(_ context.Context, key string) error {
+		mu.Lock()
+		defer mu.Unlock()
+		deleted[key] = true
+		return nil
+	}})
+	worker := NewDeletionWorker(env.store, service, DeletionWorkerOptions{BatchSize: 10, FormMediaBatch: 2})
+
+	// Two batches: a full one of two forms, then the one that is left.
+	done, err := worker.ExpireFormMedia(env.ctx)
+	if err != nil || done != (store.FormMediaExpiry{Forms: 3, Files: 3}) {
+		t.Fatalf("ExpireFormMedia = %+v, %v, want 3 forms and 3 files", done, err)
+	}
+	result, err := worker.RunOnce(env.ctx)
+	if err != nil || result != (DeletionRunResult{Claimed: 3, Deleted: 3}) {
+		t.Fatalf("RunOnce = %+v, %v", result, err)
+	}
+	if len(deleted) != 3 || deleted["form/recent"] {
+		t.Fatalf("backend deletes = %v, want the three old files only", deleted)
+	}
+	// A run with nothing due handles nothing.
+	if again, err := worker.ExpireFormMedia(env.ctx); err != nil || again != (store.FormMediaExpiry{}) {
+		t.Fatalf("second ExpireFormMedia = %+v, %v", again, err)
+	}
+}
+
+func TestDeletionWorkerRunExpiresFormMediaWithTheHourlyPass(t *testing.T) {
+	t.Parallel()
+	env := newDeletionWorkerTestEnv(t)
+	env.closedFormWithFile(t, "form/old", 31*24*time.Hour)
+	worker := NewDeletionWorker(env.store, newDeletionWorkerService(t, &deletionWorkerBackend{}), DeletionWorkerOptions{})
+
+	worker.sweepFormUploadsIfDue(env.ctx)
+	var removed int
+	if err := env.pool.QueryRow(env.ctx, `SELECT count(*) FROM forms WHERE media_removed_at IS NOT NULL`).Scan(&removed); err != nil || removed != 1 {
+		t.Fatalf("forms marked by the hourly pass = %d, %v, want 1", removed, err)
 	}
 }

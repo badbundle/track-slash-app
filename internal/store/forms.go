@@ -86,7 +86,7 @@ const formSelect = `
 	SELECT f.id, f.project_id, p.key, owner.username, f.number, i.id, i.number,
 	       f.title, f.description, f.definition, f.answers, f.comment, f.status,
 	       f.assignee_id, f.created_by_id, f.origin_label, f.origin_url,
-	       f.submitted_via, f.submitted_at, f.acknowledged_at, f.cancelled_at,
+	       f.submitted_via, f.submitted_at, f.acknowledged_at, f.cancelled_at, f.media_removed_at,
 	       f.created_at, f.updated_at
 	FROM forms f
 	JOIN projects p ON p.id = f.project_id AND p.deleted_at IS NULL
@@ -113,7 +113,7 @@ func scanForm(row formScanner) (model.Form, error) {
 		&out.ID, &out.ProjectID, &out.ProjectKey, &out.OwnerUsername, &out.Number, &issueID, &issueNumber,
 		&out.Title, &out.Description, &definition, &answers, &out.Comment, &out.Status,
 		&out.AssigneeID, &out.CreatedByID, &out.OriginLabel, &out.OriginURL,
-		&via, &out.SubmittedAt, &out.AcknowledgedAt, &out.CancelledAt,
+		&via, &out.SubmittedAt, &out.AcknowledgedAt, &out.CancelledAt, &out.MediaRemovedAt,
 		&out.CreatedAt, &out.UpdatedAt,
 	); err != nil {
 		return model.Form{}, err

@@ -141,7 +141,9 @@ A form upload that declares no type, or `application/octet-stream` (what `curl -
 
 On the form page (a member's view) a question's `media` sits between its help and its inputs, an option's `media` inside its card, `object-N` in Markdown (description, section description, help) resolves against the form's files, and files nothing places are listed under the description.
 
-A form response lists its files in `attachments`: `object`, `filename`, `content_type`, `byte_size`, `kind` (`image`, `audio`, `video` or `file`) and `url`, the content route above, absolute when the public origin is set. A list of forms carries none.
+A form's files are kept for 30 days after it is picked up (`acknowledged`) or cancelled, and then deleted. `ExpireFormMedia` does it, from the deletion worker's hourly pass. In one transaction per run it soft-deletes the form's storage objects, deletes its `form_attachments` rows and sets `forms.media_removed_at`. It leaves `updated_at` alone, because the Inbox orders finished forms by it. A form that is open or submitted keeps its files however old it is, and a form that never had files is never marked. After removal `attachments` is empty, `media_removed_at` says when, and the content routes answer 404. The page shows "This form's media was removed on <date>." under the description, no Files card and no thumbnails. A closed form shows its answers and not its question cards, so no question is left with a gap. `object-N` in Markdown stays plain text, because nothing resolves it.
+
+A form response lists its files in `attachments`: `object`, `filename`, `content_type`, `byte_size`, `kind` (`image`, `audio`, `video` or `file`) and `url`, the content route above, absolute when the public origin is set. A list of forms carries none. Every form response and list row also carries `media_removed_at`, which is null until the files are removed.
 
 Limits are settings in `server.Options.FormMedia`: the largest file (25 MiB, and never more than the storage limit), how long an upload URL works (30 minutes), and how many files it takes (20).
 
