@@ -3,3 +3,8 @@
 tmp/
 data/storage/
 node_modules/
+
+# iOS app
+ios/**/.build/
+ios/**/.swiftpm/
+ios/**/xcuserdata/

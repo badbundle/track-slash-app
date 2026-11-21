@@ -1,0 +1,43 @@
+name: Trackslash
+options:
+  bundleIdPrefix: com.badbundle
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    DEVELOPMENT_TEAM: PQ7Z28BJ65
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  TrackslashKit:
+    path: TrackslashKit
+targets:
+  Trackslash:
+    type: application
+    platform: iOS
+    sources: [Trackslash]
+    dependencies:
+      - package: TrackslashKit
+    info:
+      path: Trackslash/Info.plist
+      properties:
+        CFBundleDisplayName: Trackslash
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        # Lets a build talk to a dev server on this Mac or the local network over http.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.badbundle.trackslash
+        CODE_SIGN_ENTITLEMENTS: Trackslash/Trackslash.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"

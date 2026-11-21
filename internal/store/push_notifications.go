@@ -54,9 +54,12 @@ type PushNotificationDelivery struct {
 	ProjectID      uuid.UUID
 	// IssueID is zero for a form's delivery, and FormID is nil for an
 	// issue's: a delivery is about one or the other.
-	IssueID      uuid.UUID
-	FormID       *uuid.UUID
-	Category     PushNotificationCategory
+	IssueID  uuid.UUID
+	FormID   *uuid.UUID
+	Category PushNotificationCategory
+	// Kind is "web" for a browser, whose Endpoint is a push service URL, or
+	// "apns" for an iOS device, whose Endpoint is its APNs token.
+	Kind         string
 	Endpoint     string
 	P256DH       string
 	AuthSecret   string
@@ -164,6 +167,67 @@ func (s *Store) UpsertPushSubscription(ctx context.Context, p UpsertPushSubscrip
 		_, err = tx.Exec(ctx, `
 			UPDATE push_notification_deliveries
 			SET suppressed_at = now(), locked_at = NULL, last_error = 'browser subscription replaced'
+			WHERE subscription_id = $1
+			  AND delivered_at IS NULL AND suppressed_at IS NULL AND failed_at IS NULL
+		`, out.ID)
+		return err
+	})
+	if err != nil {
+		return model.PushSubscription{}, err
+	}
+	return out, nil
+}
+
+var apnsTokenPattern = regexp.MustCompile(`^[0-9a-fA-F]{32,200}$`)
+
+// UpsertAPNsDevice registers an iOS device's APNs token for a user. A token
+// moves to whoever registered it last, as a browser endpoint does, so a phone
+// that signs in as someone else stops receiving the first person's pushes.
+func (s *Store) UpsertAPNsDevice(ctx context.Context, userID uuid.UUID, token, deviceName string) (model.PushSubscription, error) {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if !apnsTokenPattern.MatchString(token) {
+		return model.PushSubscription{}, fmt.Errorf("invalid APNs device token: %w", ErrConflict)
+	}
+	deviceName = strings.TrimSpace(deviceName)
+	if utf8.RuneCountInString(deviceName) > 500 {
+		return model.PushSubscription{}, fmt.Errorf("device name is too long: %w", ErrConflict)
+	}
+	var out model.PushSubscription
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var lastSuccessAt, disabledAt sql.NullTime
+		err := tx.QueryRow(ctx, `
+			INSERT INTO push_subscriptions (user_id, kind, endpoint, p256dh, auth_secret, user_agent)
+			SELECT id, 'apns', $2, '', '', $3
+			FROM users
+			WHERE id = $1 AND deleted_at IS NULL
+			ON CONFLICT (endpoint) DO UPDATE
+			SET user_id = EXCLUDED.user_id,
+			    user_agent = EXCLUDED.user_agent,
+			    failure_count = 0,
+			    disabled_at = NULL,
+			    updated_at = now()
+			RETURNING id, user_id, endpoint, user_agent, failure_count,
+			          last_success_at, disabled_at, created_at, updated_at
+		`, userID, token, deviceName).Scan(
+			&out.ID, &out.UserID, &out.Endpoint, &out.UserAgent,
+			&out.FailureCount, &lastSuccessAt, &disabledAt, &out.CreatedAt, &out.UpdatedAt,
+		)
+		if err != nil {
+			if isNoRows(err) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if lastSuccessAt.Valid {
+			out.LastSuccessAt = &lastSuccessAt.Time
+		}
+		if disabledAt.Valid {
+			out.DisabledAt = &disabledAt.Time
+		}
+		// Pending pushes were queued for the previous owner of this token.
+		_, err = tx.Exec(ctx, `
+			UPDATE push_notification_deliveries
+			SET suppressed_at = now(), locked_at = NULL, last_error = 'device registration replaced'
 			WHERE subscription_id = $1
 			  AND delivered_at IS NULL AND suppressed_at IS NULL AND failed_at IS NULL
 		`, out.ID)
@@ -746,7 +810,7 @@ func (s *Store) ClaimPushNotificationDeliveries(ctx context.Context, limit int, 
 		FROM candidates c, push_subscriptions s
 		WHERE d.id = c.id AND s.id = d.subscription_id
 		RETURNING d.id, d.changelog_id, d.subscription_id, d.user_id, d.project_id, d.issue_id, d.form_id,
-		          d.category, s.endpoint, s.p256dh, s.auth_secret, d.attempt_count
+		          d.category, s.kind, s.endpoint, s.p256dh, s.auth_secret, d.attempt_count
 	`, limit, leaseTimeout.Seconds())
 	if err != nil {
 		return nil, err
@@ -758,7 +822,7 @@ func (s *Store) ClaimPushNotificationDeliveries(ctx context.Context, limit int, 
 		var issueID, formID uuid.NullUUID
 		if err := rows.Scan(
 			&delivery.ID, &delivery.ChangelogID, &delivery.SubscriptionID, &delivery.UserID,
-			&delivery.ProjectID, &issueID, &formID, &delivery.Category, &delivery.Endpoint,
+			&delivery.ProjectID, &issueID, &formID, &delivery.Category, &delivery.Kind, &delivery.Endpoint,
 			&delivery.P256DH, &delivery.AuthSecret, &delivery.AttemptCount,
 		); err != nil {
 			return nil, err
