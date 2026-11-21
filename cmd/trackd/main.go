@@ -106,17 +106,26 @@ func main() {
 	}
 	deletionWorker := objectstorage.NewDeletionWorker(st, storageSvc, objectstorage.DeletionWorkerOptions{})
 	go deletionWorker.Run(ctx)
-	if cfg.WebPush.Enabled {
-		pushSender, err := notifications.NewWebPushSender(
-			cfg.WebPush.PublicKey,
-			cfg.WebPush.PrivateKey,
-			cfg.WebPush.Subscriber,
-			nil,
-		)
-		if err != nil {
-			log.Fatalf("web push: %v", err)
+	if cfg.WebPush.Enabled || cfg.APNs.Enabled {
+		var routing notifications.RoutingSender
+		if cfg.WebPush.Enabled {
+			routing.Web, err = notifications.NewWebPushSender(
+				cfg.WebPush.PublicKey,
+				cfg.WebPush.PrivateKey,
+				cfg.WebPush.Subscriber,
+				nil,
+			)
+			if err != nil {
+				log.Fatalf("web push: %v", err)
+			}
 		}
-		pushWorker := notifications.NewWorker(st, pushSender, notifications.WorkerOptions{})
+		if cfg.APNs.Enabled {
+			routing.APNs, err = notifications.NewAPNsSender(cfg.APNs.Key, cfg.APNs.KeyID, cfg.APNs.TeamID, cfg.APNs.Topic, cfg.APNs.Sandbox, nil)
+			if err != nil {
+				log.Fatalf("apns: %v", err)
+			}
+		}
+		pushWorker := notifications.NewWorker(st, routing, notifications.WorkerOptions{})
 		go pushWorker.Run(ctx)
 	}
 	var githubService *githubintegration.Service
@@ -139,6 +148,7 @@ func main() {
 		DevReload:            cfg.DevReload,
 		ObjectStorage:        storageSvc,
 		WebPushPublicKey:     cfg.WebPush.PublicKey,
+		APNsEnabled:          cfg.APNs.Enabled,
 		GitHubIntegration:    githubService,
 	})
 

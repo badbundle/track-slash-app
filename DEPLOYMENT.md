@@ -114,6 +114,20 @@ TRACK_SLASH_VAPID_SUBSCRIBER=mailto:ops@example.com
 
 `TRACK_SLASH_VAPID_SUBSCRIBER` must be a `mailto:` or `https:` operator contact URI. The public key is sent to browsers; the private key must not be exposed. The migration job still needs only `DATABASE_URL`.
 
+### iOS app push
+
+The iOS app ([`ios/`](./ios)) gets form and mention notifications through Apple's push service. It is optional: without these variables `PUT /api/v1/me/devices` answers 503 and the app simply gets no pushes. Create an APNs auth key (Certificates, Identifiers & Profiles, Keys) with the Apple Push Notifications service enabled, then set all of these together:
+
+```env
+TRACK_SLASH_APNS_KEY_FILE=/run/secrets/apns.p8   # or TRACK_SLASH_APNS_KEY=<PEM text>
+TRACK_SLASH_APNS_KEY_ID=<10-character key ID>
+TRACK_SLASH_APNS_TEAM_ID=<10-character team ID>
+TRACK_SLASH_APNS_TOPIC=com.badbundle.trackslash
+TRACK_SLASH_APNS_SANDBOX=false
+```
+
+Apple keeps development and production apart: a build installed from Xcode registers a sandbox token that only `TRACK_SLASH_APNS_SANDBOX=true` can reach, and TestFlight and App Store builds register production tokens. One server serves one of the two at a time. The key is a secret: never commit it.
+
 The frontend process runs the push outbox worker in the same Go binary. It claims jobs from Postgres, re-checks current issue access immediately before delivery, retries transient provider/network failures, and records terminal failures. Push provider endpoints require outbound HTTPS. Browser permission is requested only when a signed-in user selects **Enable on this browser** on the Notifications account page, and production browser Push APIs require a secure HTTPS origin.
 
 ### GitHub repository links

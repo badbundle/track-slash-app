@@ -58,6 +58,7 @@ type Server struct {
 	formMedia            FormMediaOptions
 	previewTermsRequired bool
 	webPushPublicKey     string
+	apnsEnabled          bool
 	githubIntegration    *githubintegration.Service
 }
 
@@ -82,6 +83,7 @@ type Options struct {
 	DevReload            bool
 	ObjectStorage        *objectstorage.Service
 	WebPushPublicKey     string
+	APNsEnabled          bool
 	GitHubIntegration    *githubintegration.Service
 }
 
@@ -155,6 +157,7 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 		formMedia:            opts.FormMedia.withDefaults(),
 		previewTermsRequired: opts.PreviewTermsRequired,
 		webPushPublicKey:     opts.WebPushPublicKey,
+		apnsEnabled:          opts.APNsEnabled,
 		githubIntegration:    opts.GitHubIntegration,
 	}
 }
@@ -249,6 +252,8 @@ func (s *Server) Router() http.Handler {
 			r.Post("/me/passkeys/options", firstPartyOnly(s.createMyPasskeyOptions))
 			r.Post("/me/passkeys", firstPartyOnly(s.createMyPasskey))
 			r.Delete("/me/passkeys/{id}", firstPartyOnly(s.revokeMyPasskey))
+			r.Put("/me/devices", s.registerMyDevice)
+			r.Delete("/me/devices", s.unregisterMyDevice)
 			r.Get("/me/tokens", s.listMyTokens)
 			r.Post("/me/tokens", s.createMyToken)
 			r.Delete("/me/tokens/{id}", s.revokeMyToken)

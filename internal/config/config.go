@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"os"
@@ -29,6 +30,7 @@ type Config struct {
 	AutoMigrate          bool
 	Storage              StorageConfig
 	WebPush              WebPushConfig
+	APNs                 APNsConfig
 	GitHub               GitHubConfig
 }
 
@@ -51,6 +53,17 @@ type WebPushConfig struct {
 	PublicKey  string
 	PrivateKey string
 	Subscriber string
+}
+
+// APNsConfig is the iOS app's push channel. Key is the PEM text of the .p8
+// auth key from the Apple developer portal.
+type APNsConfig struct {
+	Enabled bool
+	Key     string
+	KeyID   string
+	TeamID  string
+	Topic   string
+	Sandbox bool
 }
 
 type GitHubConfig struct {
@@ -83,6 +96,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	apns, err := loadAPNsConfig()
+	if err != nil {
+		return Config{}, err
+	}
 	webPush, err := loadWebPushConfig()
 	if err != nil {
 		return Config{}, err
@@ -103,6 +120,7 @@ func Load() (Config, error) {
 		AutoMigrate:          autoMigrate,
 		Storage:              storage,
 		WebPush:              webPush,
+		APNs:                 apns,
 		GitHub:               github,
 	}
 	return cfg, nil
@@ -118,6 +136,31 @@ func loadGitHubConfig() (GitHubConfig, error) {
 		return GitHubConfig{}, errors.New("TRACK_SLASH_GITHUB_ENCRYPTION_KEY must be an unpadded URL-safe base64 encoding of exactly 32 bytes")
 	}
 	return GitHubConfig{Enabled: true, EncryptionKey: key}, nil
+}
+
+func loadAPNsConfig() (APNsConfig, error) {
+	key := strings.TrimSpace(os.Getenv("TRACK_SLASH_APNS_KEY"))
+	if path := strings.TrimSpace(os.Getenv("TRACK_SLASH_APNS_KEY_FILE")); path != "" && key == "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return APNsConfig{}, fmt.Errorf("TRACK_SLASH_APNS_KEY_FILE: %w", err)
+		}
+		key = strings.TrimSpace(string(raw))
+	}
+	keyID := strings.TrimSpace(os.Getenv("TRACK_SLASH_APNS_KEY_ID"))
+	teamID := strings.TrimSpace(os.Getenv("TRACK_SLASH_APNS_TEAM_ID"))
+	topic := strings.TrimSpace(os.Getenv("TRACK_SLASH_APNS_TOPIC"))
+	if key == "" && keyID == "" && teamID == "" && topic == "" {
+		return APNsConfig{}, nil
+	}
+	if key == "" || keyID == "" || teamID == "" || topic == "" {
+		return APNsConfig{}, errors.New("TRACK_SLASH_APNS_KEY (or _KEY_FILE), TRACK_SLASH_APNS_KEY_ID, TRACK_SLASH_APNS_TEAM_ID and TRACK_SLASH_APNS_TOPIC must be set together")
+	}
+	sandbox, err := envBoolOr("TRACK_SLASH_APNS_SANDBOX", false)
+	if err != nil {
+		return APNsConfig{}, err
+	}
+	return APNsConfig{Enabled: true, Key: key, KeyID: keyID, TeamID: teamID, Topic: topic, Sandbox: sandbox}, nil
 }
 
 func loadWebPushConfig() (WebPushConfig, error) {
