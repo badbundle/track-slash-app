@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 )
@@ -28,6 +29,20 @@ func (s *Server) uiPasskeyEndpoints(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	fmt.Fprintf(w, "{\n  \"enroll\": %q,\n  \"manage\": %q\n}\n",
 		origin+uiCredentialSettingsPath, origin+uiCredentialSettingsPath)
+}
+
+// uiAppleAppSiteAssociation tells iOS which apps may sign in with this site's
+// passkeys. Apple's CDN fetches it when the app is installed, so it must answer
+// 200 with JSON and no redirect. A site with no apps configured has none.
+func (s *Server) uiAppleAppSiteAssociation(w http.ResponseWriter, r *http.Request) {
+	if len(s.appleAppIDs) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	body, _ := json.Marshal(map[string]any{"webcredentials": map[string]any{"apps": s.appleAppIDs}})
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(body)
 }
 
 // uiRobotsTxt replaces the boilerplate a CDN would otherwise inject with a

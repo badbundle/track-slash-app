@@ -149,6 +149,7 @@ func main() {
 		ObjectStorage:        storageSvc,
 		WebPushPublicKey:     cfg.WebPush.PublicKey,
 		APNsEnabled:          cfg.APNs.Enabled,
+		AppleAppIDs:          cfg.AppleAppIDs,
 		GitHubIntegration:    githubService,
 	})
 

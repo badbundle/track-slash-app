@@ -83,6 +83,26 @@ func TestPasskeyEndpointsUseTheConfiguredOrigin(t *testing.T) {
 	}
 }
 
+func TestAppleAppSiteAssociation(t *testing.T) {
+	t.Parallel()
+	get := func(srv *Server) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		srv.Router().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/apple-app-site-association", nil))
+		return rec
+	}
+	if rec := get(New(nil, nil, nil)); rec.Code != http.StatusNotFound {
+		t.Fatalf("unconfigured status = %d, want 404", rec.Code)
+	}
+	rec := get(NewWithOptions(nil, nil, Options{AppleAppIDs: []string{"PQ7Z28BJ65.com.badbundle.trackslash"}}))
+	if rec.Code != http.StatusOK || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("status = %d, Content-Type = %q", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	const want = `{"webcredentials":{"apps":["PQ7Z28BJ65.com.badbundle.trackslash"]}}`
+	if rec.Body.String() != want {
+		t.Fatalf("body = %s, want %s", rec.Body.String(), want)
+	}
+}
+
 func TestRobotsTxtIsServedByTheApp(t *testing.T) {
 	t.Parallel()
 	router := New(nil, nil, nil).Router()

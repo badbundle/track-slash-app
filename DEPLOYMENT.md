@@ -128,6 +128,14 @@ TRACK_SLASH_APNS_SANDBOX=false
 
 Apple keeps development and production apart: a build installed from Xcode registers a sandbox token that only `TRACK_SLASH_APNS_SANDBOX=true` can reach, and TestFlight and App Store builds register production tokens. One server serves one of the two at a time. The key is a secret: never commit it.
 
+For the app to sign in with the site's passkeys, the site must name it in `/.well-known/apple-app-site-association`. Set the app IDs, as `TEAMID.bundle-id` separated by commas:
+
+```env
+TRACK_SLASH_APPLE_APP_IDS=PQ7Z28BJ65.com.badbundle.trackslash
+```
+
+Without it the file answers 404 and the app can only sign in with a password. The file must be reachable at the site's own origin with no redirect, since Apple's CDN fetches it.
+
 The frontend process runs the push outbox worker in the same Go binary. It claims jobs from Postgres, re-checks current issue access immediately before delivery, retries transient provider/network failures, and records terminal failures. Push provider endpoints require outbound HTTPS. Browser permission is requested only when a signed-in user selects **Enable on this browser** on the Notifications account page, and production browser Push APIs require a secure HTTPS origin.
 
 ### GitHub repository links

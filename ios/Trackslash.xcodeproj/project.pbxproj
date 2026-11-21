@@ -13,6 +13,7 @@
 		4AD821A78AE3599E018B793B /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A32E813E6E851A416ADE811 /* LoginView.swift */; };
 		8C92151E878B0E847179BD94 /* InboxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C888E94E1A79A19EEAF429F /* InboxView.swift */; };
 		BA3323B126110511306EB872 /* FormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94378D731CCC923708CAD730 /* FormView.swift */; };
+		C7FAB9A8E97B85AEA81668C4 /* PasskeyAuthorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B81E57648249AB10958CB25 /* PasskeyAuthorizer.swift */; };
 		D8A940D1D8FBF29F4796A23B /* TrackslashApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 68079FDF700ECAD60912D6A7 /* TrackslashApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -20,6 +21,7 @@
 		1A32E813E6E851A416ADE811 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 		4EB431ACF10ABADDF9BB17B8 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		68079FDF700ECAD60912D6A7 /* TrackslashApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackslashApp.swift; sourceTree = "<group>"; };
+		7B81E57648249AB10958CB25 /* PasskeyAuthorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyAuthorizer.swift; sourceTree = "<group>"; };
 		8E9B514C9F1E1DBDCB6A0106 /* TrackslashKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = TrackslashKit; path = TrackslashKit; sourceTree = SOURCE_ROOT; };
 		94378D731CCC923708CAD730 /* FormView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormView.swift; sourceTree = "<group>"; };
 		9C888E94E1A79A19EEAF429F /* InboxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InboxView.swift; sourceTree = "<group>"; };
@@ -58,6 +60,7 @@
 				A569210F28DF7863A596A963 /* Info.plist */,
 				4EB431ACF10ABADDF9BB17B8 /* Keychain.swift */,
 				1A32E813E6E851A416ADE811 /* LoginView.swift */,
+				7B81E57648249AB10958CB25 /* PasskeyAuthorizer.swift */,
 				F21F0A391A9FB675BCEDE86C /* Trackslash.entitlements */,
 				68079FDF700ECAD60912D6A7 /* TrackslashApp.swift */,
 			);
@@ -149,6 +152,7 @@
 				8C92151E878B0E847179BD94 /* InboxView.swift in Sources */,
 				4534DC05F9DA93C1F7AD28D0 /* Keychain.swift in Sources */,
 				4AD821A78AE3599E018B793B /* LoginView.swift in Sources */,
+				C7FAB9A8E97B85AEA81668C4 /* PasskeyAuthorizer.swift in Sources */,
 				D8A940D1D8FBF29F4796A23B /* TrackslashApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

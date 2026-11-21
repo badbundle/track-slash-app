@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Observation
 import SwiftUI
 import TrackslashKit
@@ -13,6 +14,9 @@ final class AppModel {
     var openForm: FormLocation?
 
     static let shared = AppModel()
+
+    /// Must match the webcredentials entries in Trackslash.entitlements.
+    private static let passkeyDomains: Set<String> = ["trackslash.com"]
 
     private static let serverKey = "server"
 
@@ -31,6 +35,28 @@ final class AppModel {
     func signIn(serverText: String, username: String, password: String) async throws {
         let url = try APIClient.normalizeServerURL(serverText)
         let token = try await APIClient.signIn(server: url, username: username, password: password)
+        await finishSignIn(server: url, token: token)
+    }
+
+    /// Signs in with any passkey the person has for the site. iOS only offers
+    /// passkeys for domains the app lists in its associated domains, so this
+    /// works for trackslash.com and not for other servers.
+    func signInWithPasskey(serverText: String) async throws {
+        let url = try APIClient.normalizeServerURL(serverText)
+        guard Self.passkeyDomains.contains(url.host() ?? "") else {
+            throw APIError.transport("Passkeys in the app work with trackslash.com only. Sign in with your password.")
+        }
+        let challenge = try await APIClient.passkeyChallenge(server: url)
+        do {
+            let assertion = try await PasskeyAuthorizer().assert(challenge)
+            let token = try await APIClient.finishPasskeySignIn(server: url, ceremonyID: challenge.ceremonyId, assertion: assertion)
+            await finishSignIn(server: url, token: token)
+        } catch let error as ASAuthorizationError where error.code == .canceled {
+            throw CancellationError()
+        }
+    }
+
+    private func finishSignIn(server url: URL, token: String) async {
         Keychain.write(token)
         UserDefaults.standard.set(url.absoluteString, forKey: Self.serverKey)
         self.server = url

@@ -17,7 +17,15 @@ struct LoginView: View {
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                 }
-                Section("Account") {
+                Section {
+                    Button(action: signInWithPasskey) {
+                        Label("Sign in with a passkey", systemImage: "person.badge.key")
+                    }
+                    .disabled(busy)
+                } footer: {
+                    Text("Uses the passkey you sign in to the website with. No username needed.")
+                }
+                Section("Or with a password") {
                     TextField("Username", text: $username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -30,14 +38,27 @@ struct LoginView: View {
                 }
                 Section {
                     Button(action: signIn) {
-                        if busy { ProgressView() } else { Text("Sign in") }
+                        if busy { ProgressView() } else { Text("Sign in with password") }
                     }
                     .disabled(busy || username.isEmpty || password.isEmpty)
-                } footer: {
-                    Text("Accounts that only use passkeys need a password set on the website first.")
                 }
             }
             .navigationTitle("Trackslash")
+        }
+    }
+
+    private func signInWithPasskey() {
+        busy = true
+        error = nil
+        Task {
+            defer { busy = false }
+            do {
+                try await model.signInWithPasskey(serverText: server)
+            } catch is CancellationError {
+                // The person closed the passkey sheet.
+            } catch {
+                self.error = error.localizedDescription
+            }
         }
     }
 
