@@ -59,6 +59,7 @@ type Server struct {
 	previewTermsRequired bool
 	webPushPublicKey     string
 	apnsEnabled          bool
+	appleAppIDs          []string
 	githubIntegration    *githubintegration.Service
 }
 
@@ -84,7 +85,10 @@ type Options struct {
 	ObjectStorage        *objectstorage.Service
 	WebPushPublicKey     string
 	APNsEnabled          bool
-	GitHubIntegration    *githubintegration.Service
+	// AppleAppIDs are the iOS apps, as TEAMID.bundle-id, that may use this
+	// site's passkeys. They are listed in apple-app-site-association.
+	AppleAppIDs       []string
+	GitHubIntegration *githubintegration.Service
 }
 
 type FormWaitOptions struct {
@@ -158,6 +162,7 @@ func NewWithOptions(s *store.Store, hub *realtime.Hub, opts Options) *Server {
 		previewTermsRequired: opts.PreviewTermsRequired,
 		webPushPublicKey:     opts.WebPushPublicKey,
 		apnsEnabled:          opts.APNsEnabled,
+		appleAppIDs:          opts.AppleAppIDs,
 		githubIntegration:    opts.GitHubIntegration,
 	}
 }

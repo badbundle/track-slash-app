@@ -20,6 +20,7 @@ func (s *Server) mountUIRoutes(r chi.Router) {
 	r.Get("/security.txt", s.uiSecurityTxt)
 	r.Get("/.well-known/change-password", s.uiChangePassword)
 	r.Get("/.well-known/passkey-endpoints", s.uiPasskeyEndpoints)
+	r.Get("/.well-known/apple-app-site-association", s.uiAppleAppSiteAssociation)
 	s.mountOAuthPublicRoutes(r)
 	r.Get("/robots.txt", s.uiRobotsTxt)
 	r.Get("/terms", s.uiTermsPage)

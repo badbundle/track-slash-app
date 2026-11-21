@@ -510,3 +510,61 @@ func TestLoadS3StorageValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadAppleAppIDs(t *testing.T) {
+	unsetenv(t, "TRACK_SLASH_APPLE_APP_IDS")
+	if got, err := loadAppleAppIDs(); err != nil || got != nil {
+		t.Fatalf("unset = %v, %v", got, err)
+	}
+	t.Setenv("TRACK_SLASH_APPLE_APP_IDS", " PQ7Z28BJ65.com.badbundle.trackslash , ,ABCDE12345.app ")
+	got, err := loadAppleAppIDs()
+	if err != nil || !reflect.DeepEqual(got, []string{"PQ7Z28BJ65.com.badbundle.trackslash", "ABCDE12345.app"}) {
+		t.Fatalf("configured = %v, %v", got, err)
+	}
+	for _, bad := range []string{"com.badbundle.trackslash", "pq7z28bj65.app", "PQ7Z28BJ65.", "PQ7Z28BJ65.a/b"} {
+		t.Setenv("TRACK_SLASH_APPLE_APP_IDS", bad)
+		if _, err := loadAppleAppIDs(); err == nil {
+			t.Fatalf("%q returned nil error", bad)
+		}
+	}
+}
+
+func TestLoadAPNsConfig(t *testing.T) {
+	for _, key := range []string{"TRACK_SLASH_APNS_KEY", "TRACK_SLASH_APNS_KEY_FILE", "TRACK_SLASH_APNS_KEY_ID", "TRACK_SLASH_APNS_TEAM_ID", "TRACK_SLASH_APNS_TOPIC", "TRACK_SLASH_APNS_SANDBOX"} {
+		unsetenv(t, key)
+	}
+	if got, err := loadAPNsConfig(); err != nil || got.Enabled {
+		t.Fatalf("unset = %+v, %v", got, err)
+	}
+	t.Setenv("TRACK_SLASH_APNS_KEY_ID", "KEY1")
+	if _, err := loadAPNsConfig(); err == nil {
+		t.Fatal("partial config returned nil error")
+	}
+	path := t.TempDir() + "/key.p8"
+	if err := os.WriteFile(path, []byte("  PEM TEXT \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TRACK_SLASH_APNS_KEY_FILE", path)
+	t.Setenv("TRACK_SLASH_APNS_TEAM_ID", "TEAM1")
+	t.Setenv("TRACK_SLASH_APNS_TOPIC", "com.badbundle.trackslash")
+	got, err := loadAPNsConfig()
+	if err != nil || !got.Enabled || got.Key != "PEM TEXT" || got.Sandbox {
+		t.Fatalf("from file = %+v, %v", got, err)
+	}
+	// An inline key wins over the file.
+	t.Setenv("TRACK_SLASH_APNS_KEY", "INLINE")
+	t.Setenv("TRACK_SLASH_APNS_SANDBOX", "true")
+	if got, err := loadAPNsConfig(); err != nil || got.Key != "INLINE" || !got.Sandbox {
+		t.Fatalf("inline = %+v, %v", got, err)
+	}
+	t.Setenv("TRACK_SLASH_APNS_SANDBOX", "maybe")
+	if _, err := loadAPNsConfig(); err == nil {
+		t.Fatal("bad sandbox returned nil error")
+	}
+	unsetenv(t, "TRACK_SLASH_APNS_KEY")
+	t.Setenv("TRACK_SLASH_APNS_SANDBOX", "false")
+	t.Setenv("TRACK_SLASH_APNS_KEY_FILE", path+".missing")
+	if _, err := loadAPNsConfig(); err == nil {
+		t.Fatal("missing key file returned nil error")
+	}
+}

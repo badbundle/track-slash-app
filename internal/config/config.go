@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ type Config struct {
 	Storage              StorageConfig
 	WebPush              WebPushConfig
 	APNs                 APNsConfig
+	AppleAppIDs          []string
 	GitHub               GitHubConfig
 }
 
@@ -96,6 +98,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	appleAppIDs, err := loadAppleAppIDs()
+	if err != nil {
+		return Config{}, err
+	}
 	apns, err := loadAPNsConfig()
 	if err != nil {
 		return Config{}, err
@@ -121,6 +127,7 @@ func Load() (Config, error) {
 		Storage:              storage,
 		WebPush:              webPush,
 		APNs:                 apns,
+		AppleAppIDs:          appleAppIDs,
 		GitHub:               github,
 	}
 	return cfg, nil
@@ -136,6 +143,25 @@ func loadGitHubConfig() (GitHubConfig, error) {
 		return GitHubConfig{}, errors.New("TRACK_SLASH_GITHUB_ENCRYPTION_KEY must be an unpadded URL-safe base64 encoding of exactly 32 bytes")
 	}
 	return GitHubConfig{Enabled: true, EncryptionKey: key}, nil
+}
+
+var appleAppIDPattern = regexp.MustCompile(`^[A-Z0-9]{10}\.[A-Za-z0-9][A-Za-z0-9.-]*$`)
+
+// loadAppleAppIDs reads TRACK_SLASH_APPLE_APP_IDS: the iOS apps, as
+// TEAMID.bundle-id separated by commas, that may use this site's passkeys.
+func loadAppleAppIDs() ([]string, error) {
+	var ids []string
+	for _, id := range strings.Split(os.Getenv("TRACK_SLASH_APPLE_APP_IDS"), ",") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if !appleAppIDPattern.MatchString(id) {
+			return nil, fmt.Errorf("TRACK_SLASH_APPLE_APP_IDS: %q must be TEAMID.bundle-id", id)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func loadAPNsConfig() (APNsConfig, error) {
